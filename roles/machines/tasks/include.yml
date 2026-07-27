@@ -1,0 +1,51 @@
+---
+- name: Ensure flyio machines are managed
+  tags:
+    - machines
+  linuxhq.flyio.machines:
+    api_token: "{{ machines_api_token }}"
+    app_name: "{{ machines_app_name }}"
+    auto_destroy: "{{ _machine.auto_destroy | d(omit) }}"
+    env: "{{ _machine.env | d(omit) }}"
+    guest: "{{ _machine.guest | d(omit) }}"
+    id: "{{ _machine.id | d(omit) }}"
+    image: "{{ _machine.image | d(omit) }}"
+    mounts: "{{ _machine.mounts | d(omit) }}"
+    name: "{{ _machine.name | d(omit) }}"
+    region: "{{ _machine.region | d(omit) }}"
+    services: "{{ _machine.services | d(omit) }}"
+    state: "{{ _machine.state | d('present') }}"
+    wait: "{{ _machine.wait | d(omit) }}"
+    wait_timeout: "{{ _machine.wait_timeout | d(omit) }}"
+  register: __machines_result
+  loop: "{{ __machines_list }}"
+  loop_control:
+    label: "{{ _machine.name | d(_machine.id | d(none)) }}"
+    loop_var: _machine
+  async: "{{ ansible_check_mode | ternary(0, machines_async) }}"
+  poll: "{{ machines_poll }}"
+  when:
+    - machines_api_token is not none
+    - machines_app_name is not none
+    - _machine.name is defined or _machine.id is defined
+  changed_when:
+    - ansible_check_mode | bool
+    - __machines_result.changed | bool
+
+- name: Ensure managed flyio machine jobs are complete
+  tags:
+    - machines
+  ansible.builtin.async_status:
+    jid: "{{ _jid.ansible_job_id }}"
+  register: __machines_status
+  loop: "{{ __machines_result.results }}"
+  loop_control:
+    label: "{{ _jid._machine.name | d(_jid._machine.id | d(none)) }}"
+    loop_var: _jid
+  when:
+    - _jid.ansible_job_id is defined
+  until:
+    - __machines_status.finished | bool
+  retries: "{{ machines_retries }}"
+  delay: "{{ machines_delay }}"
+...

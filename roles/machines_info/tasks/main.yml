@@ -1,0 +1,30 @@
+---
+- name: Ensure flyio machines information is gathered
+  tags:
+    - machines_info
+  linuxhq.flyio.machines_info:
+    api_token: "{{ machines_info_api_token }}"
+    app_name: "{{ machines_info_app_name }}"
+  register: __machines_info_query
+  when:
+    - machines_info_api_token is not none
+    - machines_info_app_name is not none
+
+- name: Ensure list of flyio machines information is generated
+  tags:
+    - machines_info
+  ansible.builtin.set_fact:
+    _machines_info_list:
+      "{{ __machines_info_query.machines |
+          d([]) }}"
+
+- name: Ensure dict of flyio machines information is generated
+  tags:
+    - machines_info
+  ansible.builtin.set_fact:
+    _machines_info_dict:
+      "{{ (dict(_machines_info_list |
+               json_query('[].name') |
+               zip(_machines_info_list))) |
+          d({}) }}"
+...

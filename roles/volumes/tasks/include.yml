@@ -1,0 +1,45 @@
+---
+- name: Ensure flyio volumes are managed
+  tags:
+    - volumes
+  linuxhq.flyio.volumes:
+    api_token: "{{ volumes_api_token }}"
+    app_name: "{{ volumes_app_name }}"
+    encrypted: "{{ _volume.encrypted | d(omit) }}"
+    id: "{{ _volume.id | d(omit) }}"
+    name: "{{ _volume.name | d(omit) }}"
+    region: "{{ _volume.region | d(omit) }}"
+    size_gb: "{{ _volume.size_gb | d(omit) }}"
+    state: "{{ _volume.state | d('present') }}"
+  register: __volumes_result
+  loop: "{{ __volumes_list }}"
+  loop_control:
+    label: "{{ _volume.name | d(_volume.id | d(none)) }}"
+    loop_var: _volume
+  async: "{{ ansible_check_mode | ternary(0, volumes_async) }}"
+  poll: "{{ volumes_poll }}"
+  when:
+    - volumes_api_token is not none
+    - volumes_app_name is not none
+    - _volume.name is defined or _volume.id is defined
+  changed_when:
+    - ansible_check_mode | bool
+    - __volumes_result.changed | bool
+
+- name: Ensure managed flyio volume jobs are complete
+  tags:
+    - volumes
+  ansible.builtin.async_status:
+    jid: "{{ _jid.ansible_job_id }}"
+  register: __volumes_status
+  loop: "{{ __volumes_result.results }}"
+  loop_control:
+    label: "{{ _jid._volume.name | d(_jid._volume.id | d(none)) }}"
+    loop_var: _jid
+  when:
+    - _jid.ansible_job_id is defined
+  until:
+    - __volumes_status.finished | bool
+  retries: "{{ volumes_retries }}"
+  delay: "{{ volumes_delay }}"
+...

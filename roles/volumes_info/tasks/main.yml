@@ -1,0 +1,30 @@
+---
+- name: Ensure flyio volumes information is gathered
+  tags:
+    - volumes_info
+  linuxhq.flyio.volumes_info:
+    api_token: "{{ volumes_info_api_token }}"
+    app_name: "{{ volumes_info_app_name }}"
+  register: __volumes_info_query
+  when:
+    - volumes_info_api_token is not none
+    - volumes_info_app_name is not none
+
+- name: Ensure list of flyio volumes information is generated
+  tags:
+    - volumes_info
+  ansible.builtin.set_fact:
+    _volumes_info_list:
+      "{{ __volumes_info_query.volumes |
+          d([]) }}"
+
+- name: Ensure dict of flyio volumes information is generated
+  tags:
+    - volumes_info
+  ansible.builtin.set_fact:
+    _volumes_info_dict:
+      "{{ (dict(_volumes_info_list |
+               json_query('[].name') |
+               zip(_volumes_info_list))) |
+          d({}) }}"
+...

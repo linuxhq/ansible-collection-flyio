@@ -1,0 +1,41 @@
+---
+- name: Ensure flyio apps are managed
+  tags:
+    - apps
+  linuxhq.flyio.apps:
+    api_token: "{{ apps_api_token }}"
+    name: "{{ _app.name }}"
+    network: "{{ _app.network | d(omit) }}"
+    org_slug: "{{ _app.org_slug | d(omit) }}"
+    state: "{{ _app.state | d('present') }}"
+  register: __apps_result
+  loop: "{{ __apps_list }}"
+  loop_control:
+    label: "{{ _app.name | d(none) }}"
+    loop_var: _app
+  async: "{{ ansible_check_mode | ternary(0, apps_async) }}"
+  poll: "{{ apps_poll }}"
+  when:
+    - apps_api_token is not none
+    - _app.name is defined
+  changed_when:
+    - ansible_check_mode | bool
+    - __apps_result.changed | bool
+
+- name: Ensure managed flyio app jobs are complete
+  tags:
+    - apps
+  ansible.builtin.async_status:
+    jid: "{{ _jid.ansible_job_id }}"
+  register: __apps_status
+  loop: "{{ __apps_result.results }}"
+  loop_control:
+    label: "{{ _jid._app.name | d(none) }}"
+    loop_var: _jid
+  when:
+    - _jid.ansible_job_id is defined
+  until:
+    - __apps_status.finished | bool
+  retries: "{{ apps_retries }}"
+  delay: "{{ apps_delay }}"
+...

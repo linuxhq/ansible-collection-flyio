@@ -1,0 +1,30 @@
+---
+- name: Ensure flyio ip addresses information is gathered
+  tags:
+    - ip_addresses_info
+  linuxhq.flyio.ip_addresses_info:
+    api_token: "{{ ip_addresses_info_api_token }}"
+    app_name: "{{ ip_addresses_info_app_name }}"
+  register: __ip_addresses_info_query
+  when:
+    - ip_addresses_info_api_token is not none
+    - ip_addresses_info_app_name is not none
+
+- name: Ensure list of flyio ip addresses information is generated
+  tags:
+    - ip_addresses_info
+  ansible.builtin.set_fact:
+    _ip_addresses_info_list:
+      "{{ __ip_addresses_info_query.ip_addresses |
+          d([]) }}"
+
+- name: Ensure dict of flyio ip addresses information is generated
+  tags:
+    - ip_addresses_info
+  ansible.builtin.set_fact:
+    _ip_addresses_info_dict:
+      "{{ (dict(_ip_addresses_info_list |
+               json_query('[].address') |
+               zip(_ip_addresses_info_list))) |
+          d({}) }}"
+...

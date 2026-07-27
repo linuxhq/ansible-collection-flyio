@@ -1,0 +1,30 @@
+---
+- name: Ensure flyio apps information is gathered
+  tags:
+    - apps_info
+  linuxhq.flyio.apps_info:
+    api_token: "{{ apps_info_api_token }}"
+    org_slug: "{{ apps_info_org_slug }}"
+  register: __apps_info_query
+  when:
+    - apps_info_api_token is not none
+    - apps_info_org_slug is not none
+
+- name: Ensure list of flyio apps information is generated
+  tags:
+    - apps_info
+  ansible.builtin.set_fact:
+    _apps_info_list:
+      "{{ __apps_info_query.apps |
+          d([]) }}"
+
+- name: Ensure dict of flyio apps information is generated
+  tags:
+    - apps_info
+  ansible.builtin.set_fact:
+    _apps_info_dict:
+      "{{ (dict(_apps_info_list |
+               json_query('[].name') |
+               zip(_apps_info_list))) |
+          d({}) }}"
+...

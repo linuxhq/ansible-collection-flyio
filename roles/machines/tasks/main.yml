@@ -1,0 +1,16 @@
+---
+- name: Ensure flyio machines are batched
+  tags:
+    - machines
+  ansible.builtin.include_tasks:
+    apply:
+      tags:
+        - machines
+    file: include.yml
+  loop:
+    "{{ machines_list |
+        batch(machines_batch) }}"
+  loop_control:
+    label: "{{ __machines_list | length }}"
+    loop_var: __machines_list
+...

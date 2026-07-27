@@ -1,0 +1,16 @@
+---
+- name: Ensure flyio ip addresses are batched
+  tags:
+    - ip_addresses
+  ansible.builtin.include_tasks:
+    apply:
+      tags:
+        - ip_addresses
+    file: include.yml
+  loop:
+    "{{ ip_addresses_list |
+        batch(ip_addresses_batch) }}"
+  loop_control:
+    label: "{{ __ip_addresses_list | length }}"
+    loop_var: __ip_addresses_list
+...

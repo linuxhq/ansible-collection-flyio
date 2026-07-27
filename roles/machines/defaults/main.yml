@@ -1,0 +1,10 @@
+---
+machines_api_token: null
+machines_app_name: null
+machines_async: 300
+machines_batch: 10
+machines_delay: 3
+machines_list: []
+machines_poll: 0
+machines_retries: 100
+...

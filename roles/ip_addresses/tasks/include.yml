@@ -1,0 +1,42 @@
+---
+- name: Ensure flyio ip addresses are managed
+  tags:
+    - ip_addresses
+  linuxhq.flyio.ip_addresses:
+    address: "{{ _ip_address.address | d(omit) }}"
+    api_token: "{{ ip_addresses_api_token }}"
+    app_name: "{{ ip_addresses_app_name }}"
+    region: "{{ _ip_address.region | d(omit) }}"
+    state: "{{ _ip_address.state | d('present') }}"
+    type: "{{ _ip_address.type | d(omit) }}"
+  register: __ip_addresses_result
+  loop: "{{ __ip_addresses_list }}"
+  loop_control:
+    label: "{{ _ip_address.type | d(_ip_address.address | d(none)) }}"
+    loop_var: _ip_address
+  async: "{{ ansible_check_mode | ternary(0, ip_addresses_async) }}"
+  poll: "{{ ip_addresses_poll }}"
+  when:
+    - ip_addresses_api_token is not none
+    - ip_addresses_app_name is not none
+  changed_when:
+    - ansible_check_mode | bool
+    - __ip_addresses_result.changed | bool
+
+- name: Ensure managed flyio ip address jobs are complete
+  tags:
+    - ip_addresses
+  ansible.builtin.async_status:
+    jid: "{{ _jid.ansible_job_id }}"
+  register: __ip_addresses_status
+  loop: "{{ __ip_addresses_result.results }}"
+  loop_control:
+    label: "{{ _jid._ip_address.type | d(_jid._ip_address.address | d(none)) }}"
+    loop_var: _jid
+  when:
+    - _jid.ansible_job_id is defined
+  until:
+    - __ip_addresses_status.finished | bool
+  retries: "{{ ip_addresses_retries }}"
+  delay: "{{ ip_addresses_delay }}"
+...

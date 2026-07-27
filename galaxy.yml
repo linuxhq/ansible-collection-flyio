@@ -1,0 +1,58 @@
+---
+authors:
+  - Taylor Kimball (https://github.com/tkimball83)
+build_ignore:
+  - .agents
+  - .agents/**
+  - .ansible
+  - .ansible/**
+  - .ansible-lint
+  - .claude
+  - .claude/**
+  - .codex
+  - .codex/**
+  - .DS_Store
+  - .github
+  - .github/**
+  - .gitignore
+  - .pre-commit-config.yaml
+  - .python-version
+  - .ruff.toml
+  - .ruff_cache
+  - .ruff_cache/**
+  - .yamllint
+  - AGENTS.md
+  - ansible.cfg
+  - CLAUDE.md
+  - Makefile
+  - requirements.txt
+  - requirements.yml
+  - roles/*/molecule
+  - roles/*/molecule/**
+  - venv
+  - venv/**
+  - '**/.DS_Store'
+  - '**/__pycache__'
+  - '**/__pycache__/**'
+  - '**/*.pyc'
+  - '**/*.pyo'
+  - '**/AGENTS.md'
+  - '*.tar.gz'
+  - '*.tgz'
+description: A collection of flyio roles
+dependencies: {}
+documentation: https://github.com/linuxhq/ansible-collection-flyio/blob/main/README.md
+homepage: https://www.linuxhq.org
+issues: https://github.com/linuxhq/ansible-collection-flyio/issues
+license:
+  - GPL-3.0-or-later
+name: flyio
+namespace: linuxhq
+readme: README.md
+repository: https://github.com/linuxhq/ansible-collection-flyio
+tags:
+  - cloud
+  - flyio
+  - infrastructure
+version: 1.0.0
+...

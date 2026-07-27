@@ -1,0 +1,16 @@
+---
+- name: Ensure flyio apps are batched
+  tags:
+    - apps
+  ansible.builtin.include_tasks:
+    apply:
+      tags:
+        - apps
+    file: include.yml
+  loop:
+    "{{ apps_list |
+        batch(apps_batch) }}"
+  loop_control:
+    label: "{{ __apps_list | length }}"
+    loop_var: __apps_list
+...

@@ -1,0 +1,11 @@
+---
+- name: Converge
+  hosts: all
+  roles:
+    - role: machines
+      machines_list: []
+      tags:
+        - molecule-idempotence-notest
+
+    - machines
+...

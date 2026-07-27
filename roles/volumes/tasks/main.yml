@@ -1,0 +1,16 @@
+---
+- name: Ensure flyio volumes are batched
+  tags:
+    - volumes
+  ansible.builtin.include_tasks:
+    apply:
+      tags:
+        - volumes
+    file: include.yml
+  loop:
+    "{{ volumes_list |
+        batch(volumes_batch) }}"
+  loop_control:
+    label: "{{ __volumes_list | length }}"
+    loop_var: __volumes_list
+...
