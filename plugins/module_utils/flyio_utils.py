@@ -73,6 +73,8 @@ def api_request(client, method, path, body=None, ok_statuses=None):
         )
     except urllib.error.URLError as exc:
         raise FlyioApiError(str(exc))
+    except ValueError as exc:
+        raise FlyioApiError(f"Invalid JSON in API response: {exc}")
 
 
 def delete_result(client, path):
