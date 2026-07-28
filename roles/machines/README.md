@@ -11,7 +11,6 @@ None
 ## Role Variables
 
     machines_api_token: null
-    machines_app_name: null
     machines_async: 300
     machines_batch: 10
     machines_delay: 3
@@ -30,9 +29,9 @@ None
       roles:
         - role: linuxhq.flyio.machines
           machines_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-          machines_app_name: my-app
           machines_list:
-            - name: my-machine
+            - app_name: my-app
+              name: my-machine
               region: ord
               image: nginx:alpine
               guest:

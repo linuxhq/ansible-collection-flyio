@@ -11,7 +11,6 @@ None
 ## Role Variables
 
     volumes_api_token: null
-    volumes_app_name: null
     volumes_async: 300
     volumes_batch: 10
     volumes_delay: 3
@@ -30,8 +29,8 @@ None
       roles:
         - role: linuxhq.flyio.volumes
           volumes_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-          volumes_app_name: my-app
           volumes_list:
-            - name: my-volume
+            - app_name: my-app
+              name: my-volume
               region: ord
               size_gb: 1

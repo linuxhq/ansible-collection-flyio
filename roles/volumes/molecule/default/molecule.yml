@@ -30,12 +30,13 @@ provisioner:
             org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
 
         volumes_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-        volumes_app_name: molecule-test-app
         volumes_list:
-          - name: molecule_data
+          - app_name: molecule-test-app
+            name: molecule_data
             region: ord
             size_gb: 1
-          - name: molecule_logs
+          - app_name: molecule-test-app
+            name: molecule_logs
             region: ord
             size_gb: 1
 

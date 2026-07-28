@@ -3,7 +3,7 @@ dependencies: []
 galaxy_info:
   role_name: ip_addresses
   author: Taylor Kimball
-  description: Manage fly.io IP addresses
+  description: Manage fly.io ip addresses
   license: GPL-3.0-or-later
   min_ansible_version: 2.18.0
   namespace: linuxhq
