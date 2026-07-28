@@ -7,6 +7,7 @@
     app_name: "{{ _machine.app_name }}"
     auto_destroy: "{{ _machine.auto_destroy | d(omit) }}"
     env: "{{ _machine.env | d(omit) }}"
+    files: "{{ _machine.files | d(omit) }}"
     guest: "{{ _machine.guest | d(omit) }}"
     id: "{{ _machine.id | d(omit) }}"
     image: "{{ _machine.image | d(omit) }}"
