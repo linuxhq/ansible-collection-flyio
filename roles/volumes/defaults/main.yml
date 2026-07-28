@@ -1,6 +1,5 @@
 ---
 volumes_api_token: null
-volumes_app_name: null
 volumes_async: 300
 volumes_batch: 10
 volumes_delay: 3

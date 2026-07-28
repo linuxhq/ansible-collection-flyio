@@ -4,9 +4,10 @@
     - machines
   linuxhq.flyio.machines:
     api_token: "{{ machines_api_token }}"
-    app_name: "{{ machines_app_name }}"
+    app_name: "{{ _machine.app_name }}"
     auto_destroy: "{{ _machine.auto_destroy | d(omit) }}"
     env: "{{ _machine.env | d(omit) }}"
+    files: "{{ _machine.files | d(omit) }}"
     guest: "{{ _machine.guest | d(omit) }}"
     id: "{{ _machine.id | d(omit) }}"
     image: "{{ _machine.image | d(omit) }}"
@@ -26,8 +27,9 @@
   poll: "{{ machines_poll }}"
   when:
     - machines_api_token is not none
-    - machines_app_name is not none
-    - _machine.name is defined or _machine.id is defined
+    - _machine.app_name is defined
+    - _machine.name is defined or
+      _machine.id is defined
   changed_when:
     - ansible_check_mode | bool
     - __machines_result.changed | bool

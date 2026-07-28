@@ -5,7 +5,7 @@
   linuxhq.flyio.ip_addresses:
     address: "{{ _ip_address.address | d(omit) }}"
     api_token: "{{ ip_addresses_api_token }}"
-    app_name: "{{ ip_addresses_app_name }}"
+    app_name: "{{ _ip_address.app_name }}"
     region: "{{ _ip_address.region | d(omit) }}"
     state: "{{ _ip_address.state | d('present') }}"
     type: "{{ _ip_address.type | d(omit) }}"
@@ -18,7 +18,7 @@
   poll: "{{ ip_addresses_poll }}"
   when:
     - ip_addresses_api_token is not none
-    - ip_addresses_app_name is not none
+    - _ip_address.app_name is defined
   changed_when:
     - ansible_check_mode | bool
     - __ip_addresses_result.changed | bool

@@ -30,10 +30,11 @@ provisioner:
             org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
 
         ip_addresses_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-        ip_addresses_app_name: molecule-test-app
         ip_addresses_list:
-          - type: v4
-          - type: v6
+          - app_name: molecule-test-app
+            type: v4
+          - app_name: molecule-test-app
+            type: v6
 
 scenario:
   test_sequence:

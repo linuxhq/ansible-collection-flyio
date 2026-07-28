@@ -4,7 +4,7 @@
     - volumes
   linuxhq.flyio.volumes:
     api_token: "{{ volumes_api_token }}"
-    app_name: "{{ volumes_app_name }}"
+    app_name: "{{ _volume.app_name }}"
     encrypted: "{{ _volume.encrypted | d(omit) }}"
     id: "{{ _volume.id | d(omit) }}"
     name: "{{ _volume.name | d(omit) }}"
@@ -22,8 +22,9 @@
   poll: "{{ volumes_poll }}"
   when:
     - volumes_api_token is not none
-    - volumes_app_name is not none
-    - _volume.name is defined or _volume.id is defined
+    - _volume.app_name is defined
+    - _volume.name is defined or
+      _volume.id is defined
   changed_when:
     - ansible_check_mode | bool
     - __volumes_result.changed | bool

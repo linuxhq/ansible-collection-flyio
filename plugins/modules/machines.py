@@ -54,6 +54,29 @@ options:
     type: dict
     description:
       - Environment variables.
+  files:
+    type: list
+    elements: dict
+    description:
+      - Files injected into the rootfs overlay at launch.
+      - Each entry requires O(files[].guest_path) and one of O(files[].raw_value)
+        or O(files[].secret_name).
+    suboptions:
+      guest_path:
+        type: str
+        required: true
+        description:
+          - Absolute path inside the machine where the file is placed.
+      raw_value:
+        type: str
+        description:
+          - Base64-encoded file content.
+          - Mutually exclusive with O(files[].secret_name).
+      secret_name:
+        type: str
+        description:
+          - Name of a fly.io secret whose value populates the file.
+          - Mutually exclusive with O(files[].raw_value).
   mounts:
     type: list
     elements: dict
@@ -125,6 +148,18 @@ EXAMPLES = r"""
     mounts:
       - volume: vol_abc123
         path: /data
+    state: present
+
+- name: Deploy with injected files
+  linuxhq.flyio.machines:
+    api_token: "{{ flyio_api_token }}"
+    app_name: my-app
+    name: web
+    region: ord
+    image: registry.fly.io/my-app:latest
+    files:
+      - guest_path: /etc/myapp/config.conf
+        raw_value: "{{ lookup('file', 'config.conf') | b64encode }}"
     state: present
 
 - name: Stop a machine
@@ -208,6 +243,9 @@ def build_config(params):
 
     if params.get("env") is not None:
         config["env"] = params["env"]
+
+    if params.get("files") is not None:
+        config["files"] = params["files"]
 
     if params.get("mounts") is not None:
         config["mounts"] = params["mounts"]
@@ -435,6 +473,17 @@ def main():
             "guest": {"type": "dict"},
             "services": {"type": "list", "elements": "dict"},
             "env": {"type": "dict"},
+            "files": {
+                "type": "list",
+                "elements": "dict",
+                "options": {
+                    "guest_path": {"type": "str", "required": True},
+                    "raw_value": {"type": "str", "no_log": True},
+                    "secret_name": {"type": "str"},
+                },
+                "mutually_exclusive": [("raw_value", "secret_name")],
+                "required_one_of": [("raw_value", "secret_name")],
+            },
             "mounts": {"type": "list", "elements": "dict"},
             "auto_destroy": {"type": "bool"},
             "wait": {"type": "bool", "default": True},
