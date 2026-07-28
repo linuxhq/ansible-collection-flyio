@@ -4,9 +4,9 @@
 DOCUMENTATION = r"""
 ---
 module: machines_info
-short_description: Gather information about Fly.io machines
+short_description: Gather information about fly.io machines
 description:
-  - Gather information about Fly.io machines.
+  - Gather information about fly.io machines.
   - Use O(id) to look up a single machine, or omit it to list all machines for an app.
 author:
   - Taylor Kimball (@tkimball83)
@@ -15,7 +15,7 @@ options:
     required: true
     type: str
     description:
-      - Fly.io API token.
+      - fly.io API token.
   app_name:
     required: true
     type: str
@@ -46,7 +46,7 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 machines:
-  description: List of Fly.io machines.
+  description: List of fly.io machines.
   returned: always
   type: list
   elements: dict
@@ -57,26 +57,29 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
     get_result,
-    list_all,
 )
 
 
 def info(module, client):
     machine = get_result(
         client,
-        "/apps/{}/machines/{}".format(
-            module.params["app_name"], module.params["id"]
-        ),
+        "/apps/{}/machines/{}".format(module.params["app_name"], module.params["id"]),
     )
+
+    if machine is None:
+        module.fail_json(msg="Machine '{}' not found".format(module.params["id"]))
 
     module.exit_json(changed=False, machines=[machine])
 
 
 def list_resources(module, client):
-    machines = list_all(
+    result = get_result(
         client,
         "/apps/{}/machines".format(module.params["app_name"]),
+        default=[],
+        ok_statuses=[404],
     )
+    machines = result if isinstance(result, list) else [result] if result else []
 
     module.exit_json(changed=False, machines=machines)
 

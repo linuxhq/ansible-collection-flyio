@@ -4,9 +4,9 @@
 DOCUMENTATION = r"""
 ---
 module: volumes
-short_description: Manage Fly.io volumes
+short_description: Manage fly.io volumes
 description:
-  - Create, extend, and delete Fly.io volumes.
+  - Create, extend, and delete fly.io volumes.
   - Volumes are identified by O(id) or by O(name) with O(app_name) and O(region).
   - When O(state=present) and a volume with the given O(name) already exists in the
     specified O(region), it will be extended if O(size_gb) is larger than the current size.
@@ -18,7 +18,7 @@ options:
     required: true
     type: str
     description:
-      - Fly.io API token.
+      - fly.io API token.
   app_name:
     required: true
     type: str
@@ -49,6 +49,16 @@ options:
     default: true
     description:
       - Whether the volume is encrypted.
+  wait:
+    type: bool
+    default: true
+    description:
+      - Wait for the volume to reach the target state.
+  wait_timeout:
+    type: int
+    default: 60
+    description:
+      - Timeout in seconds when waiting for volume state.
   state:
     type: str
     choices:
@@ -83,7 +93,7 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 volume:
-  description: Fly.io volume.
+  description: fly.io volume.
   returned: when available
   type: dict
 message:
@@ -102,6 +112,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     list_all,
     post_result,
     put_result,
+    wait_for_volume,
 )
 
 
@@ -109,16 +120,17 @@ def find_volume(client, app_name, name=None, volume_id=None, region=None):
     if volume_id is not None:
         return get_result(
             client,
-            "/apps/{}/volumes/{}".format(app_name, volume_id),
+            f"/apps/{app_name}/volumes/{volume_id}",
             ok_statuses=[404],
         )
 
-    volumes = list_all(client, "/apps/{}/volumes".format(app_name))
+    volumes = list_all(client, f"/apps/{app_name}/volumes")
 
     for volume in volumes:
-        if volume.get("name") == name:
-            if region is None or volume.get("region") == region:
-                return volume
+        if volume.get("name") == name and (
+            region is None or volume.get("region") == region
+        ):
+            return volume
 
     return None
 
@@ -164,6 +176,9 @@ def ensure_present(module, client):
             changed=False, message="Volume already present", volume=current
         )
 
+    if params.get("name") is None:
+        module.fail_json(msg="name is required when creating a volume")
+
     if params.get("region") is None:
         module.fail_json(msg="region is required when creating a volume")
 
@@ -177,7 +192,24 @@ def ensure_present(module, client):
         "encrypted": params["encrypted"],
     }
 
-    current = post_result(client, "/apps/{}/volumes".format(app_name), body)
+    current = post_result(client, f"/apps/{app_name}/volumes", body)
+
+    if current is None or not current.get("id"):
+        module.fail_json(
+            msg="fly.io API returned an empty or malformed response during create",
+            volume=current,
+        )
+
+    if params["wait"]:
+        current = wait_for_volume(
+            client, app_name, current["id"], params["wait_timeout"]
+        )
+
+        if current is None or current.get("state") != "created":
+            module.fail_json(
+                msg="Volume creation timed out",
+                volume=current,
+            )
 
     module.exit_json(changed=True, message="Volume created", volume=current)
 
@@ -217,6 +249,8 @@ def main():
             "region": {"type": "str"},
             "size_gb": {"type": "int", "default": 1},
             "encrypted": {"type": "bool", "default": True},
+            "wait": {"type": "bool", "default": True},
+            "wait_timeout": {"type": "int", "default": 60},
             "state": {
                 "type": "str",
                 "choices": ["present", "absent"],

@@ -1,5 +1,33 @@
 ---
 - name: Verify
   hosts: all
-  tasks: []
+  roles:
+    - ip_addresses_info
+
+  post_tasks:
+    - name: Ensure info is verified
+      ansible.builtin.assert:
+        that:
+          - _ip_addresses_info_dict is defined
+          - _ip_addresses_info_dict | length > 0
+          - _ip_addresses_info_dict | dict2items | selectattr('value.type', 'equalto', 'v4') | list | length > 0
+          - _ip_addresses_info_dict | dict2items | selectattr('value.type', 'equalto', 'v6') | list | length > 0
+
+    - name: Ensure inventory lists are formatted
+      ansible.builtin.set_fact:
+        ip_addresses_list:
+          "{{ ip_addresses_list |
+              map('combine', {'state': 'absent'}) }}"
+        apps_list:
+          "{{ apps_list |
+              map('combine', {'state': 'absent'}) }}"
+
+    - name: Ensure roles are included
+      ansible.builtin.include_role:
+        name: "{{ _role }}"
+      loop:
+        - ip_addresses
+        - apps
+      loop_control:
+        loop_var: _role
 ...

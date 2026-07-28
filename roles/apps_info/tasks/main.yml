@@ -24,7 +24,7 @@
   ansible.builtin.set_fact:
     _apps_info_dict:
       "{{ (dict(_apps_info_list |
-               json_query('[].name') |
-               zip(_apps_info_list))) |
+                json_query('[].name') |
+                zip(_apps_info_list))) |
           d({}) }}"
 ...

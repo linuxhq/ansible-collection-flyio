@@ -1,29 +1,32 @@
-# volumes_info
+# volumes\_info
 
-Gather information about Fly.io volumes.
+[![License](https://img.shields.io/badge/license-GPLv3-brightgreen.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0.txt)
+
+Gather information about fly.io volumes
+
+## Requirements
+
+None
 
 ## Role Variables
 
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `volumes_info_api_token` | `null` | Fly.io API token |
-| `volumes_info_app_name` | `null` | App name |
+    volumes_info_api_token: null
+    volumes_info_app_name: null
 
-## Published Facts
+## Dependencies
 
-| Fact | Type | Description |
-| ---- | ---- | ----------- |
-| `_volumes_info_list` | list | List of volumes |
-| `_volumes_info_dict` | dict | Dict of volumes keyed by name |
+None
 
-## Example
+## Return Values
 
-```yaml
-- role: volumes_info
-  volumes_info_api_token: "{{ flyio_api_token }}"
-  volumes_info_app_name: my-app
-```
+    _volumes_info_dict
+    _volumes_info_list
 
-## License
+## Example Playbook
 
-GPL-3.0-or-later
+    - hosts: flyio
+      connection: local
+      roles:
+        - role: linuxhq.flyio.volumes_info
+          volumes_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+          volumes_info_app_name: my-app

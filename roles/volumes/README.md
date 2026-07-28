@@ -1,43 +1,37 @@
 # volumes
 
-Manage Fly.io volumes.
+[![License](https://img.shields.io/badge/license-GPLv3-brightgreen.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0.txt)
+
+Manage fly.io volumes
+
+## Requirements
+
+None
 
 ## Role Variables
 
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `volumes_api_token` | `null` | Fly.io API token |
-| `volumes_app_name` | `null` | App name |
-| `volumes_async` | `300` | Async timeout |
-| `volumes_batch` | `10` | Batch size |
-| `volumes_delay` | `3` | Retry delay |
-| `volumes_list` | `[]` | List of volumes to manage |
-| `volumes_poll` | `0` | Poll interval |
-| `volumes_retries` | `100` | Max retries |
+    volumes_api_token: null
+    volumes_app_name: null
+    volumes_async: 300
+    volumes_batch: 10
+    volumes_delay: 3
+    volumes_list: []
+    volumes_poll: 0
+    volumes_retries: 100
 
-### volumes_list item
+## Dependencies
 
-| Key | Required | Description |
-| --- | -------- | ----------- |
-| `name` | yes* | Volume name (mutually exclusive with `id`) |
-| `id` | yes* | Volume identifier (mutually exclusive with `name`) |
-| `region` | no | Region code (required when creating) |
-| `size_gb` | no | Volume size in GB (default: `1`) |
-| `encrypted` | no | Encrypt volume (default: `true`) |
-| `state` | no | `present` or `absent` (default: `present`) |
+None
 
-## Example
+## Example Playbook
 
-```yaml
-- role: volumes
-  volumes_api_token: "{{ flyio_api_token }}"
-  volumes_app_name: my-app
-  volumes_list:
-    - name: data
-      region: ord
-      size_gb: 10
-```
-
-## License
-
-GPL-3.0-or-later
+    - hosts: flyio
+      connection: local
+      roles:
+        - role: linuxhq.flyio.volumes
+          volumes_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+          volumes_app_name: my-app
+          volumes_list:
+            - name: my-volume
+              region: ord
+              size_gb: 1

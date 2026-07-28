@@ -4,9 +4,9 @@
 DOCUMENTATION = r"""
 ---
 module: ip_addresses
-short_description: Manage Fly.io IP addresses
+short_description: Manage fly.io IP addresses
 description:
-  - Allocate and release Fly.io IP addresses.
+  - Allocate and release fly.io IP addresses.
 author:
   - Taylor Kimball (@tkimball83)
 options:
@@ -14,7 +14,7 @@ options:
     required: true
     type: str
     description:
-      - Fly.io API token.
+      - fly.io API token.
   app_name:
     required: true
     type: str
@@ -30,6 +30,7 @@ options:
     description:
       - IP address type.
       - Required when O(state=present).
+      - When O(state=absent), either O(address) or O(type) is required.
   region:
     type: str
     default: ''
@@ -40,7 +41,7 @@ options:
     type: str
     description:
       - IP address to release.
-      - Required when O(state=absent).
+      - When O(state=absent), either O(address) or O(type) is required.
   state:
     type: str
     choices:
@@ -87,7 +88,7 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 ip_address:
-  description: Fly.io IP address.
+  description: fly.io IP address.
   returned: when available
   type: dict
 message:
@@ -98,73 +99,18 @@ message:
 
 """
 
-import json
-
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.urls import open_url
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
-    FlyioApiError,
     flyio_client,
+    get_ip_addresses,
+    graphql_request,
 )
 
 
-GRAPHQL_URL = "https://api.fly.io/graphql"
-
-
-def graphql_request(client, query, variables=None):
-    payload = {"query": query}
-    if variables:
-        payload["variables"] = variables
-
-    try:
-        response = open_url(
-            GRAPHQL_URL,
-            method="POST",
-            data=json.dumps(payload),
-            headers=client["headers"],
-        )
-        result = json.loads(response.read())
-    except Exception as exc:
-        raise FlyioApiError(str(exc))
-
-    if "errors" in result and result["errors"]:
-        raise FlyioApiError(result["errors"][0].get("message", "GraphQL error"))
-
-    return result.get("data", {})
-
-
-def get_ip_addresses(client, app_name):
-    query = """
-        query($appName: String!) {
-            app(name: $appName) {
-                sharedIpAddress
-                ipAddresses {
-                    nodes {
-                        id
-                        address
-                        type
-                        region
-                        createdAt
-                    }
-                }
-            }
-        }
-    """
-    data = graphql_request(client, query, {"appName": app_name})
-    app = data.get("app") or {}
-    addresses = list(app.get("ipAddresses", {}).get("nodes", []))
-
-    shared = app.get("sharedIpAddress")
-    if shared:
-        addresses.append(
-            {"address": shared, "type": "shared_v4", "region": ""}
-        )
-
-    return addresses
-
-
 def normalize_region(value):
-    return value if value else ""
+    if not value or value == "global":
+        return ""
+    return value
 
 
 def find_ip_by_type_and_region(addresses, ip_type, region):
@@ -248,13 +194,23 @@ def ensure_present(module, client):
 def ensure_absent(module, client):
     params = module.params
     app_name = params["app_name"]
-    address = params["address"]
+    address = params.get("address")
+    ip_type = params.get("type")
+    region = params.get("region") or ""
 
     addresses = get_ip_addresses(client, app_name)
-    current = find_ip_by_address(addresses, address)
+
+    if address:
+        current = find_ip_by_address(addresses, address)
+    elif ip_type:
+        current = find_ip_by_type_and_region(addresses, ip_type, region)
+    else:
+        module.fail_json(msg="Either 'address' or 'type' is required for state=absent")
 
     if current is None:
         module.exit_json(changed=False, message="IP address already released")
+
+    release_address = current.get("address")
 
     if module.check_mode:
         module.exit_json(
@@ -275,15 +231,13 @@ def ensure_absent(module, client):
     variables = {
         "input": {
             "appId": app_name,
-            "ip": address,
+            "ip": release_address,
         }
     }
 
     graphql_request(client, query, variables)
 
-    module.exit_json(
-        changed=True, message="IP address released", ip_address=current
-    )
+    module.exit_json(changed=True, message="IP address released", ip_address=current)
 
 
 def main():
@@ -305,7 +259,9 @@ def main():
         },
         required_if=[
             ("state", "present", ("type",)),
-            ("state", "absent", ("address",)),
+        ],
+        required_one_of=[
+            ("address", "type"),
         ],
         supports_check_mode=True,
     )

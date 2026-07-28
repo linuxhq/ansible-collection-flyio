@@ -11,6 +11,8 @@
     region: "{{ _volume.region | d(omit) }}"
     size_gb: "{{ _volume.size_gb | d(omit) }}"
     state: "{{ _volume.state | d('present') }}"
+    wait: "{{ _volume.wait | d(omit) }}"
+    wait_timeout: "{{ _volume.wait_timeout | d(omit) }}"
   register: __volumes_result
   loop: "{{ __volumes_list }}"
   loop_control:

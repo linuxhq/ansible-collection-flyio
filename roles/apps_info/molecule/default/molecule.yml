@@ -15,19 +15,27 @@ platforms:
 
 provisioner:
   name: ansible
+  env:
+    ANSIBLE_ACTION_WARNINGS: false
+    ANSIBLE_DEPRECATION_WARNINGS: false
   log: true
   options:
     diff: true
   inventory:
     group_vars:
       all:
+        apps_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
         apps_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-        apps_info_org_slug: personal
+        apps_info_org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
+        apps_list:
+          - name: molecule-test-app
+            org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
+          - name: molecule-test-app-2
+            org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
 
 scenario:
   test_sequence:
     - dependency
-    - cleanup
     - destroy
     - syntax
     - create

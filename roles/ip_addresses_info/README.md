@@ -1,29 +1,32 @@
-# ip_addresses_info
+# ip\_addresses\_info
 
-Gather information about Fly.io IP addresses.
+[![License](https://img.shields.io/badge/license-GPLv3-brightgreen.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0.txt)
+
+Gather information about fly.io IP addresses
+
+## Requirements
+
+None
 
 ## Role Variables
 
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `ip_addresses_info_api_token` | `null` | Fly.io API token |
-| `ip_addresses_info_app_name` | `null` | App name |
+    ip_addresses_info_api_token: null
+    ip_addresses_info_app_name: null
 
-## Published Facts
+## Dependencies
 
-| Fact | Type | Description |
-| ---- | ---- | ----------- |
-| `_ip_addresses_info_list` | list | List of IP addresses |
-| `_ip_addresses_info_dict` | dict | Dict of IP addresses keyed by address |
+None
 
-## Example
+## Return Values
 
-```yaml
-- role: ip_addresses_info
-  ip_addresses_info_api_token: "{{ flyio_api_token }}"
-  ip_addresses_info_app_name: my-app
-```
+    _ip_addresses_info_dict
+    _ip_addresses_info_list
 
-## License
+## Example Playbook
 
-GPL-3.0-or-later
+    - hosts: flyio
+      connection: local
+      roles:
+        - role: linuxhq.flyio.ip_addresses_info
+          ip_addresses_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+          ip_addresses_info_app_name: my-app

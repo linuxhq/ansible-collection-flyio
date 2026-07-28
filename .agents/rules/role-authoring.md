@@ -5,7 +5,7 @@ own. As with modules, match the nearest existing role.
 
 Roles come in two kinds:
 
-- **Manager** roles call Fly.io modules to create and update resources.
+- **Manager** roles call fly.io modules to create and update resources.
 - **Info** roles gather facts and publish them.
 
 Both share the same layout:
