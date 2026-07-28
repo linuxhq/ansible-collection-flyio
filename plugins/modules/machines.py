@@ -41,6 +41,30 @@ options:
     description:
       - Container image reference.
       - Required when O(state=present).
+  init:
+    type: dict
+    description:
+      - Container init configuration passed to the fly.io API.
+    suboptions:
+      cmd:
+        type: list
+        elements: str
+        description:
+          - Command to run.
+      entrypoint:
+        type: list
+        elements: str
+        description:
+          - Entrypoint for the container.
+      exec:
+        type: list
+        elements: str
+        description:
+          - Exec command.
+      tty:
+        type: bool
+        description:
+          - Allocate a pseudo-TTY.
   guest:
     type: dict
     description:
@@ -150,6 +174,21 @@ EXAMPLES = r"""
         path: /data
     state: present
 
+- name: Deploy with a custom entrypoint
+  linuxhq.flyio.machines:
+    api_token: "{{ flyio_api_token }}"
+    app_name: my-app
+    name: worker
+    region: ord
+    image: registry.fly.io/my-app:latest
+    init:
+      entrypoint:
+        - /bin/sh
+      cmd:
+        - -c
+        - "exec my-worker"
+    state: present
+
 - name: Deploy with injected files
   linuxhq.flyio.machines:
     api_token: "{{ flyio_api_token }}"
@@ -234,6 +273,9 @@ def build_config(params):
     config = {
         "image": params["image"],
     }
+
+    if params.get("init") is not None:
+        config["init"] = params["init"]
 
     if params.get("guest") is not None:
         config["guest"] = params["guest"]
@@ -470,6 +512,15 @@ def main():
             "name": {"type": "str"},
             "region": {"type": "str"},
             "image": {"type": "str"},
+            "init": {
+                "type": "dict",
+                "options": {
+                    "cmd": {"type": "list", "elements": "str"},
+                    "entrypoint": {"type": "list", "elements": "str"},
+                    "exec": {"type": "list", "elements": "str"},
+                    "tty": {"type": "bool"},
+                },
+            },
             "guest": {"type": "dict"},
             "services": {"type": "list", "elements": "dict"},
             "env": {"type": "dict"},

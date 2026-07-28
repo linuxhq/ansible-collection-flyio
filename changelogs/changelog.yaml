@@ -1,0 +1,41 @@
+ancestor: null
+releases:
+  1.0.0:
+    changes:
+      major_changes:
+      - apps - new module to manage fly.io apps.
+      - apps - new role to manage fly.io apps.
+      - apps_info - new module to gather information about fly.io apps.
+      - apps_info - new role to gather information about fly.io apps.
+      - ip_addresses - new module to manage fly.io IP addresses.
+      - ip_addresses - new role to manage fly.io IP addresses.
+      - ip_addresses_info - new module to gather information about fly.io IP addresses.
+      - ip_addresses_info - new role to gather information about fly.io IP addresses.
+      - machines - new module to manage fly.io machines.
+      - machines - new role to manage fly.io machines.
+      - machines_info - new module to gather information about fly.io machines.
+      - machines_info - new role to gather information about fly.io machines.
+      - volumes - new module to manage fly.io volumes.
+      - volumes - new role to manage fly.io volumes.
+      - volumes_info - new module to gather information about fly.io volumes.
+      - volumes_info - new role to gather information about fly.io volumes.
+      release_summary: Initial release of the linuxhq.flyio collection.
+    fragments:
+    - initial-release.yml
+    release_date: '2026-07-28'
+  1.0.1:
+    changes:
+      minor_changes:
+      - machines - add files field to inject files into the rootfs overlay at launch.
+    fragments:
+    - machines-files-field.yml
+    release_date: '2026-07-28'
+  1.0.2:
+    changes:
+      minor_changes:
+      - machines - add init field to configure container entrypoint, cmd, exec, and
+        tty.
+      - machines - add volumes_info role dependency for volume id lookups.
+    fragments:
+    - machines-init-volumes-info-dep.yml
+    release_date: '2026-07-28'

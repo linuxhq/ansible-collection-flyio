@@ -20,7 +20,7 @@ None
 
 ## Dependencies
 
-None
+* [volumes\_info](../volumes_info)
 
 ## Example Playbook
 
@@ -38,3 +38,9 @@ None
                 cpu_kind: shared
                 cpus: 1
                 memory_mb: 256
+              mounts:
+                - volume: "{{ _volumes_info_dict['my_data'].id }}"
+                  path: /data
+
+          volumes_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+          volumes_info_app_name: my-app

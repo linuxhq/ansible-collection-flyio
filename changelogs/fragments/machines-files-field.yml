@@ -1,3 +1,0 @@
----
-minor_changes:
-  - machines - add files field to inject files into the rootfs overlay at launch.
