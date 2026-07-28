@@ -4,9 +4,9 @@
 DOCUMENTATION = r"""
 ---
 module: ip_addresses_info
-short_description: Gather information about Fly.io IP addresses
+short_description: Gather information about fly.io IP addresses
 description:
-  - Gather IP addresses allocated to a Fly.io app.
+  - Gather IP addresses allocated to a fly.io app.
 author:
   - Taylor Kimball (@tkimball83)
 options:
@@ -14,7 +14,7 @@ options:
     required: true
     type: str
     description:
-      - Fly.io API token.
+      - fly.io API token.
   app_name:
     required: true
     type: str
@@ -35,71 +35,29 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 ip_addresses:
-  description: List of Fly.io IP addresses.
+  description: List of fly.io IP addresses.
   returned: always
   type: list
   elements: dict
 
 """
 
-import json
-
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.urls import open_url
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     FlyioApiError,
     flyio_client,
+    get_ip_addresses,
 )
 
 
-GRAPHQL_URL = "https://api.fly.io/graphql"
-
-
 def list_resources(module, client):
-    query = """
-        query($appName: String!) {
-            app(name: $appName) {
-                sharedIpAddress
-                ipAddresses {
-                    nodes {
-                        id
-                        address
-                        type
-                        region
-                        createdAt
-                    }
-                }
-            }
-        }
-    """
-    payload = {
-        "query": query,
-        "variables": {"appName": module.params["app_name"]},
-    }
-
     try:
-        response = open_url(
-            GRAPHQL_URL,
-            method="POST",
-            data=json.dumps(payload),
-            headers=client["headers"],
-        )
-        result = json.loads(response.read())
-    except Exception as exc:
-        raise FlyioApiError(str(exc))
-
-    if "errors" in result and result["errors"]:
-        raise FlyioApiError(result["errors"][0].get("message", "GraphQL error"))
-
-    data = result.get("data", {})
-    app = data.get("app") or {}
-    addresses = list(app.get("ipAddresses", {}).get("nodes", []))
-
-    shared = app.get("sharedIpAddress")
-    if shared:
-        addresses.append(
-            {"address": shared, "type": "shared_v4", "region": ""}
-        )
+        addresses = get_ip_addresses(client, module.params["app_name"])
+    except FlyioApiError as exc:
+        if "could not find app" in str(exc).lower():
+            addresses = []
+        else:
+            raise
 
     module.exit_json(changed=False, ip_addresses=addresses)
 

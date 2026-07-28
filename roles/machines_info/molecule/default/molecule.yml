@@ -15,19 +15,43 @@ platforms:
 
 provisioner:
   name: ansible
+  env:
+    ANSIBLE_ACTION_WARNINGS: false
+    ANSIBLE_DEPRECATION_WARNINGS: false
   log: true
   options:
     diff: true
   inventory:
     group_vars:
       all:
+        apps_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+        apps_list:
+          - name: molecule-test-app
+            org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
+
+        machines_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+        machines_app_name: molecule-test-app
         machines_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
         machines_info_app_name: molecule-test-app
+        machines_list:
+          - guest:
+              cpu_kind: shared
+              cpus: 1
+              memory_mb: 256
+            image: nginx:alpine
+            name: molecule-web
+            region: ord
+          - guest:
+              cpu_kind: shared
+              cpus: 1
+              memory_mb: 256
+            image: nginx:alpine
+            name: molecule-worker
+            region: ord
 
 scenario:
   test_sequence:
     - dependency
-    - cleanup
     - destroy
     - syntax
     - create

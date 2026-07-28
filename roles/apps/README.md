@@ -1,39 +1,34 @@
 # apps
 
-Manage Fly.io apps.
+[![License](https://img.shields.io/badge/license-GPLv3-brightgreen.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0.txt)
+
+Manage fly.io apps
+
+## Requirements
+
+None
 
 ## Role Variables
 
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `apps_api_token` | `null` | Fly.io API token |
-| `apps_async` | `300` | Async timeout |
-| `apps_batch` | `10` | Batch size |
-| `apps_delay` | `3` | Retry delay |
-| `apps_list` | `[]` | List of apps to manage |
-| `apps_poll` | `0` | Poll interval |
-| `apps_retries` | `100` | Max retries |
+    apps_api_token: null
+    apps_async: 300
+    apps_batch: 10
+    apps_delay: 3
+    apps_list: []
+    apps_poll: 0
+    apps_retries: 100
 
-### apps_list item
+## Dependencies
 
-| Key | Required | Description |
-| --- | -------- | ----------- |
-| `name` | yes | App name |
-| `org_slug` | no | Organization slug |
-| `network` | no | Private network name |
-| `state` | no | `present` or `absent` (default: `present`) |
+None
 
-## Example
+## Example Playbook
 
-```yaml
-- role: apps
-  apps_api_token: "{{ flyio_api_token }}"
-  apps_list:
-    - name: my-app
-      org_slug: personal
-      network: my-network
-```
-
-## License
-
-GPL-3.0-or-later
+    - hosts: flyio
+      connection: local
+      roles:
+        - role: linuxhq.flyio.apps
+          apps_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+          apps_list:
+            - name: my-app
+              org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"

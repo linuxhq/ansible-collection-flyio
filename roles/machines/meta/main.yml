@@ -3,7 +3,7 @@ dependencies: []
 galaxy_info:
   role_name: machines
   author: Taylor Kimball
-  description: Manage Fly.io machines
+  description: Manage fly.io machines
   license: GPL-3.0-or-later
   min_ansible_version: 2.18.0
   namespace: linuxhq

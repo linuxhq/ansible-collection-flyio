@@ -2,6 +2,11 @@
 - name: Converge
   hosts: all
   roles:
+    - role: apps
+      tags:
+        - molecule-idempotence-notest
+      check_mode: false
+
     - role: machines
       machines_list: []
       tags:

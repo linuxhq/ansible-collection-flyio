@@ -24,7 +24,7 @@
   ansible.builtin.set_fact:
     _ip_addresses_info_dict:
       "{{ (dict(_ip_addresses_info_list |
-               json_query('[].address') |
-               zip(_ip_addresses_info_list))) |
+                json_query('[].address') |
+                zip(_ip_addresses_info_list))) |
           d({}) }}"
 ...

@@ -1,19 +1,19 @@
 ---
 release_summary: Initial release of the linuxhq.flyio collection.
 major_changes:
-  - apps - new module to manage Fly.io apps.
-  - apps_info - new module to gather information about Fly.io apps.
-  - ip_addresses - new module to manage Fly.io IP addresses.
-  - ip_addresses_info - new module to gather information about Fly.io IP addresses.
-  - machines - new module to manage Fly.io machines.
-  - machines_info - new module to gather information about Fly.io machines.
-  - volumes - new module to manage Fly.io volumes.
-  - volumes_info - new module to gather information about Fly.io volumes.
-  - apps - new role to manage Fly.io apps.
-  - apps_info - new role to gather information about Fly.io apps.
-  - ip_addresses - new role to manage Fly.io IP addresses.
-  - ip_addresses_info - new role to gather information about Fly.io IP addresses.
-  - machines - new role to manage Fly.io machines.
-  - machines_info - new role to gather information about Fly.io machines.
-  - volumes - new role to manage Fly.io volumes.
-  - volumes_info - new role to gather information about Fly.io volumes.
+  - apps - new module to manage fly.io apps.
+  - apps_info - new module to gather information about fly.io apps.
+  - ip_addresses - new module to manage fly.io IP addresses.
+  - ip_addresses_info - new module to gather information about fly.io IP addresses.
+  - machines - new module to manage fly.io machines.
+  - machines_info - new module to gather information about fly.io machines.
+  - volumes - new module to manage fly.io volumes.
+  - volumes_info - new module to gather information about fly.io volumes.
+  - apps - new role to manage fly.io apps.
+  - apps_info - new role to gather information about fly.io apps.
+  - ip_addresses - new role to manage fly.io IP addresses.
+  - ip_addresses_info - new role to gather information about fly.io IP addresses.
+  - machines - new role to manage fly.io machines.
+  - machines_info - new role to gather information about fly.io machines.
+  - volumes - new role to manage fly.io volumes.
+  - volumes_info - new role to gather information about fly.io volumes.

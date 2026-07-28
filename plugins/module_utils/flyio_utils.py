@@ -3,12 +3,12 @@
 
 import json
 import time
+import urllib.error
 from contextlib import contextmanager
 
-from ansible.module_utils.common.dict_transformations import recursive_diff
 from ansible.module_utils.urls import open_url
 
-
+GRAPHQL_API_URL = "https://api.fly.io/graphql"
 MACHINES_API_URL = "https://api.machines.dev/v1"
 
 
@@ -21,7 +21,7 @@ def flyio_client(module):
     client = {
         "token": token,
         "headers": {
-            "Authorization": "Bearer {}".format(token),
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         },
     }
@@ -41,7 +41,7 @@ class FlyioApiError(Exception):
 
 def api_request(client, method, path, body=None, ok_statuses=None):
     ok_statuses = ok_statuses or []
-    url = "{}{}".format(MACHINES_API_URL, path)
+    url = f"{MACHINES_API_URL}{path}"
     data = json.dumps(body) if body is not None else None
 
     try:
@@ -55,27 +55,78 @@ def api_request(client, method, path, body=None, ok_statuses=None):
         if content:
             return json.loads(content)
         return None
-    except Exception as exc:
-        status_code = getattr(exc, "code", None)
+    except urllib.error.HTTPError as exc:
+        status_code = exc.code
         if status_code in ok_statuses:
             return None
 
         response_body = None
-        if hasattr(exc, "read"):
-            try:
-                response_body = json.loads(exc.read())
-            except (ValueError, AttributeError):
-                response_body = None
+        try:
+            response_body = json.loads(exc.read())
+        except (ValueError, AttributeError):
+            response_body = None
 
         raise FlyioApiError(
             str(exc),
             status_code=status_code,
             response_body=response_body,
         )
+    except urllib.error.URLError as exc:
+        raise FlyioApiError(str(exc))
 
 
 def delete_result(client, path):
     return api_request(client, "delete", path)
+
+
+def get_ip_addresses(client, app_name):
+    query = """
+        query($appName: String!) {
+            app(name: $appName) {
+                sharedIpAddress
+                ipAddresses {
+                    nodes {
+                        id
+                        address
+                        type
+                        region
+                        createdAt
+                    }
+                }
+            }
+        }
+    """
+    data = graphql_request(client, query, {"appName": app_name})
+    app = data.get("app") or {}
+    addresses = list(app.get("ipAddresses", {}).get("nodes", []))
+
+    shared = app.get("sharedIpAddress")
+    if shared:
+        addresses.append({"address": shared, "type": "shared_v4", "region": ""})
+
+    return addresses
+
+
+def graphql_request(client, query, variables=None):
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+
+    try:
+        response = open_url(
+            GRAPHQL_API_URL,
+            method="POST",
+            data=json.dumps(payload),
+            headers=client["headers"],
+        )
+        result = json.loads(response.read())
+    except (urllib.error.URLError, ValueError) as exc:
+        raise FlyioApiError(str(exc))
+
+    if result.get("errors"):
+        raise FlyioApiError(result["errors"][0].get("message", "GraphQL error"))
+
+    return result.get("data", {})
 
 
 def fail_from_flyio_error(module, message, exc):
@@ -128,14 +179,32 @@ def values_differ(current, desired):
     if not isinstance(current, dict) or not isinstance(desired, dict):
         return current != desired
 
-    return recursive_diff(current, desired) is not None
+    if not desired:
+        return bool(current)
+
+    for key, value in desired.items():
+        if key not in current:
+            return True
+        cur = current[key]
+        if isinstance(value, dict) and isinstance(cur, dict):
+            if values_differ(cur, value):
+                return True
+        elif isinstance(value, list) and isinstance(cur, list):
+            if len(value) != len(cur):
+                return True
+            for c, d in zip(cur, value):
+                if values_differ(c, d):
+                    return True
+        elif cur != value:
+            return True
+    return False
 
 
 def wait_for_machine(client, app_name, machine_id, state="started", timeout=60):
-    path = "/apps/{}/machines/{}/wait?state={}&timeout={}".format(
-        app_name, machine_id, state, timeout
+    path = (
+        f"/apps/{app_name}/machines/{machine_id}/wait?state={state}&timeout={timeout}"
     )
-    api_request(client, "get", path, ok_statuses=[200])
+    api_request(client, "get", path)
 
 
 def wait_for_volume(client, app_name, volume_id, timeout=60):
@@ -143,7 +212,7 @@ def wait_for_volume(client, app_name, volume_id, timeout=60):
     while time.time() < deadline:
         volume = get_result(
             client,
-            "/apps/{}/volumes/{}".format(app_name, volume_id),
+            f"/apps/{app_name}/volumes/{volume_id}",
         )
         if volume and volume.get("state") == "created":
             return volume
@@ -152,5 +221,5 @@ def wait_for_volume(client, app_name, volume_id, timeout=60):
 
     return get_result(
         client,
-        "/apps/{}/volumes/{}".format(app_name, volume_id),
+        f"/apps/{app_name}/volumes/{volume_id}",
     )

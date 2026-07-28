@@ -8,7 +8,21 @@
         machines_list:
           "{{ machines_list |
               map('combine', {'state': 'absent'}) }}"
+        apps_list:
+          "{{ apps_list |
+              map('combine', {'state': 'absent'}) }}"
 
   roles:
     - machines
+
+  post_tasks:
+    - name: Ensure roles are included
+      ansible.builtin.include_role:
+        name: "{{ _role }}"
+      loop:
+        - machines
+        - apps
+      loop_control:
+        label: "{{ _role | d(none) }}"
+        loop_var: _role
 ...

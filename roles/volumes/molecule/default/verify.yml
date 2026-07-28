@@ -8,7 +8,21 @@
         volumes_list:
           "{{ volumes_list |
               map('combine', {'state': 'absent'}) }}"
+        apps_list:
+          "{{ apps_list |
+              map('combine', {'state': 'absent'}) }}"
 
   roles:
     - volumes
+
+  post_tasks:
+    - name: Ensure roles are included
+      ansible.builtin.include_role:
+        name: "{{ _role }}"
+      loop:
+        - volumes
+        - apps
+      loop_control:
+        label: "{{ _role | d(none) }}"
+        loop_var: _role
 ...

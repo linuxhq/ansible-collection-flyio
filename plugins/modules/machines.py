@@ -4,10 +4,10 @@
 DOCUMENTATION = r"""
 ---
 module: machines
-short_description: Manage Fly.io machines
+short_description: Manage fly.io machines
 description:
-  - Create, update, start, stop, and destroy Fly.io machines.
-  - Machines are the compute units that run container images on Fly.io.
+  - Create, update, start, stop, and destroy fly.io machines.
+  - Machines are the compute units that run container images on fly.io.
   - Use O(id) or O(name) to identify an existing machine.
 author:
   - Taylor Kimball (@tkimball83)
@@ -16,7 +16,7 @@ options:
     required: true
     type: str
     description:
-      - Fly.io API token.
+      - fly.io API token.
   app_name:
     required: true
     type: str
@@ -44,62 +44,12 @@ options:
   guest:
     type: dict
     description:
-      - Guest VM configuration.
-    suboptions:
-      cpu_kind:
-        type: str
-        choices:
-          - shared
-          - performance
-        default: shared
-        description:
-          - CPU type.
-      cpus:
-        type: int
-        default: 1
-        description:
-          - Number of CPUs.
-      memory_mb:
-        type: int
-        default: 256
-        description:
-          - Memory in megabytes.
+      - Guest VM configuration passed to the fly.io API.
   services:
     type: list
     elements: dict
     description:
-      - Service port mappings.
-    suboptions:
-      internal_port:
-        type: int
-        required: true
-        description:
-          - Port inside the container.
-      protocol:
-        type: str
-        choices:
-          - tcp
-          - udp
-        default: tcp
-        description:
-          - Network protocol.
-      ports:
-        type: list
-        elements: dict
-        required: true
-        description:
-          - External port mappings.
-        suboptions:
-          port:
-            type: int
-            required: true
-            description:
-              - External port number.
-          handlers:
-            type: list
-            elements: str
-            description:
-              - Connection handlers.
+      - Service port mappings passed to the fly.io API.
   env:
     type: dict
     description:
@@ -108,23 +58,12 @@ options:
     type: list
     elements: dict
     description:
-      - Volume mounts.
-    suboptions:
-      volume:
-        type: str
-        required: true
-        description:
-          - Volume identifier.
-      path:
-        type: str
-        required: true
-        description:
-          - Mount path inside the container.
+      - Volume mounts passed to the fly.io API.
   auto_destroy:
     type: bool
-    default: false
     description:
       - Automatically destroy the machine when it exits.
+      - Defaults to C(false) on the fly.io API when not specified.
   wait:
     type: bool
     default: true
@@ -206,7 +145,7 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 machine:
-  description: Fly.io machine.
+  description: fly.io machine.
   returned: when available
   type: dict
 message:
@@ -235,17 +174,25 @@ def find_machine(client, app_name, name=None, machine_id=None):
     if machine_id is not None:
         return get_result(
             client,
-            "/apps/{}/machines/{}".format(app_name, machine_id),
+            f"/apps/{app_name}/machines/{machine_id}",
             ok_statuses=[404],
         )
 
-    machines = list_all(client, "/apps/{}/machines".format(app_name))
+    machines = list_all(client, f"/apps/{app_name}/machines")
 
     for machine in machines:
         if machine.get("name") == name:
             return machine
 
     return None
+
+
+def image_changed(current_image, desired_image):
+    if not current_image or not desired_image:
+        return current_image != desired_image
+    if current_image == desired_image:
+        return False
+    return not current_image.endswith("/" + desired_image)
 
 
 def build_config(params):
@@ -288,7 +235,19 @@ def ensure_present(module, client):
         current_config = current.get("config", {})
         desired_fields = select_fields(current_config, config.keys())
 
-        if not values_differ(desired_fields, config):
+        if "image" in desired_fields and not image_changed(
+            desired_fields["image"], config["image"]
+        ):
+            desired_fields["image"] = config["image"]
+
+        changed = values_differ(desired_fields, config)
+
+        if not changed and "env" in config:
+            current_env = current_config.get("env") or {}
+            desired_env = config["env"] or {}
+            changed = set(current_env.keys()) != set(desired_env.keys())
+
+        if not changed:
             module.exit_json(
                 changed=False, message="Machine already present", machine=current
             )
@@ -304,18 +263,21 @@ def ensure_present(module, client):
         if params.get("region") is not None:
             body["region"] = params["region"]
 
-        current = post_result(
+        result = post_result(
             client,
             "/apps/{}/machines/{}".format(app_name, current["id"]),
             body,
         )
 
+        if result is None:
+            module.fail_json(msg="fly.io API returned an empty response during update")
+
         if params["wait"]:
             wait_for_machine(
-                client, app_name, current["id"], "started", params["wait_timeout"]
+                client, app_name, result["id"], "started", params["wait_timeout"]
             )
 
-        module.exit_json(changed=True, message="Machine updated", machine=current)
+        module.exit_json(changed=True, message="Machine updated", machine=result)
 
     if module.check_mode:
         module.exit_json(changed=True, message="Machine would be created")
@@ -326,16 +288,17 @@ def ensure_present(module, client):
     if params.get("region") is not None:
         body["region"] = params["region"]
 
-    current = post_result(
-        client, "/apps/{}/machines".format(app_name), body
-    )
+    result = post_result(client, f"/apps/{app_name}/machines", body)
+
+    if result is None:
+        module.fail_json(msg="fly.io API returned an empty response during create")
 
     if params["wait"]:
         wait_for_machine(
-            client, app_name, current["id"], "started", params["wait_timeout"]
+            client, app_name, result["id"], "started", params["wait_timeout"]
         )
 
-    module.exit_json(changed=True, message="Machine created", machine=current)
+    module.exit_json(changed=True, message="Machine created", machine=result)
 
 
 def ensure_absent(module, client):
@@ -358,15 +321,20 @@ def ensure_absent(module, client):
         )
 
     machine_state = current.get("state", "")
-    if machine_state == "started":
+    if machine_state == "destroyed":
+        module.exit_json(changed=False, message="Machine already absent")
+
+    if machine_state in ("started", "starting", "created", "replacing"):
         api_request(
             client,
             "post",
             "/apps/{}/machines/{}/stop".format(app_name, current["id"]),
         )
-        wait_for_machine(
-            client, app_name, current["id"], "stopped", params["wait_timeout"]
-        )
+
+        if params["wait"]:
+            wait_for_machine(
+                client, app_name, current["id"], "stopped", params["wait_timeout"]
+            )
 
     delete_result(
         client, "/apps/{}/machines/{}?force=true".format(app_name, current["id"])
@@ -410,9 +378,7 @@ def ensure_started(module, client):
             client, app_name, current["id"], "started", params["wait_timeout"]
         )
 
-    current = get_result(
-        client, "/apps/{}/machines/{}".format(app_name, current["id"])
-    )
+    current = get_result(client, "/apps/{}/machines/{}".format(app_name, current["id"]))
 
     module.exit_json(changed=True, message="Machine started", machine=current)
 
@@ -452,9 +418,7 @@ def ensure_stopped(module, client):
             client, app_name, current["id"], "stopped", params["wait_timeout"]
         )
 
-    current = get_result(
-        client, "/apps/{}/machines/{}".format(app_name, current["id"])
-    )
+    current = get_result(client, "/apps/{}/machines/{}".format(app_name, current["id"]))
 
     module.exit_json(changed=True, message="Machine stopped", machine=current)
 
@@ -472,7 +436,7 @@ def main():
             "services": {"type": "list", "elements": "dict"},
             "env": {"type": "dict"},
             "mounts": {"type": "list", "elements": "dict"},
-            "auto_destroy": {"type": "bool", "default": False},
+            "auto_destroy": {"type": "bool"},
             "wait": {"type": "bool", "default": True},
             "wait_timeout": {"type": "int", "default": 60},
             "state": {

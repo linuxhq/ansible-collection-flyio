@@ -2,5 +2,20 @@
 - name: Converge
   hosts: all
   roles:
+    - role: ip_addresses_info
+      tags:
+        - molecule-idempotence-notest
+      check_mode: false
+
+    - role: apps
+      tags:
+        - molecule-idempotence-notest
+      check_mode: false
+
+    - role: ip_addresses
+      tags:
+        - molecule-idempotence-notest
+      check_mode: false
+
     - ip_addresses_info
 ...

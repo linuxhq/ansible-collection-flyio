@@ -4,9 +4,9 @@
 DOCUMENTATION = r"""
 ---
 module: apps
-short_description: Manage Fly.io apps
+short_description: Manage fly.io apps
 description:
-  - Create and delete Fly.io apps.
+  - Create and delete fly.io apps.
 author:
   - Taylor Kimball (@tkimball83)
 options:
@@ -14,7 +14,7 @@ options:
     required: true
     type: str
     description:
-      - Fly.io API token.
+      - fly.io API token.
   name:
     required: true
     type: str
@@ -47,14 +47,14 @@ EXAMPLES = r"""
   linuxhq.flyio.apps:
     api_token: "{{ flyio_api_token }}"
     name: my-app
-    org_slug: personal
+    org_slug: linuxhq
     state: present
 
 - name: Ensure app exists on custom network
   linuxhq.flyio.apps:
     api_token: "{{ flyio_api_token }}"
     name: my-app
-    org_slug: personal
+    org_slug: linuxhq
     network: my-network
     state: present
 
@@ -68,7 +68,7 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 app:
-  description: Fly.io app.
+  description: fly.io app.
   returned: when available
   type: dict
 message:

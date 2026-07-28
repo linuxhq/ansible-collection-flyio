@@ -4,9 +4,9 @@
 DOCUMENTATION = r"""
 ---
 module: apps_info
-short_description: Gather information about Fly.io apps
+short_description: Gather information about fly.io apps
 description:
-  - Gather information about Fly.io apps.
+  - Gather information about fly.io apps.
   - Use O(name) to look up a single app, or O(org_slug) to list apps in an organization.
   - O(name) is mutually exclusive with O(org_slug).
 author:
@@ -16,7 +16,7 @@ options:
     required: true
     type: str
     description:
-      - Fly.io API token.
+      - fly.io API token.
   name:
     type: str
     description:
@@ -41,13 +41,13 @@ EXAMPLES = r"""
 - name: List all apps in an organization
   linuxhq.flyio.apps_info:
     api_token: "{{ flyio_api_token }}"
-    org_slug: personal
+    org_slug: linuxhq
 """
 
 RETURN = r"""
 ---
 apps:
-  description: List of Fly.io apps.
+  description: List of fly.io apps.
   returned: always
   type: list
   elements: dict
@@ -63,6 +63,9 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 def info(module, client):
     app = get_result(client, "/apps/{}".format(module.params["name"]))
+
+    if app is None:
+        module.fail_json(msg="App '{}' not found".format(module.params["name"]))
 
     module.exit_json(changed=False, apps=[app])
 

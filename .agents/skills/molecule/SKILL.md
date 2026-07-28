@@ -1,6 +1,6 @@
 ---
 name: molecule
-description: Run a role's molecule scenario from the project virtualenv. Scenarios hit real Fly.io and double as the role's example playbook; run from the role directory.
+description: Run a role's molecule scenario from the project virtualenv. Scenarios hit real fly.io and double as the role's example playbook; run from the role directory.
 ---
 
 # molecule
@@ -15,7 +15,7 @@ cd roles/{{ role }}
 
 - `test` runs the full create / converge / verify / destroy cycle.
 - `converge` runs only the present path, no teardown.
-- Scenarios hit **real Fly.io**.
+- Scenarios hit **real fly.io**.
 - The scenario doubles as the role's example playbook.
 
 ## Dependencies

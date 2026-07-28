@@ -1,29 +1,32 @@
-# machines_info
+# machines\_info
 
-Gather information about Fly.io machines.
+[![License](https://img.shields.io/badge/license-GPLv3-brightgreen.svg?style=flat)](https://www.gnu.org/licenses/gpl-3.0.txt)
+
+Gather information about fly.io machines
+
+## Requirements
+
+None
 
 ## Role Variables
 
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `machines_info_api_token` | `null` | Fly.io API token |
-| `machines_info_app_name` | `null` | App name |
+    machines_info_api_token: null
+    machines_info_app_name: null
 
-## Published Facts
+## Dependencies
 
-| Fact | Type | Description |
-| ---- | ---- | ----------- |
-| `_machines_info_list` | list | List of machines |
-| `_machines_info_dict` | dict | Dict of machines keyed by name |
+None
 
-## Example
+## Return Values
 
-```yaml
-- role: machines_info
-  machines_info_api_token: "{{ flyio_api_token }}"
-  machines_info_app_name: my-app
-```
+    _machines_info_dict
+    _machines_info_list
 
-## License
+## Example Playbook
 
-GPL-3.0-or-later
+    - hosts: flyio
+      connection: local
+      roles:
+        - role: linuxhq.flyio.machines_info
+          machines_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
+          machines_info_app_name: my-app

@@ -1,5 +1,39 @@
 ---
 - name: Verify
   hosts: all
-  tasks: []
+  roles:
+    - machines_info
+
+  post_tasks:
+    - name: Ensure info is verified
+      ansible.builtin.assert:
+        that:
+          - _machines_info_dict is defined
+          - _machines_info_dict['molecule-web'] is defined
+          - _machines_info_dict['molecule-web'].name == 'molecule-web'
+          - _machines_info_dict['molecule-web'].region == 'ord'
+          - _machines_info_dict['molecule-web'].config.image == 'nginx:alpine'
+          - _machines_info_dict['molecule-worker'] is defined
+          - _machines_info_dict['molecule-worker'].name == 'molecule-worker'
+          - _machines_info_dict['molecule-worker'].region == 'ord'
+          - _machines_info_dict['molecule-worker'].config.image == 'nginx:alpine'
+
+    - name: Ensure inventory lists are formatted
+      ansible.builtin.set_fact:
+        machines_list:
+          "{{ machines_list |
+              map('combine', {'state': 'absent'}) }}"
+        apps_list:
+          "{{ apps_list |
+              map('combine', {'state': 'absent'}) }}"
+
+    - name: Ensure roles are included
+      ansible.builtin.include_role:
+        name: "{{ _role }}"
+      loop:
+        - machines
+        - apps
+      loop_control:
+        label: "{{ _role | d(none) }}"
+        loop_var: _role
 ...
