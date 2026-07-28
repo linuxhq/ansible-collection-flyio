@@ -11,6 +11,7 @@
     guest: "{{ _machine.guest | d(omit) }}"
     id: "{{ _machine.id | d(omit) }}"
     image: "{{ _machine.image | d(omit) }}"
+    init: "{{ _machine.init | d(omit) }}"
     mounts: "{{ _machine.mounts | d(omit) }}"
     name: "{{ _machine.name | d(omit) }}"
     region: "{{ _machine.region | d(omit) }}"

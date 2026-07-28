@@ -1,5 +1,7 @@
 ---
-dependencies: []
+dependencies:
+  - role: volumes_info
+    tags: machines
 galaxy_info:
   role_name: machines
   author: Taylor Kimball

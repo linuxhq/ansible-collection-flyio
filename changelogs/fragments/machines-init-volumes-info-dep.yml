@@ -1,0 +1,4 @@
+---
+minor_changes:
+  - machines - add init field to configure container entrypoint, cmd, exec, and tty.
+  - machines - add volumes_info role dependency for volume id lookups.
