@@ -32,3 +32,5 @@ None
           apps_list:
             - name: my-app
               org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
+            - name: my-app-2
+              org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"

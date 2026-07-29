@@ -22,7 +22,7 @@
   register: __machines_result
   loop: "{{ __machines_list }}"
   loop_control:
-    label: "{{ _machine.name | d(_machine.id | d(none)) }}"
+    label: "{{ _machine.name | d(none) }}"
     loop_var: _machine
   async: "{{ ansible_check_mode | ternary(0, machines_async) }}"
   poll: "{{ machines_poll }}"
@@ -43,7 +43,7 @@
   register: __machines_status
   loop: "{{ __machines_result.results }}"
   loop_control:
-    label: "{{ _jid._machine.name | d(_jid._machine.id | d(none)) }}"
+    label: "{{ _jid._machine.name | d(none) }}"
     loop_var: _jid
   when:
     - _jid.ansible_job_id is defined

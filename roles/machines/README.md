@@ -31,16 +31,21 @@ None
           machines_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
           machines_list:
             - app_name: my-app
-              name: my-machine
-              region: ord
-              image: nginx:alpine
               guest:
                 cpu_kind: shared
                 cpus: 1
                 memory_mb: 256
-              mounts:
-                - volume: "{{ _volumes_info_dict['my_data'].id }}"
-                  path: /data
+              image: nginx:alpine
+              name: my-web
+              region: ord
+            - app_name: my-app
+              guest:
+                cpu_kind: shared
+                cpus: 1
+                memory_mb: 256
+              image: nginx:alpine
+              name: my-worker
+              region: ord
 
           volumes_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
           volumes_info_app_name: my-app

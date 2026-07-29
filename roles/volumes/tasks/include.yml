@@ -16,7 +16,7 @@
   register: __volumes_result
   loop: "{{ __volumes_list }}"
   loop_control:
-    label: "{{ _volume.name | d(_volume.id | d(none)) }}"
+    label: "{{ _volume.name | d(none) }}"
     loop_var: _volume
   async: "{{ ansible_check_mode | ternary(0, volumes_async) }}"
   poll: "{{ volumes_poll }}"
@@ -37,7 +37,7 @@
   register: __volumes_status
   loop: "{{ __volumes_result.results }}"
   loop_control:
-    label: "{{ _jid._volume.name | d(_jid._volume.id | d(none)) }}"
+    label: "{{ _jid._volume.name | d(none) }}"
     loop_var: _jid
   when:
     - _jid.ansible_job_id is defined
