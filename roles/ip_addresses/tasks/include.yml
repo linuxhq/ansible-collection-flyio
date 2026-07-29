@@ -12,7 +12,7 @@
   register: __ip_addresses_result
   loop: "{{ __ip_addresses_list }}"
   loop_control:
-    label: "{{ _ip_address.type | d(_ip_address.address | d(none)) }}"
+    label: "{{ _ip_address.app_name | d(none) }}"
     loop_var: _ip_address
   async: "{{ ansible_check_mode | ternary(0, ip_addresses_async) }}"
   poll: "{{ ip_addresses_poll }}"
@@ -31,7 +31,7 @@
   register: __ip_addresses_status
   loop: "{{ __ip_addresses_result.results }}"
   loop_control:
-    label: "{{ _jid._ip_address.type | d(_jid._ip_address.address | d(none)) }}"
+    label: "{{ _jid._ip_address.app_name | d(none) }}"
     loop_var: _jid
   when:
     - _jid.ansible_job_id is defined
