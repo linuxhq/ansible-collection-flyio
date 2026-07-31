@@ -39,3 +39,19 @@ releases:
     fragments:
     - machines-init-volumes-info-dep.yml
     release_date: '2026-07-28'
+  1.0.3:
+    changes:
+      bugfixes:
+      - flyio_utils - fix graphql_request silently discarding HTTP error details.
+      - flyio_utils - fix socket timeout on wait_for_machine long-poll requests.
+      - flyio_utils - fix values_differ not detecting key removals.
+      - flyio_utils - remove dead token field from client dict.
+      - flyio_utils - remove unused patch_result function.
+      - machines - mark env parameter as no_log to prevent credential exposure.
+      minor_changes:
+      - machines - add checks field for health check configuration.
+      - machines - add metadata field for machine metadata.
+      - machines - add restart field for restart policy configuration.
+    fragments:
+    - v1.0.3.yml
+    release_date: '2026-07-31'
