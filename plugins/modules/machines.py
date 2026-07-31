@@ -74,6 +74,13 @@ options:
     elements: dict
     description:
       - Service port mappings passed to the fly.io API.
+  checks:
+    type: dict
+    description:
+      - Health checks passed to the fly.io API.
+      - Each key is a check name and its value is a dict with C(type)
+        (C(http) or C(tcp)), C(port), and optionally C(interval),
+        C(timeout), C(grace_period), C(method), C(path), and C(headers).
   env:
     type: dict
     description:
@@ -111,6 +118,32 @@ options:
     description:
       - Automatically destroy the machine when it exits.
       - Defaults to C(false) on the fly.io API when not specified.
+  restart:
+    type: dict
+    description:
+      - Restart policy for the machine passed to the fly.io API.
+    suboptions:
+      policy:
+        type: str
+        choices:
+          - "no"
+          - always
+          - on-failure
+        description:
+          - Restart policy name.
+      max_retries:
+        type: int
+        description:
+          - Maximum restart attempts (only for C(on-failure) policy).
+  metadata:
+    type: dict
+    description:
+      - Metadata key-value pairs attached to the machine.
+  statics:
+    type: list
+    elements: dict
+    description:
+      - Static files served by the Fly proxy passed to the fly.io API.
   wait:
     type: bool
     default: true
@@ -160,6 +193,22 @@ EXAMPLES = r"""
             handlers:
               - tls
               - http
+    state: present
+
+- name: Deploy with health checks
+  linuxhq.flyio.machines:
+    api_token: "{{ flyio_api_token }}"
+    app_name: my-app
+    name: web
+    region: ord
+    image: registry.fly.io/my-app:latest
+    checks:
+      httpcheck:
+        type: http
+        port: 8080
+        path: /healthz
+        interval: 10000
+        timeout: 2000
     state: present
 
 - name: Deploy with a volume mount
@@ -243,6 +292,21 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     wait_for_machine,
 )
 
+CONFIG_FIELDS = (
+    "auto_destroy",
+    "checks",
+    "env",
+    "files",
+    "guest",
+    "image",
+    "init",
+    "metadata",
+    "mounts",
+    "restart",
+    "services",
+    "statics",
+)
+
 
 def find_machine(client, app_name, name=None, machine_id=None):
     if machine_id is not None:
@@ -270,30 +334,14 @@ def image_changed(current_image, desired_image):
 
 
 def build_config(params):
-    config = {
-        "image": params["image"],
-    }
+    config = {"image": params["image"]}
 
-    if params.get("init") is not None:
-        config["init"] = params["init"]
-
-    if params.get("guest") is not None:
-        config["guest"] = params["guest"]
-
-    if params.get("services") is not None:
-        config["services"] = params["services"]
-
-    if params.get("env") is not None:
-        config["env"] = params["env"]
-
-    if params.get("files") is not None:
-        config["files"] = params["files"]
-
-    if params.get("mounts") is not None:
-        config["mounts"] = params["mounts"]
-
-    if params.get("auto_destroy") is not None:
-        config["auto_destroy"] = params["auto_destroy"]
+    for field in CONFIG_FIELDS:
+        if field == "image":
+            continue
+        value = params.get(field)
+        if value is not None:
+            config[field] = value
 
     return config
 
@@ -321,11 +369,6 @@ def ensure_present(module, client):
             desired_fields["image"] = config["image"]
 
         changed = values_differ(desired_fields, config)
-
-        if not changed and "env" in config:
-            current_env = current_config.get("env") or {}
-            desired_env = config["env"] or {}
-            changed = set(current_env.keys()) != set(desired_env.keys())
 
         if not changed:
             module.exit_json(
@@ -523,7 +566,8 @@ def main():
             },
             "guest": {"type": "dict"},
             "services": {"type": "list", "elements": "dict"},
-            "env": {"type": "dict"},
+            "checks": {"type": "dict"},
+            "env": {"type": "dict", "no_log": True},
             "files": {
                 "type": "list",
                 "elements": "dict",
@@ -537,6 +581,18 @@ def main():
             },
             "mounts": {"type": "list", "elements": "dict"},
             "auto_destroy": {"type": "bool"},
+            "restart": {
+                "type": "dict",
+                "options": {
+                    "policy": {
+                        "type": "str",
+                        "choices": ["no", "always", "on-failure"],
+                    },
+                    "max_retries": {"type": "int"},
+                },
+            },
+            "metadata": {"type": "dict"},
+            "statics": {"type": "list", "elements": "dict"},
             "wait": {"type": "bool", "default": True},
             "wait_timeout": {"type": "int", "default": 60},
             "state": {

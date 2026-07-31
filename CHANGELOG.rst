@@ -4,6 +4,26 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.0.3
+======
+
+Minor Changes
+-------------
+
+- machines - add checks field for health check configuration.
+- machines - add metadata field for machine metadata.
+- machines - add restart field for restart policy configuration.
+
+Bugfixes
+--------
+
+- flyio_utils - fix graphql_request silently discarding HTTP error details.
+- flyio_utils - fix socket timeout on wait_for_machine long-poll requests.
+- flyio_utils - fix values_differ not detecting key removals.
+- flyio_utils - remove dead token field from client dict.
+- flyio_utils - remove unused patch_result function.
+- machines - mark env parameter as no_log to prevent credential exposure.
+
 v1.0.2
 ======
 

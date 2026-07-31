@@ -19,7 +19,6 @@ def flyio_client(module):
         module.fail_json(msg="api_token is required")
 
     client = {
-        "token": token,
         "headers": {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -39,7 +38,7 @@ class FlyioApiError(Exception):
         self.response_body = response_body
 
 
-def api_request(client, method, path, body=None, ok_statuses=None):
+def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
     ok_statuses = ok_statuses or []
     url = f"{MACHINES_API_URL}{path}"
     data = json.dumps(body) if body is not None else None
@@ -50,6 +49,7 @@ def api_request(client, method, path, body=None, ok_statuses=None):
             method=method.upper(),
             data=data,
             headers=client["headers"],
+            timeout=timeout,
         )
         content = response.read()
         if content:
@@ -109,7 +109,7 @@ def get_ip_addresses(client, app_name):
     return addresses
 
 
-def graphql_request(client, query, variables=None):
+def graphql_request(client, query, variables=None, timeout=30):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
@@ -120,10 +120,24 @@ def graphql_request(client, query, variables=None):
             method="POST",
             data=json.dumps(payload),
             headers=client["headers"],
+            timeout=timeout,
         )
         result = json.loads(response.read())
-    except (urllib.error.URLError, ValueError) as exc:
+    except urllib.error.HTTPError as exc:
+        response_body = None
+        try:
+            response_body = json.loads(exc.read())
+        except (ValueError, AttributeError):
+            pass
+        raise FlyioApiError(
+            str(exc),
+            status_code=exc.code,
+            response_body=response_body,
+        )
+    except urllib.error.URLError as exc:
         raise FlyioApiError(str(exc))
+    except ValueError as exc:
+        raise FlyioApiError(f"Invalid JSON in GraphQL response: {exc}")
 
     if result.get("errors"):
         raise FlyioApiError(result["errors"][0].get("message", "GraphQL error"))
@@ -159,10 +173,6 @@ def list_all(client, path):
     return [result]
 
 
-def patch_result(client, path, body):
-    return api_request(client, "patch", path, body=body)
-
-
 def post_result(client, path, body):
     return api_request(client, "post", path, body=body)
 
@@ -184,10 +194,14 @@ def values_differ(current, desired):
     if not desired:
         return bool(current)
 
-    for key, value in desired.items():
+    all_keys = set(current) | set(desired)
+    for key in all_keys:
+        if key not in desired:
+            return True
         if key not in current:
             return True
         cur = current[key]
+        value = desired[key]
         if isinstance(value, dict) and isinstance(cur, dict):
             if values_differ(cur, value):
                 return True
@@ -206,7 +220,7 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60):
     path = (
         f"/apps/{app_name}/machines/{machine_id}/wait?state={state}&timeout={timeout}"
     )
-    api_request(client, "get", path)
+    api_request(client, "get", path, timeout=timeout + 10)
 
 
 def wait_for_volume(client, app_name, volume_id, timeout=60):
