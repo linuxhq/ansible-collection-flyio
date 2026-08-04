@@ -192,16 +192,12 @@ def values_differ(current, desired):
         return current != desired
 
     if not desired:
-        return bool(current)
+        return False
 
-    all_keys = set(current) | set(desired)
-    for key in all_keys:
-        if key not in desired:
-            return True
+    for key, value in desired.items():
         if key not in current:
             return True
         cur = current[key]
-        value = desired[key]
         if isinstance(value, dict) and isinstance(cur, dict):
             if values_differ(cur, value):
                 return True

@@ -308,6 +308,14 @@ CONFIG_FIELDS = (
 )
 
 
+def clean(value):
+    if isinstance(value, dict):
+        return {key: clean(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [clean(item) for item in value]
+    return value
+
+
 def find_machine(client, app_name, name=None, machine_id=None):
     if machine_id is not None:
         return get_result(
@@ -320,7 +328,10 @@ def find_machine(client, app_name, name=None, machine_id=None):
 
     for machine in machines:
         if machine.get("name") == name:
-            return machine
+            return get_result(
+                client,
+                "/apps/{}/machines/{}".format(app_name, machine["id"]),
+            )
 
     return None
 
@@ -343,7 +354,7 @@ def build_config(params):
         if value is not None:
             config[field] = value
 
-    return config
+    return clean(config)
 
 
 def ensure_present(module, client):

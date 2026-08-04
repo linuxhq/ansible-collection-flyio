@@ -63,3 +63,11 @@ releases:
     fragments:
     - ignore-destroying-volumes.yml
     release_date: '2026-08-03'
+  1.0.5:
+    changes:
+      bugfixes:
+      - machines - avoid unnecessary updates when fly.io returns normalized configuration
+        metadata.
+    fragments:
+    - machine-idempotence.yml
+    release_date: '2026-08-03'
