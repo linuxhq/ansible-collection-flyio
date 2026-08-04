@@ -115,20 +115,29 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     wait_for_volume,
 )
 
+DEAD_STATES = {"destroyed", "pending_destroy"}
+
+
+def is_live(volume):
+    return volume is not None and volume.get("state") not in DEAD_STATES
+
 
 def find_volume(client, app_name, name=None, volume_id=None, region=None):
     if volume_id is not None:
-        return get_result(
+        volume = get_result(
             client,
             f"/apps/{app_name}/volumes/{volume_id}",
             ok_statuses=[404],
         )
+        return volume if is_live(volume) else None
 
     volumes = list_all(client, f"/apps/{app_name}/volumes")
 
     for volume in volumes:
-        if volume.get("name") == name and (
-            region is None or volume.get("region") == region
+        if (
+            is_live(volume)
+            and volume.get("name") == name
+            and (region is None or volume.get("region") == region)
         ):
             return volume
 

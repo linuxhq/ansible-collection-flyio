@@ -1,0 +1,5 @@
+---
+bugfixes:
+  - volumes - ignore volumes pending destruction when resolving resources by
+    name or ID.
+...
