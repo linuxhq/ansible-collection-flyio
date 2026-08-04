@@ -26,11 +26,20 @@ def params(**updates):
 
 class MachinesTests(TestCase):
     def test_finds_machine_by_name(self):
-        expected = {"id": "machine-one", "name": "worker"}
+        listed = {"id": "machine-one", "name": "worker"}
+        expected = {
+            "config": {"restart": {"policy": "on-failure"}},
+            "id": "machine-one",
+            "name": "worker",
+        }
 
-        with patch.object(machines, "list_all", return_value=[expected]):
+        with (
+            patch.object(machines, "list_all", return_value=[listed]),
+            patch.object(machines, "get_result", return_value=expected) as get,
+        ):
             result = machines.find_machine({}, "example", name="worker")
 
+        get.assert_called_once_with({}, "/apps/example/machines/machine-one")
         self.assertEqual(result, expected)
 
     def test_image_registry_prefix_is_equivalent(self):
@@ -47,7 +56,15 @@ class MachinesTests(TestCase):
             {
                 "checks": {"health": {"port": 8080}},
                 "env": None,
+                "files": [
+                    {
+                        "guest_path": "/etc/example.conf",
+                        "raw_value": "ZXhhbXBsZQ==",
+                        "secret_name": None,
+                    }
+                ],
                 "image": "example:latest",
+                "init": {"entrypoint": ["/bin/sh"], "exec": None, "tty": None},
                 "restart": {"policy": "on-failure"},
             }
         )
@@ -56,7 +73,14 @@ class MachinesTests(TestCase):
             config,
             {
                 "checks": {"health": {"port": 8080}},
+                "files": [
+                    {
+                        "guest_path": "/etc/example.conf",
+                        "raw_value": "ZXhhbXBsZQ==",
+                    }
+                ],
                 "image": "example:latest",
+                "init": {"entrypoint": ["/bin/sh"]},
                 "restart": {"policy": "on-failure"},
             },
         )
@@ -67,6 +91,49 @@ class MachinesTests(TestCase):
             "id": "machine-one",
         }
         module = FakeModule(params())
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertFalse(raised.exception.values["changed"])
+
+    def test_normalized_machine_is_unchanged(self):
+        current = {
+            "config": {
+                "files": [
+                    {
+                        "guest_path": "/etc/example.conf",
+                        "mode": "0644",
+                        "raw_value": "ZXhhbXBsZQ==",
+                    }
+                ],
+                "image": "example:latest",
+                "mounts": [
+                    {
+                        "encrypted": True,
+                        "name": "data",
+                        "path": "/data",
+                        "size_gb": 1,
+                        "volume": "vol-example",
+                    }
+                ],
+            },
+            "id": "machine-one",
+        }
+        module = FakeModule(
+            params(
+                files=[
+                    {
+                        "guest_path": "/etc/example.conf",
+                        "raw_value": "ZXhhbXBsZQ==",
+                    }
+                ],
+                mounts=[{"path": "/data", "volume": "vol-example"}],
+            )
+        )
 
         with (
             patch.object(machines, "find_machine", return_value=current),
