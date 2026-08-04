@@ -16,7 +16,9 @@
   ansible.builtin.set_fact:
     _volumes_info_list:
       "{{ __volumes_info_query.volumes |
-          d([]) }}"
+          d([]) |
+          selectattr('state', 'equalto', 'created') |
+          list }}"
 
 - name: Ensure dict of flyio volumes information is generated
   tags:

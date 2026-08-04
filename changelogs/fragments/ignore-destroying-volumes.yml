@@ -1,0 +1,6 @@
+---
+bugfixes:
+  - volumes - ignore volumes pending destruction when resolving resources by
+    name or ID.
+  - volumes_info role - expose only created volumes for machine mount lookups.
+...
