@@ -1,0 +1,48 @@
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+
+from unittest import TestCase
+from unittest.mock import patch
+
+from ansible_collections.linuxhq.flyio.plugins.modules import apps_info
+from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
+    FakeModule,
+    ModuleExit,
+    ModuleFail,
+)
+
+
+class AppsInfoTests(TestCase):
+    def test_info(self):
+        app = {"name": "example"}
+        module = FakeModule({"name": "example"})
+
+        with (
+            patch.object(apps_info, "get_result", return_value=app),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            apps_info.info(module, {})
+
+        self.assertEqual(raised.exception.values["apps"], [app])
+
+    def test_missing_app_fails(self):
+        module = FakeModule({"name": "missing"})
+
+        with (
+            patch.object(apps_info, "get_result", return_value=None),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            apps_info.info(module, {})
+
+        self.assertEqual(raised.exception.values["msg"], "App 'missing' not found")
+
+    def test_lists_apps(self):
+        listed = [{"name": "one"}, {"name": "two"}]
+        module = FakeModule({"org_slug": "linuxhq"})
+
+        with (
+            patch.object(apps_info, "get_result", return_value={"apps": listed}),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            apps_info.list_resources(module, {})
+
+        self.assertEqual(raised.exception.values["apps"], listed)
