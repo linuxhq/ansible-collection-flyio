@@ -55,3 +55,11 @@ releases:
     fragments:
     - v1.0.3.yml
     release_date: '2026-07-31'
+  1.0.4:
+    changes:
+      bugfixes:
+      - volumes - ignore volumes pending destruction when resolving resources by name
+        or ID.
+    fragments:
+    - ignore-destroying-volumes.yml
+    release_date: '2026-08-03'

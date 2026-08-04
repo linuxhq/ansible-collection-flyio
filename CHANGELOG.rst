@@ -4,6 +4,14 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.0.4
+======
+
+Bugfixes
+--------
+
+- volumes - ignore volumes pending destruction when resolving resources by name or ID.
+
 v1.0.3
 ======
 
