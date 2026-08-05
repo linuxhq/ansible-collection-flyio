@@ -4,6 +4,14 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.0.6
+======
+
+Minor Changes
+-------------
+
+- machines_exec - add a module to execute commands on fly.io machines.
+
 v1.0.5
 ======
 
