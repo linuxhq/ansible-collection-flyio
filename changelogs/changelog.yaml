@@ -71,3 +71,10 @@ releases:
     fragments:
     - machine-idempotence.yml
     release_date: '2026-08-03'
+  1.0.6:
+    changes:
+      minor_changes:
+      - machines_exec - add a module to execute commands on fly.io machines.
+    fragments:
+    - machines-exec.yml
+    release_date: '2026-08-05'
