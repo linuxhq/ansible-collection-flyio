@@ -4,6 +4,30 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.0.7
+======
+
+Minor Changes
+-------------
+
+- info roles - remove the community.general json_query runtime dependency.
+- machines role - pass static file configuration to the machines module.
+- secrets - add modules and roles to manage and inspect fly.io app secrets.
+
+Breaking Changes / Porting Guide
+--------------------------------
+
+- ip_addresses, machines, and volumes roles - group resources by app in nested inventory lists.
+
+Bugfixes
+--------
+
+- apps - force app deletion by default and make the deletion request timeout configurable.
+- apps_info, machines_info, and volumes_info - handle missing singular resources as documented.
+- flyio_utils - use the FlyV1 authorization scheme when any credential in a compound token uses the fm1r or fm2 format.
+- machines - preserve unspecified configuration during updates, purge removed dictionary values, reject region changes, and compare image references exactly.
+- volumes - require a region for unambiguous name-based operations.
+
 v1.0.6
 ======
 

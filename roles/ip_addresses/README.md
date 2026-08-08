@@ -30,7 +30,7 @@ None
         - role: linuxhq.flyio.ip_addresses
           ip_addresses_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
           ip_addresses_list:
-            - app_name: my-app
-              type: v4
-            - app_name: my-app
-              type: v6
+            - app_name: molecule-test-app
+              ip_addresses:
+                - type: v4
+                - type: v6

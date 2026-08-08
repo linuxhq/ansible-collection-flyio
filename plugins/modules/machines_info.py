@@ -64,6 +64,7 @@ def info(module, client):
     machine = get_result(
         client,
         "/apps/{}/machines/{}".format(module.params["app_name"], module.params["id"]),
+        ok_statuses=[404],
     )
 
     if machine is None:

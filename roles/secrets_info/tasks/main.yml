@@ -1,0 +1,30 @@
+---
+- name: Ensure flyio secrets information is gathered
+  tags:
+    - secrets_info
+  linuxhq.flyio.secrets_info:
+    api_token: "{{ secrets_info_api_token }}"
+    app_name: "{{ secrets_info_app_name }}"
+  register: __secrets_info_query
+  when:
+    - secrets_info_api_token is not none
+    - secrets_info_app_name is not none
+
+- name: Ensure list of flyio secrets information is generated
+  tags:
+    - secrets_info
+  ansible.builtin.set_fact:
+    _secrets_info_list:
+      "{{ __secrets_info_query.secrets |
+          d([]) }}"
+
+- name: Ensure dict of flyio secrets information is generated
+  tags:
+    - secrets_info
+  ansible.builtin.set_fact:
+    _secrets_info_dict:
+      "{{ (dict(_secrets_info_list |
+                map(attribute='name') |
+                zip(_secrets_info_list))) |
+          d({}) }}"
+...

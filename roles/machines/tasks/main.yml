@@ -8,7 +8,10 @@
         - machines
     file: include.yml
   loop:
-    "{{ machines_list |
+    "{{ q('ansible.builtin.subelements',
+          machines_list,
+          'machines',
+          {'skip_missing': true}) |
         batch(machines_batch) }}"
   loop_control:
     label: "{{ __machines_list | length }}"

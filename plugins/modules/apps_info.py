@@ -62,7 +62,11 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 
 def info(module, client):
-    app = get_result(client, "/apps/{}".format(module.params["name"]))
+    app = get_result(
+        client,
+        "/apps/{}".format(module.params["name"]),
+        ok_statuses=[404],
+    )
 
     if app is None:
         module.fail_json(msg="App '{}' not found".format(module.params["name"]))

@@ -34,21 +34,21 @@ provisioner:
         machines_info_app_name: molecule-test-app
         machines_list:
           - app_name: molecule-test-app
-            guest:
-              cpu_kind: shared
-              cpus: 1
-              memory_mb: 256
-            image: nginx:alpine
-            name: molecule-web
-            region: ord
-          - app_name: molecule-test-app
-            guest:
-              cpu_kind: shared
-              cpus: 1
-              memory_mb: 256
-            image: nginx:alpine
-            name: molecule-worker
-            region: ord
+            machines:
+              - guest:
+                  cpu_kind: shared
+                  cpus: 1
+                  memory_mb: 256
+                image: nginx:alpine
+                name: molecule-web
+                region: ord
+              - guest:
+                  cpu_kind: shared
+                  cpus: 1
+                  memory_mb: 256
+                image: nginx:alpine
+                name: molecule-worker
+                region: ord
 
 scenario:
   test_sequence:

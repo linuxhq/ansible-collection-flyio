@@ -36,6 +36,7 @@ options:
     type: str
     description:
       - Region code.
+      - Cannot be changed on an existing machine.
   image:
     type: str
     description:
@@ -287,7 +288,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     get_result,
     list_all,
     post_result,
-    select_fields,
     values_differ,
     wait_for_machine,
 )
@@ -336,14 +336,6 @@ def find_machine(client, app_name, name=None, machine_id=None):
     return None
 
 
-def image_changed(current_image, desired_image):
-    if not current_image or not desired_image:
-        return current_image != desired_image
-    if current_image == desired_image:
-        return False
-    return not current_image.endswith("/" + desired_image)
-
-
 def build_config(params):
     config = {"image": params["image"]}
 
@@ -368,18 +360,25 @@ def ensure_present(module, client):
         machine_id=params.get("id"),
     )
 
-    config = build_config(params)
+    desired_config = build_config(params)
 
     if current is not None:
         current_config = current.get("config", {})
-        desired_fields = select_fields(current_config, config.keys())
-
-        if "image" in desired_fields and not image_changed(
-            desired_fields["image"], config["image"]
+        current_region = current.get("region")
+        if (
+            params.get("region") is not None
+            and current_region is not None
+            and params["region"] != current_region
         ):
-            desired_fields["image"] = config["image"]
+            module.fail_json(msg="region cannot be changed for an existing machine")
 
-        changed = values_differ(desired_fields, config)
+        changed = current_config.get("image") != desired_config["image"]
+        for field, value in desired_config.items():
+            if field != "image" and values_differ(
+                current_config.get(field), value, purge=isinstance(value, dict)
+            ):
+                changed = True
+                break
 
         if not changed:
             module.exit_json(
@@ -393,9 +392,12 @@ def ensure_present(module, client):
                 machine=current,
             )
 
+        config = dict(current_config)
+        config.update(desired_config)
+
         body = {"config": config}
-        if params.get("region") is not None:
-            body["region"] = params["region"]
+        if current_region is not None or params.get("region") is not None:
+            body["region"] = current_region or params["region"]
 
         result = post_result(
             client,
@@ -416,7 +418,7 @@ def ensure_present(module, client):
     if module.check_mode:
         module.exit_json(changed=True, message="Machine would be created")
 
-    body = {"config": config}
+    body = {"config": desired_config}
     if params.get("name") is not None:
         body["name"] = params["name"]
     if params.get("region") is not None:

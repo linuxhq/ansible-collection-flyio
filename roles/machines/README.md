@@ -30,22 +30,22 @@ None
         - role: linuxhq.flyio.machines
           machines_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
           machines_list:
-            - app_name: my-app
-              guest:
-                cpu_kind: shared
-                cpus: 1
-                memory_mb: 256
-              image: nginx:alpine
-              name: my-web
-              region: ord
-            - app_name: my-app
-              guest:
-                cpu_kind: shared
-                cpus: 1
-                memory_mb: 256
-              image: nginx:alpine
-              name: my-worker
-              region: ord
+            - app_name: molecule-test-app
+              machines:
+                - guest:
+                    cpu_kind: shared
+                    cpus: 1
+                    memory_mb: 256
+                  image: nginx:alpine
+                  name: molecule-web
+                  region: ord
+                - guest:
+                    cpu_kind: shared
+                    cpus: 1
+                    memory_mb: 256
+                  image: nginx:alpine
+                  name: molecule-worker
+                  region: ord
 
           volumes_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-          volumes_info_app_name: my-app
+          volumes_info_app_name: molecule-test-app

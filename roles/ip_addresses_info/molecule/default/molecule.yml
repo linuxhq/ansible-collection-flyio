@@ -34,9 +34,9 @@ provisioner:
         ip_addresses_info_app_name: molecule-test-app
         ip_addresses_list:
           - app_name: molecule-test-app
-            type: v4
-          - app_name: molecule-test-app
-            type: v6
+            ip_addresses:
+              - type: v4
+              - type: v6
 
 scenario:
   test_sequence:

@@ -7,6 +7,7 @@ from ansible_collections.linuxhq.flyio.plugins.modules import machines
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
     ModuleExit,
+    ModuleFail,
 )
 
 
@@ -41,15 +42,6 @@ class MachinesTests(TestCase):
 
         get.assert_called_once_with({}, "/apps/example/machines/machine-one")
         self.assertEqual(result, expected)
-
-    def test_image_registry_prefix_is_equivalent(self):
-        self.assertFalse(
-            machines.image_changed(
-                "registry.example/library/example:latest",
-                "example:latest",
-            )
-        )
-        self.assertTrue(machines.image_changed("example:old", "example:latest"))
 
     def test_builds_config_without_none_values(self):
         config = machines.build_config(
@@ -87,10 +79,10 @@ class MachinesTests(TestCase):
 
     def test_equivalent_machine_is_unchanged(self):
         current = {
-            "config": {"image": "registry.example/library/example:latest"},
+            "config": {"image": "ghcr.io/example/app:latest"},
             "id": "machine-one",
         }
-        module = FakeModule(params())
+        module = FakeModule(params(image="ghcr.io/example/app:latest"))
 
         with (
             patch.object(machines, "find_machine", return_value=current),
@@ -145,8 +137,13 @@ class MachinesTests(TestCase):
 
     def test_updates_machine_and_waits(self):
         current = {
-            "config": {"image": "example:old"},
+            "config": {
+                "env": {"PRESERVED": "value"},
+                "image": "ghcr.io/library/example:latest",
+                "services": [{"internal_port": 8080}],
+            },
             "id": "machine-one",
+            "region": "ord",
         }
         updated = {"id": "machine-one", "state": "started"}
         module = FakeModule(params())
@@ -162,10 +159,66 @@ class MachinesTests(TestCase):
         post.assert_called_once_with(
             {},
             "/apps/example/machines/machine-one",
-            {"config": {"image": "example:latest"}, "region": "ord"},
+            {
+                "config": {
+                    "env": {"PRESERVED": "value"},
+                    "image": "example:latest",
+                    "services": [{"internal_port": 8080}],
+                },
+                "region": "ord",
+            },
         )
         wait.assert_called_once_with({}, "example", "machine-one", "started", 60)
         self.assertEqual(raised.exception.values["machine"], updated)
+
+    def test_removes_unspecified_environment_keys(self):
+        current = {
+            "config": {
+                "env": {"KEEP": "value", "REMOVE": "value"},
+                "image": "example:latest",
+            },
+            "id": "machine-one",
+            "region": "ord",
+        }
+        module = FakeModule(params(env={"KEEP": "value"}, wait=False))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=current) as post,
+            self.assertRaises(ModuleExit),
+        ):
+            machines.ensure_present(module, {})
+
+        post.assert_called_once_with(
+            {},
+            "/apps/example/machines/machine-one",
+            {
+                "config": {
+                    "env": {"KEEP": "value"},
+                    "image": "example:latest",
+                },
+                "region": "ord",
+            },
+        )
+
+    def test_rejects_region_changes(self):
+        current = {
+            "config": {"image": "example:latest"},
+            "id": "machine-one",
+            "region": "iad",
+        }
+        module = FakeModule(params(region="ord"))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "region cannot be changed for an existing machine",
+        )
 
     def test_check_mode_does_not_create_machine(self):
         module = FakeModule(params(), check_mode=True)

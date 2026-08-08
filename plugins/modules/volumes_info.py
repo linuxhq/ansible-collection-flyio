@@ -64,6 +64,7 @@ def info(module, client):
     volume = get_result(
         client,
         "/apps/{}/volumes/{}".format(module.params["app_name"], module.params["id"]),
+        ok_statuses=[404],
     )
 
     if volume is None:

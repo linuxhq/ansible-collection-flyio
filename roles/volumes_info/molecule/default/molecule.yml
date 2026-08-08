@@ -34,13 +34,13 @@ provisioner:
         volumes_info_app_name: molecule-test-app
         volumes_list:
           - app_name: molecule-test-app
-            name: molecule_data
-            region: ord
-            size_gb: 1
-          - app_name: molecule-test-app
-            name: molecule_logs
-            region: ord
-            size_gb: 1
+            volumes:
+              - name: molecule_data
+                region: ord
+                size_gb: 1
+              - name: molecule_logs
+                region: ord
+                size_gb: 1
 
 scenario:
   test_sequence:

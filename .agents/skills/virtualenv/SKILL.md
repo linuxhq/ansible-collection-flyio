@@ -19,7 +19,6 @@ Sub-targets:
 
 - `make venv` — create the venv.
 - `make python` — install/repin Python deps.
-- `make galaxy` — install collection deps.
 - `make pre-commit` — install the pre-commit hook.
 - `make clean` — remove the venv.
 

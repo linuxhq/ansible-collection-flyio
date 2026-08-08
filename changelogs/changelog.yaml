@@ -78,3 +78,27 @@ releases:
     fragments:
     - machines-exec.yml
     release_date: '2026-08-05'
+  1.0.7:
+    changes:
+      breaking_changes:
+      - ip_addresses, machines, and volumes roles - group resources by app in nested
+        inventory lists.
+      bugfixes:
+      - apps - force app deletion by default and make the deletion request timeout
+        configurable.
+      - apps_info, machines_info, and volumes_info - handle missing singular resources
+        as documented.
+      - flyio_utils - use the FlyV1 authorization scheme when any credential in a
+        compound token uses the fm1r or fm2 format.
+      - machines - preserve unspecified configuration during updates, purge removed
+        dictionary values, reject region changes, and compare image references exactly.
+      - volumes - require a region for unambiguous name-based operations.
+      minor_changes:
+      - info roles - remove the community.general json_query runtime dependency.
+      - machines role - pass static file configuration to the machines module.
+      - secrets - add modules and roles to manage and inspect fly.io app secrets.
+    fragments:
+    - app-resource-inventories.yml
+    - audit-fixes.yml
+    - secrets.yml
+    release_date: '2026-08-08'
