@@ -1,17 +1,14 @@
-# Makefile
+.PHONY: all clean pre-commit python
 
-all: venv python galaxy pre-commit
+all: pre-commit
 
 clean:
 	$(RM) -r venv
 
-galaxy:
-	venv/bin/ansible-galaxy install -r requirements.yml
-
-pre-commit:
+pre-commit: python
 	venv/bin/pre-commit install
 
-python:
+python: venv
 	venv/bin/python3 -m pip install --upgrade pip
 	PYTHONWARNINGS='ignore:DEPRECATION' venv/bin/pip install -r requirements.txt
 

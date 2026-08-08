@@ -4,6 +4,8 @@
     - apps
   linuxhq.flyio.apps:
     api_token: "{{ apps_api_token }}"
+    delete_timeout: "{{ _app.delete_timeout | d(omit) }}"
+    force: "{{ _app.force | d(omit) }}"
     name: "{{ _app.name }}"
     network: "{{ _app.network | d(omit) }}"
     org_slug: "{{ _app.org_slug | d(omit) }}"

@@ -45,7 +45,7 @@ class AppsTests(TestCase):
 
     def test_deletes_app(self):
         current = {"name": "example"}
-        module = FakeModule({"name": "example"})
+        module = FakeModule({"delete_timeout": 120, "force": True, "name": "example"})
 
         with (
             patch.object(apps, "get_result", return_value=current),
@@ -54,7 +54,7 @@ class AppsTests(TestCase):
         ):
             apps.ensure_absent(module, {})
 
-        delete.assert_called_once_with({}, "/apps/example")
+        delete.assert_called_once_with({}, "/apps/example?force=true", timeout=120)
         self.assertTrue(raised.exception.values["changed"])
 
     def test_check_mode_does_not_create(self):

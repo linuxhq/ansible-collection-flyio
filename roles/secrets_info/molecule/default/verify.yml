@@ -1,0 +1,32 @@
+---
+- name: Verify
+  hosts: all
+  roles:
+    - secrets_info
+
+  post_tasks:
+    - name: Ensure info is verified
+      ansible.builtin.assert:
+        that:
+          - _secrets_info_dict.APP_SECRET is defined
+          - _secrets_info_dict.APP_SECRET.digest is defined
+          - _secrets_info_dict.APP_SECRET.value is not defined
+
+    - name: Ensure inventory lists are formatted
+      ansible.builtin.set_fact:
+        secrets_list:
+          "{{ secrets_list |
+              map('combine', {'state': 'absent'}) }}"
+        apps_list:
+          "{{ apps_list |
+              map('combine', {'state': 'absent'}) }}"
+
+    - name: Ensure roles are included
+      ansible.builtin.include_role:
+        name: "{{ _role }}"
+      loop:
+        - secrets
+        - apps
+      loop_control:
+        loop_var: _role
+...

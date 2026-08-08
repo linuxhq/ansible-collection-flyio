@@ -17,11 +17,14 @@ class VolumesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "vol_one"})
 
         with (
-            patch.object(volumes_info, "get_result", return_value=volume),
+            patch.object(volumes_info, "get_result", return_value=volume) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             volumes_info.info(module, {})
 
+        get.assert_called_once_with(
+            {}, "/apps/example/volumes/vol_one", ok_statuses=[404]
+        )
         self.assertEqual(raised.exception.values["volumes"], [volume])
 
     def test_missing_volume_fails(self):

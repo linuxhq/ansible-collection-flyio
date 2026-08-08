@@ -8,7 +8,10 @@
         - volumes
     file: include.yml
   loop:
-    "{{ volumes_list |
+    "{{ q('ansible.builtin.subelements',
+          volumes_list,
+          'volumes',
+          {'skip_missing': true}) |
         batch(volumes_batch) }}"
   loop_control:
     label: "{{ __volumes_list | length }}"

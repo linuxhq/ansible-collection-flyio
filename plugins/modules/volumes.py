@@ -34,11 +34,12 @@ options:
     description:
       - Volume name.
       - Mutually exclusive with O(id).
+      - Requires O(region).
   region:
     type: str
     description:
       - Region code.
-      - Required when creating a volume.
+      - Required when O(name) is specified.
   size_gb:
     type: int
     default: 1
@@ -272,6 +273,9 @@ def main():
         required_one_of=[
             ("id", "name"),
         ],
+        required_by={
+            "name": ("region",),
+        },
         supports_check_mode=True,
     )
 

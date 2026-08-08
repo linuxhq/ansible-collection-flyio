@@ -4,36 +4,37 @@
     - machines
   linuxhq.flyio.machines:
     api_token: "{{ machines_api_token }}"
-    app_name: "{{ _machine.app_name }}"
-    auto_destroy: "{{ _machine.auto_destroy | d(omit) }}"
-    checks: "{{ _machine.checks | d(omit) }}"
-    env: "{{ _machine.env | d(omit) }}"
-    files: "{{ _machine.files | d(omit) }}"
-    guest: "{{ _machine.guest | d(omit) }}"
-    id: "{{ _machine.id | d(omit) }}"
-    image: "{{ _machine.image | d(omit) }}"
-    init: "{{ _machine.init | d(omit) }}"
-    metadata: "{{ _machine.metadata | d(omit) }}"
-    mounts: "{{ _machine.mounts | d(omit) }}"
-    name: "{{ _machine.name | d(omit) }}"
-    region: "{{ _machine.region | d(omit) }}"
-    restart: "{{ _machine.restart | d(omit) }}"
-    services: "{{ _machine.services | d(omit) }}"
-    state: "{{ _machine.state | d('present') }}"
-    wait: "{{ _machine.wait | d(omit) }}"
-    wait_timeout: "{{ _machine.wait_timeout | d(omit) }}"
+    app_name: "{{ _machine.0.app_name }}"
+    auto_destroy: "{{ _machine.1.auto_destroy | d(omit) }}"
+    checks: "{{ _machine.1.checks | d(omit) }}"
+    env: "{{ _machine.1.env | d(omit) }}"
+    files: "{{ _machine.1.files | d(omit) }}"
+    guest: "{{ _machine.1.guest | d(omit) }}"
+    id: "{{ _machine.1.id | d(omit) }}"
+    image: "{{ _machine.1.image | d(omit) }}"
+    init: "{{ _machine.1.init | d(omit) }}"
+    metadata: "{{ _machine.1.metadata | d(omit) }}"
+    mounts: "{{ _machine.1.mounts | d(omit) }}"
+    name: "{{ _machine.1.name | d(omit) }}"
+    region: "{{ _machine.1.region | d(omit) }}"
+    restart: "{{ _machine.1.restart | d(omit) }}"
+    services: "{{ _machine.1.services | d(omit) }}"
+    statics: "{{ _machine.1.statics | d(omit) }}"
+    state: "{{ _machine.1.state | d(_machine.0.state | d('present')) }}"
+    wait: "{{ _machine.1.wait | d(omit) }}"
+    wait_timeout: "{{ _machine.1.wait_timeout | d(omit) }}"
   register: __machines_result
   loop: "{{ __machines_list }}"
   loop_control:
-    label: "{{ _machine.name | d(none) }}"
+    label: "{{ _machine.1.name | d(none) }}"
     loop_var: _machine
   async: "{{ ansible_check_mode | ternary(0, machines_async) }}"
   poll: "{{ machines_poll }}"
   when:
     - machines_api_token is not none
-    - _machine.app_name is defined
-    - _machine.name is defined or
-      _machine.id is defined
+    - _machine.0.app_name is defined
+    - _machine.1.name is defined or
+      _machine.1.id is defined
   changed_when:
     - ansible_check_mode | bool
     - __machines_result.changed | bool
@@ -46,7 +47,7 @@
   register: __machines_status
   loop: "{{ __machines_result.results }}"
   loop_control:
-    label: "{{ _jid._machine.name | d(none) }}"
+    label: "{{ _jid._machine.1.name | d(none) }}"
     loop_var: _jid
   when:
     - _jid.ansible_job_id is defined

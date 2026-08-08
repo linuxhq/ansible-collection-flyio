@@ -29,6 +29,18 @@ options:
     type: str
     description:
       - Custom private network name.
+  force:
+    type: bool
+    default: true
+    description:
+      - Stop and destroy the app's Machines when deleting the app.
+      - Used only when O(state=absent).
+  delete_timeout:
+    type: int
+    default: 60
+    description:
+      - Timeout in seconds for the app deletion request.
+      - Used only when O(state=absent).
   state:
     type: str
     choices:
@@ -62,6 +74,8 @@ EXAMPLES = r"""
   linuxhq.flyio.apps:
     api_token: "{{ flyio_api_token }}"
     name: my-app
+    delete_timeout: 120
+    force: true
     state: absent
 """
 
@@ -136,7 +150,11 @@ def ensure_absent(module, client):
     if module.check_mode:
         module.exit_json(changed=True, message="App would be deleted", app=current)
 
-    delete_result(client, "/apps/{}".format(params["name"]))
+    path = "/apps/{}".format(params["name"])
+    if params["force"]:
+        path += "?force=true"
+
+    delete_result(client, path, timeout=params["delete_timeout"])
 
     module.exit_json(changed=True, message="App deleted", app=current)
 
@@ -148,6 +166,8 @@ def main():
             "name": {"required": True, "type": "str"},
             "org_slug": {"type": "str"},
             "network": {"type": "str"},
+            "force": {"type": "bool", "default": True},
+            "delete_timeout": {"type": "int", "default": 60},
             "state": {
                 "type": "str",
                 "choices": ["present", "absent"],

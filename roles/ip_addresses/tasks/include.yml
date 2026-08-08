@@ -3,22 +3,22 @@
   tags:
     - ip_addresses
   linuxhq.flyio.ip_addresses:
-    address: "{{ _ip_address.address | d(omit) }}"
+    address: "{{ _ip_address.1.address | d(omit) }}"
     api_token: "{{ ip_addresses_api_token }}"
-    app_name: "{{ _ip_address.app_name }}"
-    region: "{{ _ip_address.region | d(omit) }}"
-    state: "{{ _ip_address.state | d('present') }}"
-    type: "{{ _ip_address.type | d(omit) }}"
+    app_name: "{{ _ip_address.0.app_name }}"
+    region: "{{ _ip_address.1.region | d(omit) }}"
+    state: "{{ _ip_address.1.state | d(_ip_address.0.state | d('present')) }}"
+    type: "{{ _ip_address.1.type | d(omit) }}"
   register: __ip_addresses_result
   loop: "{{ __ip_addresses_list }}"
   loop_control:
-    label: "{{ _ip_address.app_name | d(none) }}"
+    label: "{{ _ip_address.1.type | d(none) }}"
     loop_var: _ip_address
   async: "{{ ansible_check_mode | ternary(0, ip_addresses_async) }}"
   poll: "{{ ip_addresses_poll }}"
   when:
     - ip_addresses_api_token is not none
-    - _ip_address.app_name is defined
+    - _ip_address.0.app_name is defined
   changed_when:
     - ansible_check_mode | bool
     - __ip_addresses_result.changed | bool
@@ -31,7 +31,7 @@
   register: __ip_addresses_status
   loop: "{{ __ip_addresses_result.results }}"
   loop_control:
-    label: "{{ _jid._ip_address.app_name | d(none) }}"
+    label: "{{ _jid._ip_address.1.type | d(none) }}"
     loop_var: _jid
   when:
     - _jid.ansible_job_id is defined

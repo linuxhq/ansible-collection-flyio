@@ -17,11 +17,14 @@ class MachinesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "machine-one"})
 
         with (
-            patch.object(machines_info, "get_result", return_value=machine),
+            patch.object(machines_info, "get_result", return_value=machine) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             machines_info.info(module, {})
 
+        get.assert_called_once_with(
+            {}, "/apps/example/machines/machine-one", ok_statuses=[404]
+        )
         self.assertEqual(raised.exception.values["machines"], [machine])
 
     def test_missing_machine_fails(self):

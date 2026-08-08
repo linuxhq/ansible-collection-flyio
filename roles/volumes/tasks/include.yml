@@ -4,27 +4,27 @@
     - volumes
   linuxhq.flyio.volumes:
     api_token: "{{ volumes_api_token }}"
-    app_name: "{{ _volume.app_name }}"
-    encrypted: "{{ _volume.encrypted | d(omit) }}"
-    id: "{{ _volume.id | d(omit) }}"
-    name: "{{ _volume.name | d(omit) }}"
-    region: "{{ _volume.region | d(omit) }}"
-    size_gb: "{{ _volume.size_gb | d(omit) }}"
-    state: "{{ _volume.state | d('present') }}"
-    wait: "{{ _volume.wait | d(omit) }}"
-    wait_timeout: "{{ _volume.wait_timeout | d(omit) }}"
+    app_name: "{{ _volume.0.app_name }}"
+    encrypted: "{{ _volume.1.encrypted | d(omit) }}"
+    id: "{{ _volume.1.id | d(omit) }}"
+    name: "{{ _volume.1.name | d(omit) }}"
+    region: "{{ _volume.1.region | d(omit) }}"
+    size_gb: "{{ _volume.1.size_gb | d(omit) }}"
+    state: "{{ _volume.1.state | d(_volume.0.state | d('present')) }}"
+    wait: "{{ _volume.1.wait | d(omit) }}"
+    wait_timeout: "{{ _volume.1.wait_timeout | d(omit) }}"
   register: __volumes_result
   loop: "{{ __volumes_list }}"
   loop_control:
-    label: "{{ _volume.name | d(none) }}"
+    label: "{{ _volume.1.name | d(none) }}"
     loop_var: _volume
   async: "{{ ansible_check_mode | ternary(0, volumes_async) }}"
   poll: "{{ volumes_poll }}"
   when:
     - volumes_api_token is not none
-    - _volume.app_name is defined
-    - _volume.name is defined or
-      _volume.id is defined
+    - _volume.0.app_name is defined
+    - _volume.1.name is defined or
+      _volume.1.id is defined
   changed_when:
     - ansible_check_mode | bool
     - __volumes_result.changed | bool
@@ -37,7 +37,7 @@
   register: __volumes_status
   loop: "{{ __volumes_result.results }}"
   loop_control:
-    label: "{{ _jid._volume.name | d(none) }}"
+    label: "{{ _jid._volume.1.name | d(none) }}"
     loop_var: _jid
   when:
     - _jid.ansible_job_id is defined

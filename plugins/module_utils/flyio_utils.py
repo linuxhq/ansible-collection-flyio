@@ -12,6 +12,14 @@ GRAPHQL_API_URL = "https://api.fly.io/graphql"
 MACHINES_API_URL = "https://api.machines.dev/v1"
 
 
+def authorization_header(token):
+    if token.startswith(("Bearer ", "FlyV1 ")):
+        return token
+    if any(part.partition("_")[0] in ("fm1r", "fm2") for part in token.split(",")):
+        return f"FlyV1 {token}"
+    return f"Bearer {token}"
+
+
 @contextmanager
 def flyio_client(module):
     token = module.params.get("api_token")
@@ -20,7 +28,7 @@ def flyio_client(module):
 
     client = {
         "headers": {
-            "Authorization": f"Bearer {token}",
+            "Authorization": authorization_header(token),
             "Content-Type": "application/json",
         },
     }
@@ -77,8 +85,8 @@ def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
         raise FlyioApiError(f"Invalid JSON in API response: {exc}")
 
 
-def delete_result(client, path):
-    return api_request(client, "delete", path)
+def delete_result(client, path, timeout=30):
+    return api_request(client, "delete", path, timeout=timeout)
 
 
 def get_ip_addresses(client, app_name):
@@ -187,28 +195,27 @@ def select_fields(value, fields):
     return {field: value.get(field) for field in fields if field in value}
 
 
-def values_differ(current, desired):
+def values_differ(current, desired, purge=False):
+    if isinstance(current, list) and isinstance(desired, list):
+        if len(current) != len(desired):
+            return True
+        return any(
+            values_differ(cur, want, purge=purge) for cur, want in zip(current, desired)
+        )
+
     if not isinstance(current, dict) or not isinstance(desired, dict):
         return current != desired
+
+    if purge and current.keys() != desired.keys():
+        return True
 
     if not desired:
         return False
 
     for key, value in desired.items():
-        if key not in current:
+        if key not in current or values_differ(current[key], value, purge=purge):
             return True
-        cur = current[key]
-        if isinstance(value, dict) and isinstance(cur, dict):
-            if values_differ(cur, value):
-                return True
-        elif isinstance(value, list) and isinstance(cur, list):
-            if len(value) != len(cur):
-                return True
-            for c, d in zip(cur, value):
-                if values_differ(c, d):
-                    return True
-        elif cur != value:
-            return True
+
     return False
 
 

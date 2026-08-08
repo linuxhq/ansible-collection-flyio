@@ -8,7 +8,10 @@
         - ip_addresses
     file: include.yml
   loop:
-    "{{ ip_addresses_list |
+    "{{ q('ansible.builtin.subelements',
+          ip_addresses_list,
+          'ip_addresses',
+          {'skip_missing': true}) |
         batch(ip_addresses_batch) }}"
   loop_control:
     label: "{{ __ip_addresses_list | length }}"

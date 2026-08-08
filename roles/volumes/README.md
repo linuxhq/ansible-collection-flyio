@@ -30,11 +30,11 @@ None
         - role: linuxhq.flyio.volumes
           volumes_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
           volumes_list:
-            - app_name: my-app
-              name: my_data
-              region: ord
-              size_gb: 1
-            - app_name: my-app
-              name: my_logs
-              region: ord
-              size_gb: 1
+            - app_name: molecule-test-app
+              volumes:
+                - name: molecule_data
+                  region: ord
+                  size_gb: 1
+                - name: molecule_logs
+                  region: ord
+                  size_gb: 1
