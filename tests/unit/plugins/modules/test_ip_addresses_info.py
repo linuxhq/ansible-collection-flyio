@@ -30,15 +30,12 @@ class IpAddressesInfoTests(TestCase):
         module = FakeModule({"app_name": "missing"})
 
         with (
-            patch.object(
-                ip_addresses_info,
-                "get_ip_addresses",
-                side_effect=FlyioApiError("Could not find app"),
-            ),
+            patch.object(ip_addresses_info, "get_ip_addresses", return_value=[]) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             ip_addresses_info.list_resources(module, {})
 
+        get.assert_called_once_with({}, "missing", missing_ok=True)
         self.assertEqual(raised.exception.values["ip_addresses"], [])
 
     def test_other_api_errors_surface(self):

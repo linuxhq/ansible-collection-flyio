@@ -3,6 +3,7 @@
   hosts: all
   roles:
     - role: ip_addresses_info
+      ip_addresses_info_app_name: null
       tags:
         - molecule-idempotence-notest
       check_mode: false

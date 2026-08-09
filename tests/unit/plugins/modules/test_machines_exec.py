@@ -25,6 +25,18 @@ def module(check_mode=False, **updates):
 
 
 class MachinesExecTests(TestCase):
+    def test_rejects_nonpositive_timeout(self):
+        with (
+            patch.object(machines_exec, "api_request") as request,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines_exec.exec_command(module(timeout=0), {})
+
+        request.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"], "timeout must be greater than zero"
+        )
+
     def test_check_mode_does_not_execute(self):
         with (
             patch.object(machines_exec, "api_request") as request,
@@ -48,7 +60,11 @@ class MachinesExecTests(TestCase):
             {},
             "post",
             "/apps/example/machines/machine-one/exec",
-            body={"cmd": "true", "stdin": "input", "timeout": 30},
+            body={
+                "command": ["/bin/sh", "-c", "true"],
+                "stdin": "input",
+                "timeout": 30,
+            },
             timeout=40,
         )
         self.assertEqual(raised.exception.values["stdout"], "ready")
@@ -64,3 +80,17 @@ class MachinesExecTests(TestCase):
 
         self.assertEqual(raised.exception.values["exit_code"], 1)
         self.assertEqual(raised.exception.values["stderr"], "failed")
+
+    def test_rejects_malformed_response(self):
+        for result in (None, ["invalid"], {}, {"exit_code": "0"}, {"exit_code": False}):
+            with (
+                self.subTest(result=result),
+                patch.object(machines_exec, "api_request", return_value=result),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines_exec.exec_command(module(), {})
+
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "fly.io API returned a malformed response during command execution",
+            )

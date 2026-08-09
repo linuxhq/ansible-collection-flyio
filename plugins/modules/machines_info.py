@@ -56,33 +56,36 @@ machines:
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
-    get_result,
+    get_resource,
+    list_all,
 )
 
 
+def list_resources(module, client):
+    app_name = module.params["app_name"]
+    machines = list_all(
+        client,
+        f"/apps/{app_name}/machines",
+        ok_statuses=[404],
+        required_field="id",
+    )
+
+    module.exit_json(changed=False, machines=machines)
+
+
 def info(module, client):
-    machine = get_result(
+    machine = get_resource(
         client,
         "/apps/{}/machines/{}".format(module.params["app_name"], module.params["id"]),
         ok_statuses=[404],
+        required_field="id",
+        expected_value=module.params["id"],
     )
 
     if machine is None:
         module.fail_json(msg="Machine '{}' not found".format(module.params["id"]))
 
     module.exit_json(changed=False, machines=[machine])
-
-
-def list_resources(module, client):
-    result = get_result(
-        client,
-        "/apps/{}/machines".format(module.params["app_name"]),
-        default=[],
-        ok_statuses=[404],
-    )
-    machines = result if isinstance(result, list) else [result] if result else []
-
-    module.exit_json(changed=False, machines=machines)
 
 
 def main():

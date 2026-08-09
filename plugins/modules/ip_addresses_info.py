@@ -44,21 +44,13 @@ ip_addresses:
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
-    FlyioApiError,
     flyio_client,
     get_ip_addresses,
 )
 
 
 def list_resources(module, client):
-    try:
-        addresses = get_ip_addresses(client, module.params["app_name"])
-    except FlyioApiError as exc:
-        if "could not find app" in str(exc).lower():
-            addresses = []
-        else:
-            raise
-
+    addresses = get_ip_addresses(client, module.params["app_name"], missing_ok=True)
     module.exit_json(changed=False, ip_addresses=addresses)
 
 

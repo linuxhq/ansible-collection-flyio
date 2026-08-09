@@ -75,6 +75,8 @@ exact shape varies, so match the nearest role, but the list-driven pattern works
 
 - An info role's public output is its `_` prefixed facts.
 - Call the matching info module and register the result as `__{{ role }}_query`.
+- Pass required inputs directly without `omit`, and guard the module call with `when` checks that
+  each required input is not `none`.
 - Use `set_fact` to publish snake_case facts, defaulting the source with `| d([])` or `| d({})`:
   - `_{{ role }}_info_list`
   - `_{{ role }}_info_dict` (when the data has a stable key)

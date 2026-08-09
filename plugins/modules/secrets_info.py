@@ -76,6 +76,20 @@ def list_resources(module, client):
         default={"secrets": []},
         ok_statuses=[404],
     )
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("secrets"), list)
+        or not all(
+            isinstance(secret, dict)
+            and isinstance(secret.get("name"), str)
+            and secret["name"]
+            for secret in result["secrets"]
+        )
+    ):
+        module.fail_json(
+            msg="fly.io API returned a malformed response while listing secrets"
+        )
+
     secrets = [select_fields(secret, SECRET_FIELDS) for secret in result["secrets"]]
     module.exit_json(changed=False, secrets=secrets)
 

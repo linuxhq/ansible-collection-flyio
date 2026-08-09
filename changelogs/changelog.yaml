@@ -102,3 +102,141 @@ releases:
     - audit-fixes.yml
     - secrets.yml
     release_date: '2026-08-08'
+  1.0.8:
+    changes:
+      bugfixes:
+      - apps - count the deletion request against the configured deletion timeout.
+      - apps - distinguish missing resources from malformed empty responses.
+      - apps - keep polling requests within their configured timeout.
+      - apps - reject mismatched singular resource identities.
+      - apps - reject nonpositive deletion timeouts.
+      - apps - tolerate resources disappearing during deletion.
+      - apps - validate singular resource identities before using API responses.
+      - apps - wait for asynchronous app deletion to finish before reporting success.
+      - ip_addresses - distinguish missing apps from malformed GraphQL app values.
+      - ip_addresses - reject ambiguous type-based release requests instead of releasing
+        an arbitrary matching address.
+      - ip_addresses - reject malformed GraphQL response structures instead of raising
+        raw Python exceptions.
+      - ip_addresses - reject malformed successful mutation responses.
+      - ip_addresses - reject mismatched mutation resource identities.
+      - ip_addresses - return IP address timestamps using snake_case field names.
+      - ip_addresses - treat a missing parent app as already absent during IP address
+        release.
+      - ip_addresses - use the supported release mutation payload and validate it
+        before reporting success.
+      - ip_addresses - validate address regions and release confirmations returned
+        by GraphQL.
+      - ip_addresses_info - return an empty list for a missing parent app.
+      - ip_addresses_info role - skip incomplete lookups and publish empty facts.
+      - machines - avoid repeated updates caused by API-populated nested configuration
+        defaults.
+      - machines - compare nested configuration lists by identity instead of order.
+      - machines - consume list identity matches once when reconciling duplicate desired
+        items.
+      - machines - distinguish missing resources from malformed empty responses.
+      - machines - fail when a requested Machine ID does not exist instead of creating
+        an unnamed Machine.
+      - machines - handle malformed nested checks and mounts without raw Python exceptions.
+      - machines - handle transient and terminal lifecycle states without sending
+        invalid start or stop requests.
+      - machines - ignore semantically equivalent list and mount ordering during configuration
+        reconciliation.
+      - machines - include the Machine instance ID when waiting for a stopped state.
+      - machines - preserve defaults in nested configuration lists that have no stable
+        identity.
+      - machines - preserve list item configuration by identity instead of list position.
+      - machines - preserve non-running state and reject stale concurrent configuration
+        updates.
+      - machines - preserve unmanaged nested configuration fields during partial updates.
+      - machines - recognize equivalent attached volume names and IDs returned by
+        the API.
+      - machines - reconcile lifecycle state before updating an existing Machine.
+      - machines - reject changes to an attached volume that require Machine replacement.
+      - machines - reject conflicting attached volume names and IDs.
+      - machines - reject malformed resource list responses.
+      - machines - reject mismatched mutation resource identities.
+      - machines - reject mismatched singular resource identities.
+      - machines - reject nonpositive wait timeouts.
+      - machines - report destroyed Machines as unchanged in check mode.
+      - machines - require list item identities to match uniquely before preserving
+        unmanaged configuration.
+      - machines - return refreshed Machine state after waiting for create or update.
+      - machines - reuse in-progress start, stop, and destroy operations.
+      - machines - surface missing parent apps during creation and information lookups.
+      - machines - tolerate resources disappearing during deletion.
+      - machines - treat a missing parent app as already absent during name-based
+        deletion.
+      - machines - treat created Machines as already non-running for stopped state.
+      - machines - use the documented instance_id query parameter and poll locally
+        for transitional states.
+      - machines - validate create and update response identifiers before waiting
+        or reporting success.
+      - machines - validate lookup and lifecycle fields before reconciliation.
+      - machines - validate required response fields.
+      - machines - validate singular resource identities before using API responses.
+      - machines - wait for Machine destruction before reporting it absent.
+      - machines - wait for ambiguous create and update transitions to settle when
+        waiting is enabled.
+      - machines_exec - reject malformed successful API responses.
+      - machines_exec - reject nonpositive command timeouts.
+      - machines_exec - validate required response fields.
+      - machines_info - return an empty list for a missing parent app.
+      - machines_info role - skip incomplete lookups and publish empty facts.
+      - secrets - omit unavailable secret metadata in check mode.
+      - secrets - reconcile secret values without requesting plaintext that fly.io
+        forbids outside the app.
+      - secrets - reject malformed existing-secret responses before setting or removing
+        a secret.
+      - secrets - reject malformed successful API responses.
+      - secrets - reject malformed successful mutation responses.
+      - secrets - reject mismatched mutation resource identities.
+      - secrets - reject mismatched singular resource identities.
+      - secrets - tolerate resources disappearing during deletion.
+      - secrets - validate optional version results and omit them when unavailable.
+      - secrets - validate required response fields.
+      - secrets - validate singular resource identities before using API responses.
+      - secrets_info - reject empty successful API responses instead of treating them
+        as an empty secret list.
+      - secrets_info - return an empty list for a missing parent app.
+      - secrets_info role - skip incomplete lookups and publish empty facts.
+      - volumes - distinguish missing resources from malformed empty responses.
+      - volumes - fail when a requested volume ID does not exist instead of attempting
+        creation.
+      - volumes - fail when waiting is disabled during an active transition.
+      - volumes - handle volumes whose deletion is already in progress.
+      - volumes - keep polling requests within their configured timeout.
+      - volumes - omit the optional restart result when the API does not return it.
+      - volumes - reject ambiguous name and region matches instead of modifying an
+        arbitrary volume.
+      - volumes - reject attempts to change an existing volume's encryption setting.
+      - volumes - reject malformed legacy extension responses and restart indicators.
+      - volumes - reject malformed resource list responses.
+      - volumes - reject malformed successful API responses.
+      - volumes - reject malformed volume sizes returned while waiting for an extension.
+      - volumes - reject mismatched mutation resource identities.
+      - volumes - reject mismatched singular resource identities.
+      - volumes - reject nonpositive sizes and wait timeouts.
+      - volumes - surface missing parent apps during creation and information lookups.
+      - volumes - tolerate resources disappearing during deletion.
+      - volumes - treat a missing parent app as already absent during name-based deletion.
+      - volumes - validate lookup and lifecycle fields before reconciliation.
+      - volumes - validate required response fields.
+      - volumes - validate singular resource identities before using API responses.
+      - volumes - wait for existing create, restore, and extension transitions before
+        reconciling volume configuration.
+      - volumes - wait for volume extension and deletion to reach a terminal state.
+      - volumes_info - return an empty list for a missing parent app.
+      - volumes_info role - skip incomplete lookups and publish empty facts.
+      minor_changes:
+      - apps_info - safely encode organization slugs in list query parameters.
+      - ip_addresses - reject ambiguous requests containing both address and type.
+      - machines - reuse complete list results when finding a Machine by name.
+      - machines_exec - use the current command array request field for Machine exec
+        operations.
+      - machines_info - reuse shared resource list normalization.
+      - volumes - return whether a Machine restart is required after extending a volume.
+      - volumes_info - reuse shared resource list normalization.
+    fragments:
+    - plugin-fixes.yml
+    release_date: '2026-08-08'

@@ -7,6 +7,7 @@ from ansible_collections.linuxhq.flyio.plugins.modules import ip_addresses
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
     ModuleExit,
+    ModuleFail,
 )
 
 
@@ -51,10 +52,63 @@ class IpAddressesTests(TestCase):
             query.call_args.args[2],
             {"input": {"appId": "example", "type": "shared_v4"}},
         )
+        self.assertIn("created_at: createdAt", query.call_args.args[1])
         self.assertEqual(
             raised.exception.values["ip_address"],
             {"address": "1.2.3.4", "region": "", "type": "shared_v4"},
         )
+
+    def test_rejects_malformed_allocation_response(self):
+        module = FakeModule({"app_name": "example", "region": "", "type": "v4"})
+
+        for response in (
+            {"allocateIpAddress": []},
+            {"allocateIpAddress": {"ipAddress": {"address": "::1", "type": "v6"}}},
+            {
+                "allocateIpAddress": {
+                    "ipAddress": {
+                        "address": "1.2.3.4",
+                        "region": "iad",
+                        "type": "v4",
+                    }
+                }
+            },
+        ):
+            with (
+                self.subTest(response=response),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
+                patch.object(
+                    ip_addresses,
+                    "graphql_request",
+                    return_value=response,
+                ),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                ip_addresses.ensure_present(module, {})
+
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "fly.io API returned an empty or malformed response during IP allocation",
+            )
+
+    def test_rejects_malformed_allocation_region(self):
+        module = FakeModule({"app_name": "example", "region": "", "type": "private_v6"})
+        response = {
+            "allocateIpAddress": {
+                "ipAddress": {
+                    "address": "fdaa::1",
+                    "region": [],
+                    "type": "private_v6",
+                }
+            }
+        }
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
+            patch.object(ip_addresses, "graphql_request", return_value=response),
+            self.assertRaises(ModuleFail),
+        ):
+            ip_addresses.ensure_present(module, {})
 
     def test_releases_address(self):
         current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
@@ -69,7 +123,11 @@ class IpAddressesTests(TestCase):
 
         with (
             patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
-            patch.object(ip_addresses, "graphql_request") as query,
+            patch.object(
+                ip_addresses,
+                "graphql_request",
+                return_value={"releaseIpAddress": {"clientMutationId": None}},
+            ) as query,
             self.assertRaises(ModuleExit) as raised,
         ):
             ip_addresses.ensure_absent(module, {})
@@ -78,4 +136,87 @@ class IpAddressesTests(TestCase):
             query.call_args.args[2],
             {"input": {"appId": "example", "ip": "1.2.3.4"}},
         )
+        self.assertIn("clientMutationId", query.call_args.args[1])
+        self.assertNotIn("app {", query.call_args.args[1])
         self.assertTrue(raised.exception.values["changed"])
+
+    def test_missing_app_is_already_absent(self):
+        module = FakeModule(
+            {
+                "address": "1.2.3.4",
+                "app_name": "missing",
+                "region": "",
+                "type": None,
+            }
+        )
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[]) as get,
+            patch.object(ip_addresses, "graphql_request") as query,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_absent(module, {})
+
+        get.assert_called_once_with({}, "missing", missing_ok=True)
+        query.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+
+    def test_rejects_ambiguous_type_release(self):
+        addresses = [
+            {"address": "1.2.3.4", "region": "ord", "type": "v4"},
+            {"address": "1.2.3.5", "region": "ord", "type": "v4"},
+        ]
+        module = FakeModule(
+            {
+                "address": None,
+                "app_name": "example",
+                "region": "ord",
+                "type": "v4",
+            }
+        )
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=addresses),
+            patch.object(ip_addresses, "graphql_request") as query,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            ip_addresses.ensure_absent(module, {})
+
+        query.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Multiple IP addresses match type and region; specify address",
+        )
+
+    def test_rejects_malformed_release_response(self):
+        current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
+        module = FakeModule(
+            {
+                "address": "1.2.3.4",
+                "app_name": "example",
+                "region": "",
+                "type": None,
+            }
+        )
+
+        for response in (
+            {"releaseIpAddress": None},
+            {"releaseIpAddress": {}},
+            {"releaseIpAddress": {"clientMutationId": []}},
+        ):
+            with (
+                self.subTest(response=response),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+                patch.object(
+                    ip_addresses,
+                    "graphql_request",
+                    return_value=response,
+                ),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                ip_addresses.ensure_absent(module, {})
+
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "fly.io API returned an empty or malformed response during IP release",
+            )

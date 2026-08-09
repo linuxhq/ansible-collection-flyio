@@ -25,6 +25,7 @@ options:
     type: str
     description:
       - Command to execute.
+      - Commands run through C(/bin/sh -c).
   container:
     type: str
     description:
@@ -43,6 +44,7 @@ options:
     type: int
     description:
       - Command timeout in seconds.
+      - Must be greater than zero.
 requirements:
   - python >= 3.9
 
@@ -79,15 +81,18 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_request,
     flyio_client,
+    require_positive,
 )
 
 
 def exec_command(module, client):
+    require_positive(module, "timeout")
+
     if module.check_mode:
         module.exit_json(changed=True)
 
     body = {
-        "cmd": module.params["command"],
+        "command": ["/bin/sh", "-c", module.params["command"]],
         "timeout": module.params["timeout"],
     }
     for option in ("container", "stdin"):
@@ -103,7 +108,19 @@ def exec_command(module, client):
         body=body,
         timeout=module.params["timeout"] + 10,
     )
-    result = result or {}
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("exit_code"), int)
+        or isinstance(result["exit_code"], bool)
+        or not all(
+            isinstance(result.get(field, ""), str) for field in ("stderr", "stdout")
+        )
+    ):
+        module.fail_json(
+            msg="fly.io API returned a malformed response during command execution",
+            response=result,
+        )
+
     values = {
         "changed": True,
         "exit_code": result.get("exit_code"),
