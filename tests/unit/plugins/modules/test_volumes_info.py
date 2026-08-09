@@ -36,9 +36,14 @@ class VolumesInfoTests(TestCase):
 
         with (
             patch.object(volumes_info, "get_resource", return_value=None),
-            self.assertRaises(ModuleFail),
+            self.assertRaises(ModuleFail) as raised,
         ):
             volumes_info.info(module, {})
+
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Volume 'missing' not found in app 'example'",
+        )
 
     def test_lists_volumes(self):
         volumes = [{"id": "one"}, {"id": "two"}]
@@ -54,3 +59,18 @@ class VolumesInfoTests(TestCase):
             {}, "/apps/example/volumes", ok_statuses=[404], required_field="id"
         )
         self.assertEqual(raised.exception.values["volumes"], volumes)
+
+    def test_rejects_malformed_documented_fields(self):
+        module = FakeModule({"app_name": "example"})
+
+        with (
+            patch.object(
+                volumes_info,
+                "list_all",
+                return_value=[{"id": "vol_one", "size_gb": True}],
+            ),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes_info.list_resources(module, {})
+
+        self.assertIn("malformed volume data", raised.exception.values["msg"])

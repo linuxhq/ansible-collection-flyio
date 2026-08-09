@@ -1,12 +1,14 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 
+import ipaddress
 import json
 import time
 import urllib.error
 import urllib.parse
 from contextlib import contextmanager
 
+from ansible.module_utils.urls import ConnectionError as AnsibleConnectionError
 from ansible.module_utils.urls import open_url
 
 GRAPHQL_API_URL = "https://api.fly.io/graphql"
@@ -22,11 +24,27 @@ def authorization_header(token):
     return f"Bearer {token}"
 
 
+def flyio_path(*parts):
+    return "/" + "/".join(urllib.parse.quote(part, safe="") for part in parts)
+
+
 @contextmanager
 def flyio_client(module):
     token = module.params.get("api_token")
-    if not token:
+    if not isinstance(token, str) or not token.strip():
         module.fail_json(msg="api_token is required")
+    if "\r" in token or "\n" in token:
+        module.fail_json(msg="api_token must not contain line breaks")
+    if any(ord(character) < 32 or ord(character) == 127 for character in token):
+        module.fail_json(msg="api_token must not contain control characters")
+    token = token.strip()
+    if token in ("Bearer", "FlyV1"):
+        module.fail_json(msg="api_token credential must not be empty")
+
+    for name in ("address", "app_name", "id", "name", "network", "org_slug"):
+        value = module.params.get(name)
+        if isinstance(value, str) and not value.strip():
+            module.fail_json(msg=f"{name} must not be empty")
 
     client = {
         "headers": {
@@ -48,10 +66,26 @@ class FlyioApiError(Exception):
         self.response_body = response_body
 
 
+def _error_response(exc):
+    try:
+        content = exc.read()
+    except (AttributeError, OSError):
+        return None
+    if not content:
+        return None
+    try:
+        return json.loads(content)
+    except ValueError:
+        if isinstance(content, bytes):
+            return content.decode("utf-8", errors="replace")
+        return str(content)
+
+
 def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
     ok_statuses = ok_statuses or []
+    operation = f"{method.upper()} {path}"
     url = f"{MACHINES_API_URL}{path}"
-    data = json.dumps(body) if body is not None else None
+    data = json.dumps(body).encode("utf-8") if body is not None else None
 
     try:
         response = open_url(
@@ -70,21 +104,15 @@ def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
         if status_code in ok_statuses:
             return _MISSING
 
-        response_body = None
-        try:
-            response_body = json.loads(exc.read())
-        except (ValueError, AttributeError):
-            response_body = None
-
         raise FlyioApiError(
-            str(exc),
+            f"{operation} failed: {exc}",
             status_code=status_code,
-            response_body=response_body,
-        )
-    except urllib.error.URLError as exc:
-        raise FlyioApiError(str(exc))
+            response_body=_error_response(exc),
+        ) from exc
+    except (OSError, AnsibleConnectionError) as exc:
+        raise FlyioApiError(f"{operation} failed: {exc}") from exc
     except ValueError as exc:
-        raise FlyioApiError(f"Invalid JSON in API response: {exc}")
+        raise FlyioApiError(f"{operation} returned invalid JSON: {exc}") from exc
 
 
 def delete_result(client, path, timeout=30, ok_statuses=None):
@@ -98,7 +126,88 @@ def delete_result(client, path, timeout=30, ok_statuses=None):
     return None if result is _MISSING else result
 
 
+def valid_machine(machine):
+    return (
+        isinstance(machine, dict)
+        and isinstance(machine.get("id"), str)
+        and bool(machine["id"].strip())
+        and all(
+            field not in machine
+            or (isinstance(machine[field], str) and machine[field].strip())
+            for field in ("name", "region", "state")
+        )
+    )
+
+
+def valid_volume(volume):
+    return (
+        isinstance(volume, dict)
+        and isinstance(volume.get("id"), str)
+        and bool(volume["id"].strip())
+        and all(
+            field not in volume
+            or (isinstance(volume[field], str) and volume[field].strip())
+            for field in ("name", "region", "state")
+        )
+        and (
+            "size_gb" not in volume
+            or (
+                isinstance(volume["size_gb"], int)
+                and not isinstance(volume["size_gb"], bool)
+                and volume["size_gb"] > 0
+            )
+        )
+        and ("encrypted" not in volume or isinstance(volume["encrypted"], bool))
+    )
+
+
+def valid_secret_metadata(secret):
+    return (
+        isinstance(secret, dict)
+        and isinstance(secret.get("name"), str)
+        and bool(secret["name"].strip())
+        and isinstance(secret.get("digest"), str)
+        and bool(secret["digest"].strip())
+        and all(
+            field not in secret
+            or (isinstance(secret[field], str) and bool(secret[field].strip()))
+            for field in ("created_at", "updated_at")
+        )
+    )
+
+
+def ip_version(value):
+    if not isinstance(value, str) or "%" in value:
+        return None
+    try:
+        return ipaddress.ip_address(value).version
+    except ValueError:
+        return None
+
+
+def valid_ip_address(address):
+    if not isinstance(address, dict):
+        return False
+    address_version = ip_version(address.get("address"))
+    expected_version = {
+        "private_v6": 6,
+        "shared_v4": 4,
+        "v4": 4,
+        "v6": 6,
+    }.get(address.get("type"))
+    return (
+        address_version == expected_version
+        and all(
+            address.get(field) is None
+            or (isinstance(address[field], str) and address[field].strip())
+            for field in ("id", "created_at")
+        )
+        and (address.get("region") is None or isinstance(address.get("region"), str))
+    )
+
+
 def get_ip_addresses(client, app_name, missing_ok=False):
+    operation = f"List IP addresses for app '{app_name}'"
     query = """
         query($appName: String!) {
             app(name: $appName) {
@@ -116,7 +225,12 @@ def get_ip_addresses(client, app_name, missing_ok=False):
         }
     """
     try:
-        data = graphql_request(client, query, {"appName": app_name})
+        data = graphql_request(
+            client,
+            query,
+            {"appName": app_name},
+            operation=operation,
+        )
     except FlyioApiError as exc:
         if missing_ok and "could not find app" in str(exc).lower():
             return []
@@ -127,38 +241,40 @@ def get_ip_addresses(client, app_name, missing_ok=False):
             return []
         raise FlyioApiError(f"App '{app_name}' not found")
     if not isinstance(app, dict):
-        raise FlyioApiError("Malformed GraphQL response: expected an app object")
+        raise FlyioApiError(f"{operation} returned malformed data: expected an app")
 
     ip_addresses = app.get("ipAddresses")
     if not isinstance(ip_addresses, dict):
         raise FlyioApiError(
-            "Malformed GraphQL response: expected an IP address connection"
+            f"{operation} returned malformed data: expected an address connection"
         )
 
     addresses = ip_addresses.get("nodes")
     if not isinstance(addresses, list) or not all(
-        isinstance(address, dict)
-        and isinstance(address.get("address"), str)
-        and address["address"]
-        and isinstance(address.get("type"), str)
-        and address["type"]
-        and (address.get("region") is None or isinstance(address.get("region"), str))
-        for address in addresses
+        valid_ip_address(address) for address in addresses
     ):
-        raise FlyioApiError("Malformed GraphQL response: expected an IP address list")
+        raise FlyioApiError(f"{operation} returned malformed data: expected a list")
 
-    addresses = list(addresses)
+    addresses = [
+        {field: value for field, value in address.items() if value is not None}
+        for address in addresses
+    ]
 
     shared = app.get("sharedIpAddress")
-    if shared is not None and not isinstance(shared, str):
-        raise FlyioApiError("Malformed GraphQL response: expected a shared IP address")
-    if shared:
-        addresses.append({"address": shared, "type": "shared_v4", "region": ""})
+    if shared is not None:
+        shared_address = {"address": shared, "type": "shared_v4", "region": ""}
+        if not valid_ip_address(shared_address):
+            raise FlyioApiError(
+                f"{operation} returned malformed data: expected a shared address"
+            )
+        addresses.append(shared_address)
 
     return addresses
 
 
-def graphql_request(client, query, variables=None, timeout=30):
+def graphql_request(
+    client, query, variables=None, timeout=30, operation="GraphQL request"
+):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
@@ -167,29 +283,24 @@ def graphql_request(client, query, variables=None, timeout=30):
         response = open_url(
             GRAPHQL_API_URL,
             method="POST",
-            data=json.dumps(payload),
+            data=json.dumps(payload).encode("utf-8"),
             headers=client["headers"],
             timeout=timeout,
         )
         result = json.loads(response.read())
     except urllib.error.HTTPError as exc:
-        response_body = None
-        try:
-            response_body = json.loads(exc.read())
-        except (ValueError, AttributeError):
-            pass
         raise FlyioApiError(
-            str(exc),
+            f"{operation} failed: {exc}",
             status_code=exc.code,
-            response_body=response_body,
-        )
-    except urllib.error.URLError as exc:
-        raise FlyioApiError(str(exc))
+            response_body=_error_response(exc),
+        ) from exc
+    except (OSError, AnsibleConnectionError) as exc:
+        raise FlyioApiError(f"{operation} failed: {exc}") from exc
     except ValueError as exc:
-        raise FlyioApiError(f"Invalid JSON in GraphQL response: {exc}")
+        raise FlyioApiError(f"{operation} returned invalid JSON: {exc}") from exc
 
     if not isinstance(result, dict):
-        raise FlyioApiError("Malformed GraphQL response: expected an object")
+        raise FlyioApiError(f"{operation} returned malformed data: expected an object")
 
     if result.get("errors"):
         errors = result["errors"]
@@ -198,11 +309,16 @@ def graphql_request(client, query, variables=None, timeout=30):
             if isinstance(errors, list) and errors and isinstance(errors[0], dict)
             else "GraphQL error"
         )
-        raise FlyioApiError(message)
+        raise FlyioApiError(
+            f"{operation} failed: {message}",
+            response_body=errors,
+        )
 
     data = result.get("data")
     if not isinstance(data, dict):
-        raise FlyioApiError("Malformed GraphQL response: expected a data object")
+        raise FlyioApiError(
+            f"{operation} returned malformed data: expected a data object"
+        )
 
     return data
 
@@ -231,7 +347,7 @@ def _valid_resource(value, required_field=None, required_fields=None):
     if required_field is not None:
         fields = (required_field, *fields)
     return isinstance(value, dict) and all(
-        isinstance(value.get(field), str) and value[field] for field in fields
+        isinstance(value.get(field), str) and value[field].strip() for field in fields
     )
 
 
@@ -248,11 +364,11 @@ def get_resource(
     if result is _MISSING:
         return None
     if result is None:
-        raise FlyioApiError("Malformed API response: expected a resource object")
+        raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
     if not _valid_resource(result, required_field, required_fields) or (
         expected_value is not None and result[required_field] != expected_value
     ):
-        raise FlyioApiError("Malformed API response: expected a resource object")
+        raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
     return result
 
 
@@ -267,11 +383,11 @@ def list_all(
     if result is _MISSING:
         return []
     if result is None:
-        raise FlyioApiError("Malformed API response: expected a resource list")
+        raise FlyioApiError(f"GET {path} returned malformed data: expected a list")
     if not isinstance(result, list) or not all(
         _valid_resource(item, required_field, required_fields) for item in result
     ):
-        raise FlyioApiError("Malformed API response: expected a resource list")
+        raise FlyioApiError(f"GET {path} returned malformed data: expected a list")
     return result
 
 
@@ -289,51 +405,73 @@ def select_fields(value, fields):
     return {field: value.get(field) for field in fields if field in value}
 
 
+def sanitize_machine(machine):
+    if machine is None:
+        return None
+    if not isinstance(machine, dict):
+        return {}
+
+    def sanitize_config(value):
+        if isinstance(value, list):
+            return [sanitize_config(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        return {
+            key: sanitize_config(item)
+            for key, item in value.items()
+            if key not in ("env", "headers", "raw_value")
+        }
+
+    result = dict(machine)
+    for field in ("config", "incomplete_config"):
+        if isinstance(result.get(field), dict):
+            result[field] = sanitize_config(result[field])
+        elif field in result:
+            del result[field]
+    return result
+
+
 def require_positive(module, *names):
     for name in names:
-        if module.params[name] <= 0:
+        value = module.params[name]
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             module.fail_json(msg=f"{name} must be greater than zero")
-
-
-def values_differ(current, desired, purge=False):
-    if isinstance(current, list) and isinstance(desired, list):
-        if len(current) != len(desired):
-            return True
-        return any(values_differ(cur, want) for cur, want in zip(current, desired))
-
-    if not isinstance(current, dict) or not isinstance(desired, dict):
-        return current != desired
-
-    if purge and current.keys() != desired.keys():
-        return True
-
-    if not desired:
-        return False
-
-    for key, value in desired.items():
-        if key not in current or values_differ(current[key], value):
-            return True
-
-    return False
 
 
 def wait_for_machine(
     client, app_name, machine_id, state="started", timeout=60, instance_id=None
 ):
+    operation = (
+        f"Wait for Machine '{machine_id}' in app '{app_name}' "
+        f"to reach state '{state}'"
+    )
     if instance_id is not None and (
-        not isinstance(instance_id, str) or not instance_id
+        not isinstance(instance_id, str) or not instance_id.strip()
     ):
-        raise FlyioApiError("Malformed API response: expected a Machine instance ID")
+        raise FlyioApiError(f"{operation} received a malformed instance ID")
+    if state == "stopped" and instance_id is None:
+        raise FlyioApiError(f"{operation} requires an instance ID")
 
     query = {"state": state, "timeout": timeout}
     if instance_id is not None:
-        query["instance_id"] = instance_id
+        query["version"] = instance_id
 
-    path = (
-        f"/apps/{app_name}/machines/{machine_id}/wait?{urllib.parse.urlencode(query)}"
+    path = "{}?{}".format(
+        flyio_path("apps", app_name, "machines", machine_id, "wait"),
+        urllib.parse.urlencode(query),
     )
     ok_statuses = [404] if state == "destroyed" else None
-    api_request(client, "get", path, ok_statuses=ok_statuses, timeout=timeout + 10)
+    result = api_request(
+        client,
+        "get",
+        path,
+        ok_statuses=ok_statuses,
+        timeout=timeout + 10,
+    )
+    if result is _MISSING and state == "destroyed":
+        return
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        raise FlyioApiError(f"{operation} returned malformed data: expected ok=true")
 
 
 def wait_for_machine_settled(
@@ -348,7 +486,7 @@ def wait_for_machine_settled(
 
         machine = get_resource(
             client,
-            f"/apps/{app_name}/machines/{machine_id}",
+            flyio_path("apps", app_name, "machines", machine_id),
             ok_statuses=[404],
             timeout=remaining,
             required_field="id",
@@ -371,7 +509,7 @@ def wait_for_app_absent(client, app_name, timeout=60):
 
         app = get_resource(
             client,
-            f"/apps/{app_name}",
+            flyio_path("apps", app_name),
             ok_statuses=[404],
             timeout=remaining,
             required_field="name",
@@ -401,7 +539,7 @@ def wait_for_volume(
 
         volume = get_resource(
             client,
-            f"/apps/{app_name}/volumes/{volume_id}",
+            flyio_path("apps", app_name, "volumes", volume_id),
             ok_statuses=ok_statuses,
             timeout=remaining,
             required_field="id",
@@ -410,6 +548,11 @@ def wait_for_volume(
         )
         if volume is None:
             return volume
+        if not valid_volume(volume):
+            raise FlyioApiError(
+                f"Wait for volume '{volume_id}' in app '{app_name}' returned "
+                "malformed data"
+            )
 
         if volume.get("state") in states:
             if size_gb is None:
@@ -418,7 +561,8 @@ def wait_for_volume(
             current_size = volume.get("size_gb")
             if not isinstance(current_size, int) or isinstance(current_size, bool):
                 raise FlyioApiError(
-                    "Malformed API response: expected an integer volume size"
+                    f"Wait for volume '{volume_id}' in app '{app_name}' returned "
+                    "malformed data: expected an integer size"
                 )
             if current_size >= size_gb:
                 return volume

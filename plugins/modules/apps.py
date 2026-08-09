@@ -1,12 +1,15 @@
+#!/usr/bin/python
+# Copyright: Contributors to the Ansible project
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 
 DOCUMENTATION = r"""
 ---
 module: apps
-short_description: Manage fly.io apps
+short_description: Manage Fly.io apps
 description:
-  - Create and delete fly.io apps.
+  - Create and delete Fly.io apps.
+version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
 options:
@@ -14,7 +17,7 @@ options:
     required: true
     type: str
     description:
-      - fly.io API token.
+      - Fly.io API token.
   name:
     required: true
     type: str
@@ -29,6 +32,7 @@ options:
     type: str
     description:
       - Custom private network name.
+      - Must not be empty when specified.
       - Used only when creating an app.
   force:
     type: bool
@@ -53,6 +57,13 @@ options:
       - Desired state of the resource.
 requirements:
   - python >= 3.9
+attributes:
+  check_mode:
+    description: Supports predicting changes without applying them.
+    support: full
+  diff_mode:
+    description: Determines whether the module returns change details in diff format.
+    support: none
 
 """
 
@@ -84,9 +95,14 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 app:
-  description: fly.io app.
+  description: Fly.io app.
   returned: when available
   type: dict
+  contains:
+    name:
+      description: App name.
+      returned: always
+      type: str
 message:
   returned: always
   type: str
@@ -101,6 +117,7 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     delete_result,
     flyio_client,
+    flyio_path,
     get_resource,
     post_result,
     require_positive,
@@ -113,7 +130,7 @@ def ensure_present(module, client):
 
     current = get_resource(
         client,
-        "/apps/{}".format(params["name"]),
+        flyio_path("apps", params["name"]),
         ok_statuses=[404],
         required_field="name",
         expected_value=params["name"],
@@ -140,7 +157,7 @@ def ensure_present(module, client):
 
     current = get_resource(
         client,
-        "/apps/{}".format(params["name"]),
+        flyio_path("apps", params["name"]),
         required_field="name",
         expected_value=params["name"],
     )
@@ -154,7 +171,7 @@ def ensure_absent(module, client):
 
     current = get_resource(
         client,
-        "/apps/{}".format(params["name"]),
+        flyio_path("apps", params["name"]),
         ok_statuses=[404],
         required_field="name",
         expected_value=params["name"],
@@ -166,12 +183,25 @@ def ensure_absent(module, client):
     if module.check_mode:
         module.exit_json(changed=True, message="App would be deleted", app=current)
 
-    path = "/apps/{}".format(params["name"])
+    path = flyio_path("apps", params["name"])
     if params["force"]:
         path += "?force=true"
 
     deadline = time.monotonic() + params["delete_timeout"]
-    delete_result(client, path, timeout=params["delete_timeout"], ok_statuses=[404])
+    result = delete_result(
+        client,
+        path,
+        timeout=params["delete_timeout"],
+        ok_statuses=[404],
+    )
+    if result is not None:
+        module.fail_json(
+            msg=(
+                "Fly.io API returned malformed data while deleting app "
+                f"'{params['name']}'"
+            ),
+            response=result,
+        )
 
     current = wait_for_app_absent(
         client,
@@ -179,9 +209,12 @@ def ensure_absent(module, client):
         max(0, deadline - time.monotonic()),
     )
     if current is not None:
-        module.fail_json(msg="App deletion timed out", app=current)
+        module.fail_json(
+            msg=f"Deletion of app '{params['name']}' timed out",
+            app=current,
+        )
 
-    module.exit_json(changed=True, message="App deleted", app=current)
+    module.exit_json(changed=True, message="App deleted")
 
 
 def main():

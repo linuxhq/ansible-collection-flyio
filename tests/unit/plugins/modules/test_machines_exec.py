@@ -25,6 +25,20 @@ def module(check_mode=False, **updates):
 
 
 class MachinesExecTests(TestCase):
+    def test_rejects_empty_command_and_container(self):
+        for name in ("command", "container"):
+            with (
+                self.subTest(name=name),
+                patch.object(machines_exec, "api_request") as request,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines_exec.exec_command(module(**{name: " "}), {})
+
+            request.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"], f"{name} must not be empty"
+            )
+
     def test_rejects_nonpositive_timeout(self):
         with (
             patch.object(machines_exec, "api_request") as request,
@@ -80,6 +94,10 @@ class MachinesExecTests(TestCase):
 
         self.assertEqual(raised.exception.values["exit_code"], 1)
         self.assertEqual(raised.exception.values["stderr"], "failed")
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Command failed on Machine 'machine-one' for app 'example'",
+        )
 
     def test_rejects_malformed_response(self):
         for result in (None, ["invalid"], {}, {"exit_code": "0"}, {"exit_code": False}):
@@ -92,5 +110,6 @@ class MachinesExecTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "fly.io API returned a malformed response during command execution",
+                "Fly.io API returned malformed data while executing a command on "
+                "Machine 'machine-one' for app 'example'",
             )

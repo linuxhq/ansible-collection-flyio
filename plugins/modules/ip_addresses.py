@@ -1,12 +1,15 @@
+#!/usr/bin/python
+# Copyright: Contributors to the Ansible project
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 
 DOCUMENTATION = r"""
 ---
 module: ip_addresses
-short_description: Manage fly.io IP addresses
+short_description: Manage Fly.io IP addresses
 description:
-  - Allocate and release fly.io IP addresses.
+  - Allocate and release Fly.io IP addresses.
+version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
 options:
@@ -14,7 +17,7 @@ options:
     required: true
     type: str
     description:
-      - fly.io API token.
+      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -37,11 +40,15 @@ options:
     default: ''
     description:
       - Region code.
-      - Empty string for global addresses.
+      - Use an empty string or C(global) for global addresses.
+      - Must not contain only whitespace.
+      - Must identify a global address when O(type=shared_v4).
+      - Used only when O(type) is specified.
   address:
     type: str
     description:
       - IP address to release.
+      - Must be a valid IPv4 or IPv6 address.
       - When O(state=absent), either O(address) or O(type) is required.
       - Mutually exclusive with O(type).
   state:
@@ -54,6 +61,13 @@ options:
       - Desired state of the resource.
 requirements:
   - python >= 3.9
+attributes:
+  check_mode:
+    description: Supports predicting changes without applying them.
+    support: full
+  diff_mode:
+    description: Determines whether the module returns change details in diff format.
+    support: none
 
 """
 
@@ -90,9 +104,30 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 ip_address:
-  description: fly.io IP address.
+  description: Fly.io IP address.
   returned: when available
   type: dict
+  contains:
+    id:
+      description: IP address identifier.
+      returned: when available
+      type: str
+    address:
+      description: Allocated IP address.
+      returned: always
+      type: str
+    type:
+      description: IP address type.
+      returned: always
+      type: str
+    region:
+      description: Region code, or an empty string for a global address.
+      returned: when available
+      type: str
+    created_at:
+      description: Allocation timestamp.
+      returned: when available
+      type: str
 message:
   returned: always
   type: str
@@ -101,11 +136,15 @@ message:
 
 """
 
+import ipaddress
+
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
     get_ip_addresses,
     graphql_request,
+    ip_version,
+    valid_ip_address,
 )
 
 
@@ -115,13 +154,20 @@ def normalize_region(value):
     return value
 
 
+def validate_region(module, ip_type, region):
+    if region and not region.strip():
+        module.fail_json(msg="region must not contain only whitespace")
+    if ip_type == "shared_v4" and normalize_region(region):
+        module.fail_json(msg="region must be global for type=shared_v4")
+
+
 def ips_by_type_and_region(addresses, ip_type, region):
     return [
         addr
         for addr in addresses
         if addr.get("type") == ip_type
         and (
-            ip_type in ("shared_v4", "private_v6")
+            ip_type == "shared_v4"
             or normalize_region(addr.get("region")) == normalize_region(region)
         )
     ]
@@ -132,17 +178,25 @@ def find_ip_by_type_and_region(addresses, ip_type, region):
 
 
 def find_ip_by_address(addresses, address):
+    requested = ipaddress.ip_address(address)
     for addr in addresses:
-        if addr.get("address") == address:
+        if ipaddress.ip_address(addr["address"]) == requested:
             return addr
     return None
+
+
+def validate_address(module, address):
+    if address is not None and ip_version(address) is None:
+        module.fail_json(msg="address must be a valid IPv4 or IPv6 address")
 
 
 def ensure_present(module, client):
     params = module.params
     app_name = params["app_name"]
     ip_type = params["type"]
-    region = params.get("region") or ""
+    requested_region = params.get("region") or ""
+    validate_region(module, ip_type, requested_region)
+    region = normalize_region(requested_region)
 
     addresses = get_ip_addresses(client, app_name)
     current = find_ip_by_type_and_region(addresses, ip_type, region)
@@ -178,14 +232,22 @@ def ensure_present(module, client):
         "type": ip_type,
     }
 
-    if region and ip_type not in ("shared_v4", "private_v6"):
+    if region and ip_type != "shared_v4":
         mutation_input["region"] = region
 
-    data = graphql_request(client, query, {"input": mutation_input})
+    data = graphql_request(
+        client,
+        query,
+        {"input": mutation_input},
+        operation=f"Allocate an IP address for app '{app_name}'",
+    )
     result = data.get("allocateIpAddress")
     if not isinstance(result, dict):
         module.fail_json(
-            msg="fly.io API returned an empty or malformed response during IP allocation"
+            msg=(
+                f"Fly.io API returned malformed data while allocating a '{ip_type}' "
+                f"address for app '{app_name}'"
+            )
         )
 
     ip_address = result.get("ipAddress")
@@ -196,24 +258,23 @@ def ensure_present(module, client):
             ip_address = {"address": shared, "type": "shared_v4", "region": ""}
 
     if (
-        not isinstance(ip_address, dict)
-        or not isinstance(ip_address.get("address"), str)
-        or not ip_address["address"]
-        or not isinstance(ip_address.get("type"), str)
-        or not ip_address["type"]
+        not valid_ip_address(ip_address)
         or ip_address["type"] != ip_type
         or (
-            ip_address.get("region") is not None
-            and not isinstance(ip_address["region"], str)
-        )
-        or (
-            ip_type not in ("shared_v4", "private_v6")
+            ip_type != "shared_v4"
             and normalize_region(ip_address.get("region")) != normalize_region(region)
         )
     ):
         module.fail_json(
-            msg="fly.io API returned an empty or malformed response during IP allocation"
+            msg=(
+                f"Fly.io API returned malformed data while allocating a '{ip_type}' "
+                f"address for app '{app_name}'"
+            )
         )
+
+    ip_address = {
+        field: value for field, value in ip_address.items() if value is not None
+    }
 
     module.exit_json(
         changed=True, message="IP address allocated", ip_address=ip_address
@@ -225,23 +286,30 @@ def ensure_absent(module, client):
     app_name = params["app_name"]
     address = params.get("address")
     ip_type = params.get("type")
-    region = params.get("region") or ""
+    requested_region = params.get("region") or ""
+    validate_address(module, address)
+    validate_region(module, ip_type, requested_region)
+    if address and requested_region:
+        module.fail_json(msg="region is valid only when type is specified")
+    region = normalize_region(requested_region)
+    if not address and not ip_type:
+        module.fail_json(msg="Either 'address' or 'type' is required for state=absent")
 
     addresses = get_ip_addresses(client, app_name, missing_ok=True)
 
     if address:
         current = find_ip_by_address(addresses, address)
-    elif ip_type:
+    else:
         matches = ips_by_type_and_region(addresses, ip_type, region)
         if len(matches) > 1:
             module.fail_json(
-                msg="Multiple IP addresses match type and region; specify address",
+                msg=(
+                    f"Multiple '{ip_type}' addresses in region '{region}' match "
+                    f"for app '{app_name}'; specify address"
+                ),
                 ip_addresses=matches,
             )
         current = matches[0] if matches else None
-    else:
-        module.fail_json(msg="Either 'address' or 'type' is required for state=absent")
-
     if current is None:
         module.exit_json(changed=False, message="IP address already released")
 
@@ -268,7 +336,12 @@ def ensure_absent(module, client):
         }
     }
 
-    data = graphql_request(client, query, variables)
+    data = graphql_request(
+        client,
+        query,
+        variables,
+        operation=f"Release IP address '{release_address}' from app '{app_name}'",
+    )
     result = data.get("releaseIpAddress")
     if (
         not isinstance(result, dict)
@@ -279,7 +352,10 @@ def ensure_absent(module, client):
         )
     ):
         module.fail_json(
-            msg="fly.io API returned an empty or malformed response during IP release"
+            msg=(
+                f"Fly.io API returned malformed data while releasing address "
+                f"'{release_address}' from app '{app_name}'"
+            )
         )
 
     module.exit_json(changed=True, message="IP address released", ip_address=current)

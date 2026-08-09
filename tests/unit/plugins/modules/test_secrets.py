@@ -92,6 +92,9 @@ class SecretsTests(TestCase):
             {"digest": "", "name": "APP_SECRET"},
             {"digest": "digest", "name": "OTHER_SECRET"},
             {"digest": "digest", "name": "APP_SECRET", "version": "two"},
+            {"digest": "digest", "name": "APP_SECRET", "version": -1},
+            {"created_at": "", "digest": "digest", "name": "APP_SECRET"},
+            {"created_at": 1, "digest": "digest", "name": "APP_SECRET"},
         ):
             with (
                 self.subTest(response=response),
@@ -103,8 +106,31 @@ class SecretsTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "fly.io API returned an empty or malformed response while setting secret",
+                "Fly.io API returned malformed data while setting secret "
+                "'APP_SECRET' for app 'example'",
             )
+
+    def test_rejects_malformed_current_secret_timestamps(self):
+        module = FakeModule(
+            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
+        )
+
+        with (
+            patch.object(
+                secrets,
+                "get_resource",
+                return_value={
+                    "created_at": 1,
+                    "digest": "current",
+                    "name": "APP_SECRET",
+                },
+            ),
+            patch.object(secrets, "post_result") as post,
+            self.assertRaises(FlyioApiError),
+        ):
+            secrets.ensure_present(module, {})
+
+        post.assert_not_called()
 
     def test_rejects_malformed_read_before_setting(self):
         module = FakeModule(
@@ -196,11 +222,13 @@ class SecretsTests(TestCase):
     def test_rejects_malformed_remove_response(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
 
-        for response in (["invalid"], {"version": "three"}):
+        for response in (["invalid"], {"version": "three"}, {"version": -1}):
             with (
                 self.subTest(response=response),
                 patch.object(
-                    secrets, "get_resource", return_value={"digest": "current"}
+                    secrets,
+                    "get_resource",
+                    return_value={"digest": "current", "name": "APP_SECRET"},
                 ),
                 patch.object(secrets, "delete_result", return_value=response),
                 self.assertRaises(ModuleFail) as raised,
@@ -209,7 +237,8 @@ class SecretsTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "fly.io API returned a malformed response while removing secret",
+                "Fly.io API returned malformed data while removing secret "
+                "'APP_SECRET' from app 'example'",
             )
 
     def test_rejects_malformed_read_before_removing(self):

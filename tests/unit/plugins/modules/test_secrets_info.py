@@ -42,6 +42,26 @@ class SecretsInfoTests(TestCase):
             {"secrets": None},
             {"secrets": [None]},
             {"secrets": [{}]},
+            {"secrets": [{"name": "APP_SECRET"}]},
+            {"secrets": [{"name": "APP_SECRET", "digest": 1}]},
+            {
+                "secrets": [
+                    {
+                        "name": "APP_SECRET",
+                        "digest": "digest",
+                        "updated_at": None,
+                    }
+                ]
+            },
+            {
+                "secrets": [
+                    {
+                        "name": "APP_SECRET",
+                        "digest": "digest",
+                        "updated_at": "",
+                    }
+                ]
+            },
         ):
             with (
                 self.subTest(response=response),
@@ -52,5 +72,6 @@ class SecretsInfoTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "fly.io API returned a malformed response while listing secrets",
+                "Fly.io API returned malformed data while listing secrets "
+                "for app 'example'",
             )
