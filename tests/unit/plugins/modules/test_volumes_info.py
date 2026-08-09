@@ -17,13 +17,17 @@ class VolumesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "vol_one"})
 
         with (
-            patch.object(volumes_info, "get_result", return_value=volume) as get,
+            patch.object(volumes_info, "get_resource", return_value=volume) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             volumes_info.info(module, {})
 
         get.assert_called_once_with(
-            {}, "/apps/example/volumes/vol_one", ok_statuses=[404]
+            {},
+            "/apps/example/volumes/vol_one",
+            ok_statuses=[404],
+            required_field="id",
+            expected_value="vol_one",
         )
         self.assertEqual(raised.exception.values["volumes"], [volume])
 
@@ -31,7 +35,7 @@ class VolumesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "missing"})
 
         with (
-            patch.object(volumes_info, "get_result", return_value=None),
+            patch.object(volumes_info, "get_resource", return_value=None),
             self.assertRaises(ModuleFail),
         ):
             volumes_info.info(module, {})
@@ -41,9 +45,12 @@ class VolumesInfoTests(TestCase):
         module = FakeModule({"app_name": "example"})
 
         with (
-            patch.object(volumes_info, "get_result", return_value=volumes),
+            patch.object(volumes_info, "list_all", return_value=volumes) as list_all,
             self.assertRaises(ModuleExit) as raised,
         ):
             volumes_info.list_resources(module, {})
 
+        list_all.assert_called_once_with(
+            {}, "/apps/example/volumes", ok_statuses=[404], required_field="id"
+        )
         self.assertEqual(raised.exception.values["volumes"], volumes)

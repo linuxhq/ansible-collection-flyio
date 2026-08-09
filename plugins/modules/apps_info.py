@@ -22,11 +22,13 @@ options:
     description:
       - App name.
       - Mutually exclusive with O(org_slug).
+      - Either O(name) or O(org_slug) is required.
   org_slug:
     type: str
     description:
       - Organization slug.
       - Mutually exclusive with O(name).
+      - Either O(name) or O(org_slug) is required.
 requirements:
   - python >= 3.9
 
@@ -54,36 +56,48 @@ apps:
 
 """
 
+from urllib.parse import urlencode
+
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
+    get_resource,
     get_result,
 )
 
 
+def list_resources(module, client):
+    result = get_result(
+        client,
+        "/apps?{}".format(urlencode({"org_slug": module.params["org_slug"]})),
+        default={},
+    )
+
+    apps = result.get("apps") if isinstance(result, dict) else None
+    if not isinstance(apps, list) or not all(
+        isinstance(app, dict) and isinstance(app.get("name"), str) and app["name"]
+        for app in apps
+    ):
+        module.fail_json(
+            msg="fly.io API returned a malformed response while listing apps"
+        )
+
+    module.exit_json(changed=False, apps=apps)
+
+
 def info(module, client):
-    app = get_result(
+    app = get_resource(
         client,
         "/apps/{}".format(module.params["name"]),
         ok_statuses=[404],
+        required_field="name",
+        expected_value=module.params["name"],
     )
 
     if app is None:
         module.fail_json(msg="App '{}' not found".format(module.params["name"]))
 
     module.exit_json(changed=False, apps=[app])
-
-
-def list_resources(module, client):
-    result = get_result(
-        client,
-        "/apps?org_slug={}".format(module.params["org_slug"]),
-        default={},
-    )
-
-    apps = result.get("apps", []) if isinstance(result, dict) else result
-
-    module.exit_json(changed=False, apps=apps)
 
 
 def main():

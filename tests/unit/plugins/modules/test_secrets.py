@@ -3,10 +3,14 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    FlyioApiError,
+)
 from ansible_collections.linuxhq.flyio.plugins.modules import secrets
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
     ModuleExit,
+    ModuleFail,
 )
 
 
@@ -29,7 +33,7 @@ class SecretsTests(TestCase):
         }
 
         with (
-            patch.object(secrets, "get_result", return_value=None),
+            patch.object(secrets, "get_resource", return_value=None),
             patch.object(secrets, "post_result", return_value=response) as post,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -47,16 +51,78 @@ class SecretsTests(TestCase):
             {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
         )
         current = {"name": "APP_SECRET", "digest": "same"}
-        response = {**current, "version": 2}
+        response = {"name": "APP_SECRET", "digest": "same"}
 
         with (
-            patch.object(secrets, "get_result", return_value=current),
+            patch.object(secrets, "get_resource", return_value=current),
+            patch.object(secrets, "post_result", return_value=response) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets.ensure_present(module, {})
+
+        post.assert_called_once_with(
+            {}, "/apps/example/secrets/APP_SECRET", {"value": "secret"}
+        )
+        self.assertFalse(raised.exception.values["changed"])
+
+    def test_changed_secret_is_set(self):
+        module = FakeModule(
+            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
+        )
+        current = {"name": "APP_SECRET", "digest": "old"}
+        response = {"name": "APP_SECRET", "digest": "new"}
+
+        with (
+            patch.object(secrets, "get_resource", return_value=current),
             patch.object(secrets, "post_result", return_value=response),
             self.assertRaises(ModuleExit) as raised,
         ):
             secrets.ensure_present(module, {})
 
-        self.assertFalse(raised.exception.values["changed"])
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_rejects_malformed_set_response(self):
+        module = FakeModule(
+            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
+        )
+
+        for response in (
+            [],
+            {"digest": "digest"},
+            {"digest": "", "name": "APP_SECRET"},
+            {"digest": "digest", "name": "OTHER_SECRET"},
+            {"digest": "digest", "name": "APP_SECRET", "version": "two"},
+        ):
+            with (
+                self.subTest(response=response),
+                patch.object(secrets, "get_resource", return_value=None),
+                patch.object(secrets, "post_result", return_value=response),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                secrets.ensure_present(module, {})
+
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "fly.io API returned an empty or malformed response while setting secret",
+            )
+
+    def test_rejects_malformed_read_before_setting(self):
+        module = FakeModule(
+            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
+        )
+
+        with (
+            patch.object(
+                secrets,
+                "get_resource",
+                side_effect=FlyioApiError("malformed"),
+            ),
+            patch.object(secrets, "post_result") as post,
+            self.assertRaises(FlyioApiError),
+        ):
+            secrets.ensure_present(module, {})
+
+        post.assert_not_called()
 
     def test_check_mode_does_not_set_secret(self):
         module = FakeModule(
@@ -65,7 +131,11 @@ class SecretsTests(TestCase):
         )
 
         with (
-            patch.object(secrets, "get_result", return_value={"digest": "current"}),
+            patch.object(
+                secrets,
+                "get_resource",
+                return_value={"name": "APP_SECRET", "digest": "current"},
+            ),
             patch.object(secrets, "post_result") as post,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -74,11 +144,27 @@ class SecretsTests(TestCase):
         post.assert_not_called()
         self.assertTrue(raised.exception.values["changed"])
 
+    def test_check_mode_omits_missing_secret_metadata(self):
+        module = FakeModule(
+            {"app_name": "example", "name": "APP_SECRET", "value": "secret"},
+            check_mode=True,
+        )
+
+        with (
+            patch.object(secrets, "get_resource", return_value=None),
+            patch.object(secrets, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets.ensure_present(module, {})
+
+        post.assert_not_called()
+        self.assertNotIn("secret", raised.exception.values)
+
     def test_missing_secret_is_unchanged_when_absent(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
 
         with (
-            patch.object(secrets, "get_result", return_value=None),
+            patch.object(secrets, "get_resource", return_value=None),
             patch.object(secrets, "delete_result") as delete,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -92,7 +178,7 @@ class SecretsTests(TestCase):
         current = {"name": "APP_SECRET", "digest": "current", "value": "secret"}
 
         with (
-            patch.object(secrets, "get_result", return_value=current),
+            patch.object(secrets, "get_resource", return_value=current),
             patch.object(
                 secrets, "delete_result", return_value={"version": 3}
             ) as delete,
@@ -100,7 +186,44 @@ class SecretsTests(TestCase):
         ):
             secrets.ensure_absent(module, {})
 
-        delete.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET")
+        delete.assert_called_once_with(
+            {}, "/apps/example/secrets/APP_SECRET", ok_statuses=[404]
+        )
         self.assertTrue(raised.exception.values["changed"])
         self.assertNotIn("value", raised.exception.values["secret"])
         self.assertEqual(raised.exception.values["version"], 3)
+
+    def test_rejects_malformed_remove_response(self):
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
+
+        for response in (["invalid"], {"version": "three"}):
+            with (
+                self.subTest(response=response),
+                patch.object(
+                    secrets, "get_resource", return_value={"digest": "current"}
+                ),
+                patch.object(secrets, "delete_result", return_value=response),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                secrets.ensure_absent(module, {})
+
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "fly.io API returned a malformed response while removing secret",
+            )
+
+    def test_rejects_malformed_read_before_removing(self):
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
+
+        with (
+            patch.object(
+                secrets,
+                "get_resource",
+                side_effect=FlyioApiError("malformed"),
+            ),
+            patch.object(secrets, "delete_result") as delete,
+            self.assertRaises(FlyioApiError),
+        ):
+            secrets.ensure_absent(module, {})
+
+        delete.assert_not_called()

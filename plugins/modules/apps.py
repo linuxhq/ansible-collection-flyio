@@ -29,6 +29,7 @@ options:
     type: str
     description:
       - Custom private network name.
+      - Used only when creating an app.
   force:
     type: bool
     default: true
@@ -39,8 +40,9 @@ options:
     type: int
     default: 60
     description:
-      - Timeout in seconds for the app deletion request.
+      - Timeout in seconds when waiting for app deletion.
       - Used only when O(state=absent).
+      - Must be greater than zero.
   state:
     type: str
     choices:
@@ -93,22 +95,28 @@ message:
 
 """
 
+import time
+
 from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     delete_result,
     flyio_client,
-    get_result,
+    get_resource,
     post_result,
+    require_positive,
+    wait_for_app_absent,
 )
 
 
 def ensure_present(module, client):
     params = module.params
 
-    current = get_result(
+    current = get_resource(
         client,
         "/apps/{}".format(params["name"]),
         ok_statuses=[404],
+        required_field="name",
+        expected_value=params["name"],
     )
 
     if current is not None:
@@ -130,18 +138,26 @@ def ensure_present(module, client):
 
     post_result(client, "/apps", body)
 
-    current = get_result(client, "/apps/{}".format(params["name"]))
+    current = get_resource(
+        client,
+        "/apps/{}".format(params["name"]),
+        required_field="name",
+        expected_value=params["name"],
+    )
 
     module.exit_json(changed=True, message="App created", app=current)
 
 
 def ensure_absent(module, client):
     params = module.params
+    require_positive(module, "delete_timeout")
 
-    current = get_result(
+    current = get_resource(
         client,
         "/apps/{}".format(params["name"]),
         ok_statuses=[404],
+        required_field="name",
+        expected_value=params["name"],
     )
 
     if current is None:
@@ -154,7 +170,16 @@ def ensure_absent(module, client):
     if params["force"]:
         path += "?force=true"
 
-    delete_result(client, path, timeout=params["delete_timeout"])
+    deadline = time.monotonic() + params["delete_timeout"]
+    delete_result(client, path, timeout=params["delete_timeout"], ok_statuses=[404])
+
+    current = wait_for_app_absent(
+        client,
+        params["name"],
+        max(0, deadline - time.monotonic()),
+    )
+    if current is not None:
+        module.fail_json(msg="App deletion timed out", app=current)
 
     module.exit_json(changed=True, message="App deleted", app=current)
 

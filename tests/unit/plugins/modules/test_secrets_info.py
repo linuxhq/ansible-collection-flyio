@@ -7,6 +7,7 @@ from ansible_collections.linuxhq.flyio.plugins.modules import secrets_info
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
     ModuleExit,
+    ModuleFail,
 )
 
 
@@ -33,3 +34,23 @@ class SecretsInfoTests(TestCase):
             raised.exception.values["secrets"],
             [{"name": "APP_SECRET", "digest": "digest"}],
         )
+
+    def test_rejects_malformed_response(self):
+        module = FakeModule({"app_name": "example"})
+
+        for response in (
+            {"secrets": None},
+            {"secrets": [None]},
+            {"secrets": [{}]},
+        ):
+            with (
+                self.subTest(response=response),
+                patch.object(secrets_info, "get_result", return_value=response),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                secrets_info.list_resources(module, {})
+
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "fly.io API returned a malformed response while listing secrets",
+            )

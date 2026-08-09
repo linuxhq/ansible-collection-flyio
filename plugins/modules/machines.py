@@ -27,11 +27,13 @@ options:
     description:
       - Machine identifier.
       - Mutually exclusive with O(name).
+      - Either O(id) or O(name) is required.
   name:
     type: str
     description:
       - Machine name.
       - Mutually exclusive with O(id).
+      - Either O(id) or O(name) is required.
   region:
     type: str
     description:
@@ -155,6 +157,7 @@ options:
     default: 60
     description:
       - Timeout in seconds when waiting for machine state.
+      - Must be greater than zero when O(wait=true).
   state:
     type: str
     choices:
@@ -281,15 +284,18 @@ message:
 """
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.dict_transformations import dict_merge
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_request,
     delete_result,
     flyio_client,
-    get_result,
+    get_resource,
     list_all,
     post_result,
+    require_positive,
     values_differ,
     wait_for_machine,
+    wait_for_machine_settled,
 )
 
 CONFIG_FIELDS = (
@@ -306,6 +312,27 @@ CONFIG_FIELDS = (
     "services",
     "statics",
 )
+PURGE_CONFIG_FIELDS = ("checks", "env", "metadata")
+LIST_ITEM_KEYS = (
+    "guest_path",
+    "internal_port",
+    "port",
+    "volume",
+    "name",
+    "path",
+    "protocol",
+)
+TRANSITION_TARGETS = {
+    "starting": "started",
+    "restarting": "started",
+    "stopping": "stopped",
+    "suspending": "suspended",
+    "destroying": "destroyed",
+    "launch_failed": "destroyed",
+}
+AMBIGUOUS_TRANSITIONS = {"creating", "updating", "replacing"}
+TRANSITIONAL_STATES = set(TRANSITION_TARGETS) | AMBIGUOUS_TRANSITIONS
+TERMINAL_STATES = {"destroyed", "replaced", "migrated"}
 
 
 def clean(value):
@@ -316,22 +343,28 @@ def clean(value):
     return value
 
 
-def find_machine(client, app_name, name=None, machine_id=None):
+def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False):
     if machine_id is not None:
-        return get_result(
+        return get_resource(
             client,
             f"/apps/{app_name}/machines/{machine_id}",
             ok_statuses=[404],
+            required_field="id",
+            expected_value=machine_id,
+            required_fields=("state",),
         )
 
-    machines = list_all(client, f"/apps/{app_name}/machines")
+    machines = list_all(
+        client,
+        f"/apps/{app_name}/machines",
+        ok_statuses=[404] if missing_ok else None,
+        required_field="id",
+        required_fields=("name", "state"),
+    )
 
     for machine in machines:
         if machine.get("name") == name:
-            return get_result(
-                client,
-                "/apps/{}/machines/{}".format(app_name, machine["id"]),
-            )
+            return machine
 
     return None
 
@@ -349,9 +382,202 @@ def build_config(params):
     return clean(config)
 
 
+def find_list_item(values, value):
+    if not isinstance(value, dict):
+        return None
+
+    keys = [key for key in LIST_ITEM_KEYS if key in value]
+    matches = [
+        item
+        for item in values
+        if isinstance(item, dict)
+        and keys
+        and all(item.get(key) == value[key] for key in keys)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def has_list_identity(value):
+    return isinstance(value, dict) and any(key in value for key in LIST_ITEM_KEYS)
+
+
+def match_list_items(current, desired):
+    remaining = list(current)
+    for value in desired:
+        match = find_list_item(remaining, value)
+        if match is not None:
+            remaining.remove(match)
+        yield match, value
+
+
+def config_values_differ(current, desired, purge=False):
+    if (
+        isinstance(current, list)
+        and isinstance(desired, list)
+        and all(has_list_identity(value) for value in desired)
+    ):
+        if len(current) != len(desired):
+            return True
+        for match, value in match_list_items(current, desired):
+            if match is None or config_values_differ(match, value):
+                return True
+        return False
+
+    if not isinstance(current, dict) or not isinstance(desired, dict):
+        return values_differ(current, desired)
+
+    if purge and current.keys() != desired.keys():
+        return True
+
+    return any(
+        key not in current or config_values_differ(current[key], value)
+        for key, value in desired.items()
+    )
+
+
+def merge_values(current, desired):
+    if isinstance(current, list) and isinstance(desired, list):
+        if len(current) == len(desired) and not all(
+            has_list_identity(value) for value in desired
+        ):
+            return [merge_values(cur, value) for cur, value in zip(current, desired)]
+        return [
+            merge_values(match, value) if match is not None else value
+            for match, value in match_list_items(current, desired)
+        ]
+
+    if not isinstance(current, dict) or not isinstance(desired, dict):
+        return desired
+
+    result = dict_merge(current, desired)
+    for key, value in desired.items():
+        if key in current:
+            result[key] = merge_values(current[key], value)
+
+    return result
+
+
+def merge_config(current, desired):
+    config = merge_values(current, desired)
+    for field in PURGE_CONFIG_FIELDS:
+        if field not in desired:
+            continue
+
+        if field == "checks":
+            checks = current.get("checks")
+            if not isinstance(checks, dict):
+                checks = {}
+            config[field] = {
+                name: merge_values(checks.get(name, {}), value)
+                for name, value in desired[field].items()
+            }
+        else:
+            config[field] = desired[field]
+
+    return config
+
+
+def match_mounts(current, desired):
+    remaining = list(current.get("mounts", []))
+    for mount in desired.get("mounts", []):
+        identifiers = {mount.get(key) for key in ("volume", "name") if mount.get(key)}
+        match = next(
+            (
+                item
+                for item in remaining
+                if identifiers
+                <= {item.get(key) for key in ("volume", "name") if item.get(key)}
+            ),
+            None,
+        )
+        if match is not None:
+            remaining.remove(match)
+        yield match, mount
+
+
+def mounts_differ(current, desired):
+    current_mounts = current.get("mounts", [])
+    if not isinstance(current_mounts, list) or not all(
+        isinstance(mount, dict) for mount in current_mounts
+    ):
+        return True
+    if len(current_mounts) != len(desired.get("mounts", [])):
+        return True
+    return any(match is None for match, mount in match_mounts(current, desired))
+
+
+def mount_values_differ(current, desired):
+    for match, mount in match_mounts(current, desired):
+        values = {
+            key: value for key, value in mount.items() if key not in ("volume", "name")
+        }
+        if match is None or config_values_differ(match, values):
+            return True
+    return False
+
+
+def settle_machine(module, client, current, desired_state):
+    state = current.get("state")
+    if state in TERMINAL_STATES:
+        module.fail_json(msg=f"Machine is in terminal state '{state}'", machine=current)
+
+    target = TRANSITION_TARGETS.get(state)
+    if target is None:
+        if state in AMBIGUOUS_TRANSITIONS:
+            if not module.params["wait"]:
+                module.fail_json(
+                    msg=f"Machine is currently {state}; enable wait or retry",
+                    machine=current,
+                )
+            current = wait_for_machine_settled(
+                client,
+                module.params["app_name"],
+                current["id"],
+                TRANSITIONAL_STATES,
+                module.params["wait_timeout"],
+            )
+        else:
+            return current
+    elif not module.params["wait"]:
+        if target == desired_state:
+            module.exit_json(
+                changed=False,
+                message=f"Machine already transitioning to {desired_state}",
+                machine=current,
+            )
+        module.fail_json(
+            msg=f"Machine is currently {state}; enable wait or retry",
+            machine=current,
+        )
+    else:
+        wait_for_machine(
+            client,
+            module.params["app_name"],
+            current["id"],
+            target,
+            module.params["wait_timeout"],
+            instance_id=(current.get("instance_id") if target != "destroyed" else None),
+        )
+        current = get_resource(
+            client,
+            f"/apps/{module.params['app_name']}/machines/{current['id']}",
+            ok_statuses=[404],
+            required_field="id",
+            expected_value=current["id"],
+            required_fields=("state",),
+        )
+    if current is None or current.get("state") in TERMINAL_STATES:
+        module.fail_json(msg="Machine is no longer available", machine=current)
+    if current.get("state") in TRANSITIONAL_STATES:
+        module.fail_json(msg="Machine transition timed out", machine=current)
+    return current
+
+
 def ensure_present(module, client):
     params = module.params
     app_name = params["app_name"]
+    if params["wait"]:
+        require_positive(module, "wait_timeout")
 
     current = find_machine(
         client,
@@ -363,7 +589,13 @@ def ensure_present(module, client):
     desired_config = build_config(params)
 
     if current is not None:
-        current_config = current.get("config", {})
+        current = settle_machine(module, client, current, "present")
+        current_config = current.get("config")
+        if not isinstance(current_config, dict):
+            module.fail_json(
+                msg="fly.io API returned a malformed machine configuration",
+                machine=current,
+            )
         current_region = current.get("region")
         if (
             params.get("region") is not None
@@ -371,12 +603,22 @@ def ensure_present(module, client):
             and params["region"] != current_region
         ):
             module.fail_json(msg="region cannot be changed for an existing machine")
+        if "mounts" in desired_config and mounts_differ(current_config, desired_config):
+            module.fail_json(
+                msg="attached volume cannot be changed for an existing machine"
+            )
 
         changed = current_config.get("image") != desired_config["image"]
         for field, value in desired_config.items():
-            if field != "image" and values_differ(
-                current_config.get(field), value, purge=isinstance(value, dict)
-            ):
+            if field == "mounts":
+                differs = mount_values_differ(current_config, desired_config)
+            else:
+                differs = field != "image" and config_values_differ(
+                    current_config.get(field),
+                    value,
+                    purge=field in PURGE_CONFIG_FIELDS,
+                )
+            if differs:
                 changed = True
                 break
 
@@ -392,12 +634,13 @@ def ensure_present(module, client):
                 machine=current,
             )
 
-        config = dict(current_config)
-        config.update(desired_config)
+        config = merge_config(current_config, desired_config)
 
         body = {"config": config}
-        if current_region is not None or params.get("region") is not None:
-            body["region"] = current_region or params["region"]
+        if current.get("instance_id") is not None:
+            body["current_version"] = current["instance_id"]
+        if current.get("state") in ("created", "failed", "stopped", "suspended"):
+            body["skip_launch"] = True
 
         result = post_result(
             client,
@@ -405,15 +648,37 @@ def ensure_present(module, client):
             body,
         )
 
-        if result is None:
-            module.fail_json(msg="fly.io API returned an empty response during update")
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("id"), str)
+            or not result["id"]
+            or result["id"] != current["id"]
+        ):
+            module.fail_json(
+                msg="fly.io API returned an empty or malformed response during update",
+                machine=result,
+            )
 
-        if params["wait"]:
+        if params["wait"] and not body.get("skip_launch"):
             wait_for_machine(
-                client, app_name, result["id"], "started", params["wait_timeout"]
+                client,
+                app_name,
+                result["id"],
+                "started",
+                params["wait_timeout"],
+                instance_id=result.get("instance_id"),
+            )
+            result = get_resource(
+                client,
+                f"/apps/{app_name}/machines/{result['id']}",
+                required_field="id",
+                expected_value=result["id"],
             )
 
         module.exit_json(changed=True, message="Machine updated", machine=result)
+
+    if params.get("id") is not None:
+        module.fail_json(msg="Machine '{}' not found".format(params["id"]))
 
     if module.check_mode:
         module.exit_json(changed=True, message="Machine would be created")
@@ -426,12 +691,30 @@ def ensure_present(module, client):
 
     result = post_result(client, f"/apps/{app_name}/machines", body)
 
-    if result is None:
-        module.fail_json(msg="fly.io API returned an empty response during create")
+    if (
+        not isinstance(result, dict)
+        or not isinstance(result.get("id"), str)
+        or not result["id"]
+    ):
+        module.fail_json(
+            msg="fly.io API returned an empty or malformed response during create",
+            machine=result,
+        )
 
     if params["wait"]:
         wait_for_machine(
-            client, app_name, result["id"], "started", params["wait_timeout"]
+            client,
+            app_name,
+            result["id"],
+            "started",
+            params["wait_timeout"],
+            instance_id=result.get("instance_id"),
+        )
+        result = get_resource(
+            client,
+            f"/apps/{app_name}/machines/{result['id']}",
+            required_field="id",
+            expected_value=result["id"],
         )
 
     module.exit_json(changed=True, message="Machine created", machine=result)
@@ -440,41 +723,61 @@ def ensure_present(module, client):
 def ensure_absent(module, client):
     params = module.params
     app_name = params["app_name"]
+    if params["wait"]:
+        require_positive(module, "wait_timeout")
 
     current = find_machine(
         client,
         app_name,
         name=params.get("name"),
         machine_id=params.get("id"),
+        missing_ok=True,
     )
 
     if current is None:
         module.exit_json(changed=False, message="Machine already absent")
+
+    if current.get("state") == "destroyed":
+        module.exit_json(changed=False, message="Machine already absent")
+
+    if current.get("state") == "destroying":
+        if params["wait"]:
+            wait_for_machine(
+                client, app_name, current["id"], "destroyed", params["wait_timeout"]
+            )
+            current = get_resource(
+                client,
+                "/apps/{}/machines/{}".format(app_name, current["id"]),
+                ok_statuses=[404],
+                required_field="id",
+                expected_value=current["id"],
+            )
+        module.exit_json(
+            changed=False, message="Machine already being destroyed", machine=current
+        )
 
     if module.check_mode:
         module.exit_json(
             changed=True, message="Machine would be destroyed", machine=current
         )
 
-    machine_state = current.get("state", "")
-    if machine_state == "destroyed":
-        module.exit_json(changed=False, message="Machine already absent")
-
-    if machine_state in ("started", "starting", "created", "replacing"):
-        api_request(
-            client,
-            "post",
-            "/apps/{}/machines/{}/stop".format(app_name, current["id"]),
-        )
-
-        if params["wait"]:
-            wait_for_machine(
-                client, app_name, current["id"], "stopped", params["wait_timeout"]
-            )
-
     delete_result(
-        client, "/apps/{}/machines/{}?force=true".format(app_name, current["id"])
+        client,
+        "/apps/{}/machines/{}?force=true".format(app_name, current["id"]),
+        ok_statuses=[404],
     )
+
+    if params["wait"]:
+        wait_for_machine(
+            client, app_name, current["id"], "destroyed", params["wait_timeout"]
+        )
+        current = get_resource(
+            client,
+            "/apps/{}/machines/{}".format(app_name, current["id"]),
+            ok_statuses=[404],
+            required_field="id",
+            expected_value=current["id"],
+        )
 
     module.exit_json(changed=True, message="Machine destroyed", machine=current)
 
@@ -482,6 +785,8 @@ def ensure_absent(module, client):
 def ensure_started(module, client):
     params = module.params
     app_name = params["app_name"]
+    if params["wait"]:
+        require_positive(module, "wait_timeout")
 
     current = find_machine(
         client,
@@ -492,6 +797,8 @@ def ensure_started(module, client):
 
     if current is None:
         module.fail_json(msg="Machine not found")
+
+    current = settle_machine(module, client, current, "started")
 
     if current.get("state") == "started":
         module.exit_json(
@@ -511,10 +818,20 @@ def ensure_started(module, client):
 
     if params["wait"]:
         wait_for_machine(
-            client, app_name, current["id"], "started", params["wait_timeout"]
+            client,
+            app_name,
+            current["id"],
+            "started",
+            params["wait_timeout"],
+            instance_id=current.get("instance_id"),
         )
 
-    current = get_result(client, "/apps/{}/machines/{}".format(app_name, current["id"]))
+    current = get_resource(
+        client,
+        "/apps/{}/machines/{}".format(app_name, current["id"]),
+        required_field="id",
+        expected_value=current["id"],
+    )
 
     module.exit_json(changed=True, message="Machine started", machine=current)
 
@@ -522,6 +839,8 @@ def ensure_started(module, client):
 def ensure_stopped(module, client):
     params = module.params
     app_name = params["app_name"]
+    if params["wait"]:
+        require_positive(module, "wait_timeout")
 
     current = find_machine(
         client,
@@ -532,6 +851,13 @@ def ensure_stopped(module, client):
 
     if current is None:
         module.fail_json(msg="Machine not found")
+
+    current = settle_machine(module, client, current, "stopped")
+
+    if current.get("state") == "created":
+        module.exit_json(
+            changed=False, message="Machine has not been started", machine=current
+        )
 
     if current.get("state") == "stopped":
         module.exit_json(
@@ -551,10 +877,20 @@ def ensure_stopped(module, client):
 
     if params["wait"]:
         wait_for_machine(
-            client, app_name, current["id"], "stopped", params["wait_timeout"]
+            client,
+            app_name,
+            current["id"],
+            "stopped",
+            params["wait_timeout"],
+            instance_id=current.get("instance_id"),
         )
 
-    current = get_result(client, "/apps/{}/machines/{}".format(app_name, current["id"]))
+    current = get_resource(
+        client,
+        "/apps/{}/machines/{}".format(app_name, current["id"]),
+        required_field="id",
+        expected_value=current["id"],
+    )
 
     module.exit_json(changed=True, message="Machine stopped", machine=current)
 

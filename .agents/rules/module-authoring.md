@@ -30,6 +30,16 @@ When starting a new module, copy the structure of an existing pair.
 
 ## Behavior
 
+### Design principles
+
+- YAGNI: implement only behavior required by the current module contract; do not add speculative
+  options, abstractions, or extension points.
+- KISS: prefer the smallest clear implementation, reusing existing helpers and Ansible features
+  before adding custom machinery.
+- SOLID: keep each module and helper focused, extend behavior without duplicating stable logic,
+  preserve substitutable input and result contracts, expose only the dependencies callers need,
+  and keep API access behind shared helpers.
+
 ### State
 
 - Keep the `present` and `absent` flows explicit and easy to follow.
