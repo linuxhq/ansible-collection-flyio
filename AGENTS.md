@@ -16,11 +16,11 @@ An Ansible collection of Fly.io modules and roles, published to Galaxy on tag pu
 
 Always-on agent rules.  Append new rules to imports section below.
 
-| Rule                  | Covers                                   |
-| --------------------- | ---------------------------------------- |
-| `helpers.md`          | Helper reference for `module_utils`      |
-| `module-authoring.md` | Standards for writing python module code |
-| `role-authoring.md`   | Standards for writing ansible roles      |
+| Rule                           | Covers                               |
+| ------------------------------ | ------------------------------------ |
+| `helpers.md`                   | Helper reference for `module_utils`  |
+| `ansible-module-authoring.md`  | Standards for Ansible Python plugins |
+| `ansible-role-authoring.md`    | Standards for Ansible roles          |
 
 ## Tooling
 
@@ -46,5 +46,5 @@ Enable the review gate once: `/codex:setup --enable-review-gate`
 ## Imports
 
 - @.agents/rules/helpers.md
-- @.agents/rules/module-authoring.md
-- @.agents/rules/role-authoring.md
+- @.agents/rules/ansible-module-authoring.md
+- @.agents/rules/ansible-role-authoring.md

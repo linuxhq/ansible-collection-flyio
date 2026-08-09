@@ -1,4 +1,4 @@
-# Python plugin authoring
+# Ansible Module Authoring
 
 Standards for Python content under `plugins/`. SDK-specific requirements are
 defined separately.

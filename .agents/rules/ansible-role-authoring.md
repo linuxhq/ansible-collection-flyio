@@ -1,4 +1,4 @@
-# Ansible role authoring
+# Ansible Role Authoring
 
 Standards for content under `roles/`. Provider-specific requirements are
 defined separately.
