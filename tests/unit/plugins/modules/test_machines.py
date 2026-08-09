@@ -573,6 +573,26 @@ class MachinesTests(TestCase):
         self.assertNotIn("raw_value", result["config"]["files"][0])
         self.assertNotIn("headers", result["config"]["checks"]["health"])
 
+    def test_provider_restart_retries_do_not_break_always_policy(self):
+        current = {
+            "config": {
+                "image": "example:latest",
+                "restart": {"max_retries": 10, "policy": "always"},
+            },
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        module = FakeModule(params(restart={"policy": "always"}))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertFalse(raised.exception.values["changed"])
+
     def test_present_rejects_terminal_machine(self):
         current = {
             "config": {"image": "example:latest"},
