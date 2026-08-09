@@ -30,6 +30,14 @@ releases:
     fragments:
     - machines-files-field.yml
     release_date: '2026-07-28'
+  1.0.10:
+    changes:
+      bugfixes:
+      - machines - accept provider-retained restart retry limits when the requested
+        restart policy does not use them.
+    fragments:
+    - machines-restart-provider-default.yml
+    release_date: '2026-08-09'
   1.0.2:
     changes:
       minor_changes:

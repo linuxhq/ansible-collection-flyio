@@ -4,6 +4,15 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.0.10
+=======
+
+Bugfixes
+--------
+
+- machines - accept provider-retained restart retry limits when the requested
+  restart policy does not use them.
+
 v1.0.9
 ======
 

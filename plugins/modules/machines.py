@@ -993,7 +993,12 @@ def validate_config(module, config):
     validate_services(module, config.get("services") or [])
 
 
-def validate_complete_config(module, config, existing_checks=()):
+def validate_complete_config(
+    module,
+    config,
+    existing_checks=(),
+    requested_restart=None,
+):
     for name, check in config.get("checks", {}).items():
         if name in existing_checks:
             continue
@@ -1009,9 +1014,11 @@ def validate_complete_config(module, config, existing_checks=()):
         module.fail_json(msg="each service requires protocol")
     restart = config.get("restart")
     if restart is not None:
+        if requested_restart is None:
+            requested_restart = restart
         if "policy" not in restart:
             module.fail_json(msg="restart.policy is required")
-        if "max_retries" in restart and restart["policy"] != "on-failure":
+        if "max_retries" in requested_restart and restart["policy"] != "on-failure":
             module.fail_json(
                 msg="restart.max_retries is valid only with policy=on-failure"
             )
@@ -1395,6 +1402,7 @@ def update_machine(module, client, current, desired_config):
             if field in desired_config
         },
         existing_checks,
+        requested_restart=desired_config.get("restart"),
     )
 
     if not machine_config_changed(current_config, desired_config):
