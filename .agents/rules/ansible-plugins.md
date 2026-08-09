@@ -1,7 +1,7 @@
-# Ansible Module Authoring
+# Ansible Plugins
 
-Standards for Python content under `plugins/`. SDK-specific requirements are
-defined separately.
+Standards for Python modules, lookup plugins, and filter plugins under
+`plugins/`. SDK-specific requirements are defined separately.
 
 ## Python
 

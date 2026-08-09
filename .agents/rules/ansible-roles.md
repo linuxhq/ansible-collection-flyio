@@ -1,7 +1,7 @@
-# Ansible Role Authoring
+# Ansible Roles
 
-Standards for content under `roles/`. Provider-specific requirements are
-defined separately.
+Standards for designing, implementing, documenting, and testing content under
+`roles/`. Provider-specific requirements are defined separately.
 
 ## Design
 
