@@ -65,7 +65,7 @@ class AppsTests(TestCase):
 
         with (
             patch.object(apps, "get_resource", return_value=current),
-            patch.object(apps, "delete_result") as delete,
+            patch.object(apps, "delete_result", return_value=None) as delete,
             patch.object(apps, "wait_for_app_absent", return_value=None) as wait,
             patch.object(apps.time, "monotonic", side_effect=[10, 30]),
             self.assertRaises(ModuleExit) as raised,
@@ -77,6 +77,7 @@ class AppsTests(TestCase):
         )
         wait.assert_called_once_with({}, "example", 100)
         self.assertTrue(raised.exception.values["changed"])
+        self.assertNotIn("app", raised.exception.values)
 
     def test_fails_when_app_deletion_times_out(self):
         current = {"name": "example"}
@@ -84,14 +85,35 @@ class AppsTests(TestCase):
 
         with (
             patch.object(apps, "get_resource", return_value=current),
-            patch.object(apps, "delete_result"),
+            patch.object(apps, "delete_result", return_value=None),
             patch.object(apps, "wait_for_app_absent", return_value=current),
             patch.object(apps.time, "monotonic", side_effect=[10, 20]),
             self.assertRaises(ModuleFail) as raised,
         ):
             apps.ensure_absent(module, {})
 
-        self.assertEqual(raised.exception.values["msg"], "App deletion timed out")
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Deletion of app 'example' timed out",
+        )
+
+    def test_rejects_undocumented_delete_response(self):
+        module = FakeModule({"delete_timeout": 60, "force": True, "name": "example"})
+
+        with (
+            patch.object(apps, "get_resource", return_value={"name": "example"}),
+            patch.object(apps, "delete_result", return_value={"ok": False}),
+            patch.object(apps, "wait_for_app_absent") as wait,
+            patch.object(apps.time, "monotonic", return_value=10),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            apps.ensure_absent(module, {})
+
+        wait.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Fly.io API returned malformed data while deleting app 'example'",
+        )
 
     def test_check_mode_does_not_create(self):
         module = FakeModule({"name": "example", "org_slug": "linuxhq"}, check_mode=True)

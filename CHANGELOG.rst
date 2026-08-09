@@ -4,6 +4,89 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.0.9
+======
+
+Minor Changes
+-------------
+
+- machines - avoid waiting for known target transitions in check mode.
+- machines - validate nested configuration, absolute paths, and single-volume limits.
+- machines and volumes - separate create, update, and deletion-wait operations.
+- module documentation - describe stable nested returns and action-module idempotence.
+- modules - add required Ansible headers, version metadata, and support attributes.
+
+Bugfixes
+--------
+
+- apps - reject undocumented deletion response bodies before reporting success.
+- flyio_utils - convert Ansible connection failures into structured module failures.
+- flyio_utils - convert response read failures into structured module failures.
+- flyio_utils - encode JSON request bodies for Ansible's URL transport.
+- flyio_utils - normalize API tokens and reject header line breaks.
+- flyio_utils - percent-encode every user-controlled API path component.
+- flyio_utils - preserve API error details, causal context, and request context.
+- flyio_utils - reject Boolean values where positive integers are required.
+- flyio_utils - reject control characters and empty prefixed API credentials.
+- flyio_utils - reject empty resource identifiers before provider requests.
+- flyio_utils - reject whitespace-only Machine version identifiers.
+- flyio_utils - reject whitespace-only identifiers in provider responses.
+- flyio_utils - use the current Machine version query when waiting for state.
+- info modules - reject malformed documented resource fields.
+- ip_addresses - match equivalent IPv6 spellings during release.
+- ip_addresses - normalize global regions before allocation requests.
+- ip_addresses - preserve private IPv6 regions, omit unavailable fields, and reject malformed or regional shared addresses.
+- ip_addresses - reject missing release identifiers before provider lookups.
+- ip_addresses - reject regions when releasing a specific address.
+- ip_addresses - reject whitespace-only addresses before provider lookups.
+- ip_addresses - reject whitespace-only regions before provider lookups.
+- ip_addresses - validate address syntax and type families before use.
+- machines - accept documented empty start and stop success responses.
+- machines - accept documented response-header strings, string lists, and removal flags.
+- machines - accept integer nanoseconds and duration strings in health checks.
+- machines - accept the documented health-check header structure.
+- machines - allow zero-valued mount settings to disable automatic volume extension.
+- machines - avoid requiring optional version filters for started-state waits.
+- machines - enforce complete health checks during updates as well as creation.
+- machines - honor waits for configuration updates that preserve a stopped state.
+- machines - normalize autostop strings to provider response values.
+- machines - preserve ranged port identity and reject incomplete port ranges.
+- machines - redact every configured header map from returned Machine data.
+- machines - redact sensitive configuration in every supported response shape.
+- machines - redact sensitive values from incomplete launch configurations.
+- machines - reject empty images and regions before provider requests.
+- machines - reject empty mapping and HTTP response-header names.
+- machines - reject empty nested resource identifiers and static paths.
+- machines - reject incomplete and out-of-range nested configuration.
+- machines - reject invalid health-check keys and numeric autostop values.
+- machines - reject malformed Base64 file content before provider requests.
+- machines - reject malformed check headers and incomplete mount extension settings.
+- machines - reject whitespace-only health-check and header names.
+- machines - reject whitespace-only health-check fields and durations.
+- machines - require valid provider region and version data before versioned updates and stopped-state waits.
+- machines - validate deletion acknowledgements before reporting success.
+- machines - validate start and stop responses before reporting success.
+- machines - validate waiter responses and confirmed target states.
+- machines - verify requested configuration after create and update operations.
+- machines - wait for stable present states instead of requiring running Machines.
+- machines and volumes - avoid waiting on in-progress deletions in check mode.
+- machines_exec - reject empty commands and container names before execution.
+- manager modules - reject malformed documented Machine and volume fields.
+- modules - include app context in resource lookup failures.
+- modules - include resource identifiers in provider-response validation failures.
+- modules - omit unavailable resource fields after waited deletions.
+- secrets - validate non-empty timestamps and nonnegative versions before returning them.
+- secrets_info - validate documented secret metadata before returning it.
+- volumes - defer omitted creation defaults to the provider.
+- volumes - distinguish omitted encryption from an explicit encryption setting.
+- volumes - distinguish omitted sizes from unsupported shrink requests.
+- volumes - enforce provider size limits and confirm waited extension sizes.
+- volumes - enforce supplied regions when managing volumes by identifier.
+- volumes - reject empty supplied regions before provider requests.
+- volumes - retain known state while waiting after empty deletion responses.
+- volumes - validate deletion and extension responses before reporting success.
+- volumes - verify requested names, regions, sizes, and encryption in creation responses.
+
 v1.0.8
 ======
 

@@ -1,12 +1,16 @@
+#!/usr/bin/python
+# Copyright: Contributors to the Ansible project
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 
 DOCUMENTATION = r"""
 ---
 module: machines_exec
-short_description: Execute a command on a fly.io machine
+short_description: Execute a command on a Fly.io Machine
 description:
-  - Execute a command on a fly.io machine.
+  - Execute a command on a Fly.io Machine.
+  - Command execution is inherently non-idempotent and reports a change when run.
+version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
 options:
@@ -14,7 +18,7 @@ options:
     required: true
     type: str
     description:
-      - fly.io API token.
+      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -26,10 +30,12 @@ options:
     description:
       - Command to execute.
       - Commands run through C(/bin/sh -c).
+      - Must not be empty.
   container:
     type: str
     description:
       - Container in which to execute the command.
+      - Must not be empty when specified.
   id:
     required: true
     type: str
@@ -47,6 +53,13 @@ options:
       - Must be greater than zero.
 requirements:
   - python >= 3.9
+attributes:
+  check_mode:
+    description: Supports predicting changes without applying them.
+    support: full
+  diff_mode:
+    description: Determines whether the module returns change details in diff format.
+    support: none
 
 """
 
@@ -81,11 +94,16 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_request,
     flyio_client,
+    flyio_path,
     require_positive,
 )
 
 
 def exec_command(module, client):
+    for name in ("command", "container"):
+        value = module.params[name]
+        if value is not None and not value.strip():
+            module.fail_json(msg=f"{name} must not be empty")
     require_positive(module, "timeout")
 
     if module.check_mode:
@@ -102,8 +120,8 @@ def exec_command(module, client):
     result = api_request(
         client,
         "post",
-        "/apps/{}/machines/{}/exec".format(
-            module.params["app_name"], module.params["id"]
+        flyio_path(
+            "apps", module.params["app_name"], "machines", module.params["id"], "exec"
         ),
         body=body,
         timeout=module.params["timeout"] + 10,
@@ -117,7 +135,10 @@ def exec_command(module, client):
         )
     ):
         module.fail_json(
-            msg="fly.io API returned a malformed response during command execution",
+            msg=(
+                "Fly.io API returned malformed data while executing a command on "
+                f"Machine '{module.params['id']}' for app '{module.params['app_name']}'"
+            ),
             response=result,
         )
 
@@ -129,7 +150,13 @@ def exec_command(module, client):
     }
 
     if values["exit_code"] != 0:
-        module.fail_json(msg="Command failed", **values)
+        module.fail_json(
+            msg=(
+                f"Command failed on Machine '{module.params['id']}' "
+                f"for app '{module.params['app_name']}'"
+            ),
+            **values,
+        )
 
     module.exit_json(**values)
 
