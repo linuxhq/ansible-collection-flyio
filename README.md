@@ -5,32 +5,35 @@
 [![Lint](https://github.com/linuxhq/ansible-collection-flyio/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/linuxhq/ansible-collection-flyio/actions/workflows/pre-commit.yml)
 [![Release](https://github.com/linuxhq/ansible-collection-flyio/actions/workflows/release.yml/badge.svg)](https://github.com/linuxhq/ansible-collection-flyio/actions/workflows/release.yml)
 
-A collection of fly.io roles
+An Ansible collection of Fly.io modules and roles.
 
-# Collection
+## Requirements
 
-## Environment
+- Python `>= 3.13`
+- `ansible-core >= 2.18.0`
+
+## Installation
+
+    ansible-galaxy collection install linuxhq.flyio
+
+## Development
 
     make
     source venv/bin/activate
 
-## Build
+### Build
 
     ansible-galaxy collection build
 
-## Install
-
-    ansible-galaxy collection install linuxhq.flyio
-
-## Changelog
+### Changelog
 
     antsibull-changelog generate
 
-## Linting
+### Lint
 
     ansible-lint
     yamllint -s .
 
-## Testing
+### Test
 
-All roles have molecule tests which provide example playbooks
+Every role includes a Molecule scenario with an example playbook.
