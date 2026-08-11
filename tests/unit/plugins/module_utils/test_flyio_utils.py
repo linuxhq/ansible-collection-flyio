@@ -75,8 +75,10 @@ class FlyioUtilsTests(TestCase):
             msg="api_token must not contain line breaks"
         )
 
-    def test_client_rejects_token_controls_and_empty_credentials(self):
+    def test_client_rejects_invalid_tokens(self):
         for token, message in (
+            (None, "api_token is required"),
+            (" ", "api_token is required"),
             ("token\tvalue", "api_token must not contain control characters"),
             ("Bearer ", "api_token credential must not be empty"),
             ("FlyV1", "api_token credential must not be empty"),
@@ -98,6 +100,24 @@ class FlyioUtilsTests(TestCase):
 
         with flyio_client(module) as client:
             self.assertEqual(client["headers"]["Authorization"], "Bearer token")
+
+    def test_client_converts_api_errors_to_module_failures(self):
+        module = Mock(params={"api_token": "token"})
+        module.fail_json.side_effect = RuntimeError
+
+        with self.assertRaises(RuntimeError), flyio_client(module):
+            raise FlyioApiError(
+                "Request failed",
+                status_code=422,
+                response_body={"error": "invalid"},
+            )
+
+        module.fail_json.assert_called_once_with(
+            msg="Request failed",
+            error="Request failed",
+            status_code=422,
+            response={"error": "invalid"},
+        )
 
     def test_encodes_json_request_bodies(self):
         with patch(f"{FLYIO_UTILS}.open_url") as open_url:
@@ -144,6 +164,7 @@ class FlyioUtilsTests(TestCase):
                     }
                 ],
             },
+            "headers": {"Authorization": "secret"},
             "id": "machine-one",
         }
         machine["incomplete_config"] = machine["config"]
@@ -161,6 +182,8 @@ class FlyioUtilsTests(TestCase):
             )
         self.assertIn("env", machine["config"])
         self.assertIn("raw_value", machine["config"]["files"][0])
+        self.assertNotIn("headers", result)
+        self.assertIn("headers", machine)
 
         malformed = {
             "config": [{"env": {"TOKEN": "secret"}}],
@@ -299,11 +322,16 @@ class FlyioUtilsTests(TestCase):
 
     def test_ip_addresses_reject_malformed_address_entries(self):
         for address in (
+            None,
+            {},
             {"type": "v4"},
             {"address": "not-an-ip", "type": "v4"},
+            {"address": "not-an-ip", "type": "unknown"},
+            {"address": "1.2.3.4", "type": []},
             {"address": "2001:db8::1", "type": "v4"},
             {"address": "1.2.3.4", "type": "v6"},
             {"address": "1.2.3.4", "region": []},
+            {"address": "1.2.3.4", "region": " ", "type": "v4"},
             {"address": "1.2.3.4", "type": "v4", "id": False},
             {"address": "1.2.3.4", "type": "v4", "id": " "},
             {"address": "1.2.3.4", "type": "v4", "created_at": []},
@@ -354,7 +382,12 @@ class FlyioUtilsTests(TestCase):
                                 "id": None,
                                 "region": None,
                                 "type": "v4",
-                            }
+                            },
+                            {
+                                "address": "2001:db8::1",
+                                "region": "global",
+                                "type": "v6",
+                            },
                         ]
                     },
                     "sharedIpAddress": None,
@@ -363,7 +396,13 @@ class FlyioUtilsTests(TestCase):
         ):
             addresses = get_ip_addresses({}, "example")
 
-        self.assertEqual(addresses, [{"address": "1.2.3.4", "type": "v4"}])
+        self.assertEqual(
+            addresses,
+            [
+                {"address": "1.2.3.4", "type": "v4"},
+                {"address": "2001:db8::1", "region": "", "type": "v6"},
+            ],
+        )
 
     def test_rejects_malformed_graphql_response_shapes(self):
         for content in (b"[]", b'{"data": null}'):
@@ -387,7 +426,7 @@ class FlyioUtilsTests(TestCase):
         self.assertEqual(authorization_header("FlyV1 fm2_example"), "FlyV1 fm2_example")
         self.assertEqual(authorization_header("Bearer example"), "Bearer example")
 
-    def test_stopped_wait_includes_version(self):
+    def test_stopped_wait_includes_instance_id(self):
         with patch(
             f"{FLYIO_UTILS}.api_request",
             return_value={"ok": True},
@@ -406,7 +445,7 @@ class FlyioUtilsTests(TestCase):
             "get",
             (
                 "/apps/example/machines/machine-one/wait?state=stopped&timeout=60"
-                "&version=instance-one"
+                "&instance_id=instance-one"
             ),
             ok_statuses=None,
             timeout=70,
@@ -533,6 +572,20 @@ class FlyioUtilsTests(TestCase):
                 {},
                 "/apps/example/machines/machine-one",
                 required_field="id",
+                expected_value="machine-one",
+            )
+
+    def test_get_resource_requires_identity_field_for_expected_value(self):
+        with (
+            patch(
+                f"{FLYIO_UTILS}.api_request",
+                return_value={"id": "machine-one"},
+            ),
+            self.assertRaises(FlyioApiError),
+        ):
+            get_resource(
+                {},
+                "/apps/example/machines/machine-one",
                 expected_value="machine-one",
             )
 

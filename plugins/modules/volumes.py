@@ -334,12 +334,18 @@ def settle_volume(module, client, current):
 def validate_volume_update(module, current):
     app_name = module.params["app_name"]
     volume_id = current["id"]
+    desired_encrypted = module.params["encrypted"]
+    desired_size = module.params["size_gb"]
     current_size = current.get("size_gb")
     if (
-        not isinstance(current.get("encrypted"), bool)
-        or not isinstance(current_size, int)
-        or isinstance(current_size, bool)
-        or current_size <= 0
+        desired_encrypted is not None and not isinstance(current.get("encrypted"), bool)
+    ) or (
+        desired_size is not None
+        and (
+            not isinstance(current_size, int)
+            or isinstance(current_size, bool)
+            or current_size <= 0
+        )
     ):
         module.fail_json(
             msg=(
@@ -349,10 +355,7 @@ def validate_volume_update(module, current):
             volume=current,
         )
 
-    if (
-        module.params["encrypted"] is not None
-        and current["encrypted"] != module.params["encrypted"]
-    ):
+    if desired_encrypted is not None and current["encrypted"] != desired_encrypted:
         module.fail_json(
             msg=(
                 f"Encryption cannot be changed for volume '{volume_id}' "
@@ -424,10 +427,13 @@ def update_volume(module, client, current):
             params["wait_timeout"],
             size_gb=desired_size,
         )
+        current_size = current.get("size_gb") if isinstance(current, dict) else None
         if (
             current is None
             or current.get("state") != "created"
-            or current.get("size_gb") < desired_size
+            or not isinstance(current_size, int)
+            or isinstance(current_size, bool)
+            or current_size < desired_size
         ):
             module.fail_json(
                 msg=(

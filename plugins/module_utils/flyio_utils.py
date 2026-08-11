@@ -56,7 +56,12 @@ def flyio_client(module):
     try:
         yield client
     except FlyioApiError as exc:
-        fail_from_flyio_error(module, str(exc), exc)
+        module.fail_json(
+            msg=str(exc),
+            error=str(exc),
+            status_code=exc.status_code,
+            response=exc.response_body,
+        )
 
 
 class FlyioApiError(Exception):
@@ -189,21 +194,36 @@ def valid_ip_address(address):
     if not isinstance(address, dict):
         return False
     address_version = ip_version(address.get("address"))
+    address_type = address.get("type")
+    if not isinstance(address_type, str):
+        return False
     expected_version = {
         "private_v6": 6,
         "shared_v4": 4,
         "v4": 4,
         "v6": 6,
-    }.get(address.get("type"))
+    }.get(address_type)
     return (
-        address_version == expected_version
+        expected_version is not None
+        and address_version == expected_version
         and all(
             address.get(field) is None
             or (isinstance(address[field], str) and address[field].strip())
             for field in ("id", "created_at")
         )
-        and (address.get("region") is None or isinstance(address.get("region"), str))
+        and (
+            address.get("region") is None
+            or (isinstance(address["region"], str) and not address["region"].isspace())
+        )
     )
+
+
+def normalize_ip_address(address):
+    return {
+        field: "" if field == "region" and value == "global" else value
+        for field, value in address.items()
+        if value is not None
+    }
 
 
 def get_ip_addresses(client, app_name, missing_ok=False):
@@ -255,10 +275,7 @@ def get_ip_addresses(client, app_name, missing_ok=False):
     ):
         raise FlyioApiError(f"{operation} returned malformed data: expected a list")
 
-    addresses = [
-        {field: value for field, value in address.items() if value is not None}
-        for address in addresses
-    ]
+    addresses = [normalize_ip_address(address) for address in addresses]
 
     shared = app.get("sharedIpAddress")
     if shared is not None:
@@ -323,18 +340,6 @@ def graphql_request(
     return data
 
 
-def fail_from_flyio_error(module, message, exc):
-    status_code = getattr(exc, "status_code", None)
-    response_body = getattr(exc, "response_body", None)
-
-    module.fail_json(
-        msg=message,
-        error=str(exc),
-        status_code=status_code,
-        response=response_body,
-    )
-
-
 def get_result(client, path, default=None, ok_statuses=None, timeout=30):
     result = api_request(client, "get", path, ok_statuses=ok_statuses, timeout=timeout)
     if result is _MISSING:
@@ -363,10 +368,9 @@ def get_resource(
     result = api_request(client, "get", path, ok_statuses=ok_statuses, timeout=timeout)
     if result is _MISSING:
         return None
-    if result is None:
-        raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
     if not _valid_resource(result, required_field, required_fields) or (
-        expected_value is not None and result[required_field] != expected_value
+        expected_value is not None
+        and (required_field is None or result[required_field] != expected_value)
     ):
         raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
     return result
@@ -382,8 +386,6 @@ def list_all(
     result = api_request(client, "get", path, ok_statuses=ok_statuses)
     if result is _MISSING:
         return []
-    if result is None:
-        raise FlyioApiError(f"GET {path} returned malformed data: expected a list")
     if not isinstance(result, list) or not all(
         _valid_resource(item, required_field, required_fields) for item in result
     ):
@@ -400,8 +402,6 @@ def put_result(client, path, body):
 
 
 def select_fields(value, fields):
-    if not isinstance(value, dict):
-        return {}
     return {field: value.get(field) for field in fields if field in value}
 
 
@@ -422,11 +422,9 @@ def sanitize_machine(machine):
             if key not in ("env", "headers", "raw_value")
         }
 
-    result = dict(machine)
+    result = sanitize_config(machine)
     for field in ("config", "incomplete_config"):
-        if isinstance(result.get(field), dict):
-            result[field] = sanitize_config(result[field])
-        elif field in result:
+        if field in result and not isinstance(result[field], dict):
             del result[field]
     return result
 
@@ -454,7 +452,7 @@ def wait_for_machine(
 
     query = {"state": state, "timeout": timeout}
     if instance_id is not None:
-        query["version"] = instance_id
+        query["instance_id"] = instance_id
 
     path = "{}?{}".format(
         flyio_path("apps", app_name, "machines", machine_id, "wait"),

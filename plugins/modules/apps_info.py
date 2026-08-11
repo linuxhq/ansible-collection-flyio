@@ -84,11 +84,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 def list_resources(module, client):
     org_slug = module.params["org_slug"]
-    result = get_result(
-        client,
-        "/apps?{}".format(urlencode({"org_slug": org_slug})),
-        default={},
-    )
+    result = get_result(client, "/apps?{}".format(urlencode({"org_slug": org_slug})))
 
     apps = result.get("apps") if isinstance(result, dict) else None
     if not isinstance(apps, list) or not all(

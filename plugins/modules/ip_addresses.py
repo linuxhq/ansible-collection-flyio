@@ -144,6 +144,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     get_ip_addresses,
     graphql_request,
     ip_version,
+    normalize_ip_address,
     valid_ip_address,
 )
 
@@ -173,21 +174,12 @@ def ips_by_type_and_region(addresses, ip_type, region):
     ]
 
 
-def find_ip_by_type_and_region(addresses, ip_type, region):
-    return next(iter(ips_by_type_and_region(addresses, ip_type, region)), None)
-
-
 def find_ip_by_address(addresses, address):
     requested = ipaddress.ip_address(address)
     for addr in addresses:
         if ipaddress.ip_address(addr["address"]) == requested:
             return addr
     return None
-
-
-def validate_address(module, address):
-    if address is not None and ip_version(address) is None:
-        module.fail_json(msg="address must be a valid IPv4 or IPv6 address")
 
 
 def ensure_present(module, client):
@@ -199,7 +191,7 @@ def ensure_present(module, client):
     region = normalize_region(requested_region)
 
     addresses = get_ip_addresses(client, app_name)
-    current = find_ip_by_type_and_region(addresses, ip_type, region)
+    current = next(iter(ips_by_type_and_region(addresses, ip_type, region)), None)
 
     if current is not None:
         module.exit_json(
@@ -272,9 +264,7 @@ def ensure_present(module, client):
             )
         )
 
-    ip_address = {
-        field: value for field, value in ip_address.items() if value is not None
-    }
+    ip_address = normalize_ip_address(ip_address)
 
     module.exit_json(
         changed=True, message="IP address allocated", ip_address=ip_address
@@ -287,14 +277,12 @@ def ensure_absent(module, client):
     address = params.get("address")
     ip_type = params.get("type")
     requested_region = params.get("region") or ""
-    validate_address(module, address)
+    if address is not None and ip_version(address) is None:
+        module.fail_json(msg="address must be a valid IPv4 or IPv6 address")
     validate_region(module, ip_type, requested_region)
     if address and requested_region:
         module.fail_json(msg="region is valid only when type is specified")
     region = normalize_region(requested_region)
-    if not address and not ip_type:
-        module.fail_json(msg="Either 'address' or 'type' is required for state=absent")
-
     addresses = get_ip_addresses(client, app_name, missing_ok=True)
 
     if address:

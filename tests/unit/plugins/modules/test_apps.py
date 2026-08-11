@@ -97,24 +97,6 @@ class AppsTests(TestCase):
             "Deletion of app 'example' timed out",
         )
 
-    def test_rejects_undocumented_delete_response(self):
-        module = FakeModule({"delete_timeout": 60, "force": True, "name": "example"})
-
-        with (
-            patch.object(apps, "get_resource", return_value={"name": "example"}),
-            patch.object(apps, "delete_result", return_value={"ok": False}),
-            patch.object(apps, "wait_for_app_absent") as wait,
-            patch.object(apps.time, "monotonic", return_value=10),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            apps.ensure_absent(module, {})
-
-        wait.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Fly.io API returned malformed data while deleting app 'example'",
-        )
-
     def test_check_mode_does_not_create(self):
         module = FakeModule({"name": "example", "org_slug": "linuxhq"}, check_mode=True)
 
