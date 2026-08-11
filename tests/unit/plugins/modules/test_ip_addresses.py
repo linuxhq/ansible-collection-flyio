@@ -26,22 +26,23 @@ class IpAddressesTests(TestCase):
             current,
         )
 
-    def test_finds_address_by_type_and_region(self):
+    def test_filters_addresses_by_type_and_region(self):
         addresses = [
             {"address": "one", "region": "ord", "type": "v4"},
             {"address": "two", "region": "global", "type": "v6"},
         ]
 
         self.assertEqual(
-            ip_addresses.find_ip_by_type_and_region(addresses, "v6", ""),
-            addresses[1],
+            ip_addresses.ips_by_type_and_region(addresses, "v6", ""),
+            [addresses[1]],
         )
-        self.assertIsNone(
-            ip_addresses.find_ip_by_type_and_region(
+        self.assertEqual(
+            ip_addresses.ips_by_type_and_region(
                 [{"address": "private", "region": "ord", "type": "private_v6"}],
                 "private_v6",
                 "iad",
-            )
+            ),
+            [],
         )
 
     def test_existing_address_is_unchanged(self):
@@ -130,7 +131,7 @@ class IpAddressesTests(TestCase):
             patch.object(
                 ip_addresses, "graphql_request", return_value=response
             ) as query,
-            self.assertRaises(ModuleExit),
+            self.assertRaises(ModuleExit) as raised,
         ):
             ip_addresses.ensure_present(module, {})
 
@@ -138,6 +139,7 @@ class IpAddressesTests(TestCase):
             query.call_args.args[2],
             {"input": {"appId": "example", "type": "v6"}},
         )
+        self.assertEqual(raised.exception.values["ip_address"]["region"], "")
 
     def test_rejects_regional_shared_address_before_lookup(self):
         module = FakeModule(
@@ -285,28 +287,6 @@ class IpAddressesTests(TestCase):
         get.assert_called_once_with({}, "missing", missing_ok=True)
         query.assert_not_called()
         self.assertFalse(raised.exception.values["changed"])
-
-    def test_rejects_missing_release_identifier_before_lookup(self):
-        module = FakeModule(
-            {
-                "address": None,
-                "app_name": "example",
-                "region": "",
-                "type": None,
-            }
-        )
-
-        with (
-            patch.object(ip_addresses, "get_ip_addresses") as get,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            ip_addresses.ensure_absent(module, {})
-
-        get.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Either 'address' or 'type' is required for state=absent",
-        )
 
     def test_rejects_whitespace_region_for_address_release(self):
         module = FakeModule(

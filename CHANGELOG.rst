@@ -4,14 +4,39 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.1.0
+======
+
+Security Fixes
+--------------
+
+- machines - recursively remove sensitive keys from the complete Machine API response before returning it.
+
+Bugfixes
+--------
+
+- apps and machines - accept the documented empty responses from delete, start, and stop actions and use subsequent resource reads for reporting.
+- ip_addresses - normalize the global region marker to the documented empty string in module results.
+- ip_addresses - reject malformed API responses with invalid address types or whitespace-only regions.
+- machines - distinguish Boolean and integer configuration values when checking whether an update is required.
+- machines - preserve the API-provided health check kind during partial updates.
+- machines - reject mixed zero and nonzero volume auto-extension settings.
+- machines - remove stale retry counts when changing away from the C(on-failure) restart policy.
+- machines - replace mutually exclusive injected-file sources cleanly during updates.
+- machines - report malformed nested service configuration without a Python traceback.
+- machines - send the documented instance_id parameter when waiting for a Machine to stop.
+- machines - treat identical duplicate configuration list items as unchanged.
+- machines - validate merged existing health checks before updating them.
+- volumes - accept omitted optional size and encryption fields when those options are not managed.
+- volumes - report malformed extension wait responses instead of raising a Python type error when the volume size is missing.
+
 v1.0.10
 =======
 
 Bugfixes
 --------
 
-- machines - accept provider-retained restart retry limits when the requested
-  restart policy does not use them.
+- machines - accept provider-retained restart retry limits when the requested restart policy does not use them.
 
 v1.0.9
 ======

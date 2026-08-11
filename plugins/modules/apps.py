@@ -188,20 +188,12 @@ def ensure_absent(module, client):
         path += "?force=true"
 
     deadline = time.monotonic() + params["delete_timeout"]
-    result = delete_result(
+    delete_result(
         client,
         path,
         timeout=params["delete_timeout"],
         ok_statuses=[404],
     )
-    if result is not None:
-        module.fail_json(
-            msg=(
-                "Fly.io API returned malformed data while deleting app "
-                f"'{params['name']}'"
-            ),
-            response=result,
-        )
 
     current = wait_for_app_absent(
         client,

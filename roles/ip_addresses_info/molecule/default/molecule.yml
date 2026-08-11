@@ -5,13 +5,14 @@ dependency:
     requirements-file: ../../requirements.yml
 
 driver:
-  name: vagrant
+  name: default
+  options:
+    managed: false
+    ansible_connection_options:
+      ansible_connection: local
 
 platforms:
-  - name: almalinux9
-    box: bento/almalinux-9.6
-    cpus: 4
-    memory: 4096
+  - name: localhost
 
 provisioner:
   name: ansible

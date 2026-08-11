@@ -3,7 +3,6 @@ ansible-lint==26.6.0
 antsibull-changelog==0.35.1
 black==26.5.1
 molecule==25.1.0
-molecule-plugins[vagrant]==23.7.0
 pre-commit==4.6.1
 ruff==0.16.1
 yamllint==1.38.0

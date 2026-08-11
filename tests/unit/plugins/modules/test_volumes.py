@@ -584,7 +584,7 @@ class FindVolumeTests(TestCase):
         self.assertEqual(raised.exception.values["volume"], extended)
         self.assertTrue(raised.exception.values["needs_restart"])
 
-    def test_extension_wait_rejects_stale_size(self):
+    def test_extension_wait_rejects_stale_or_missing_size(self):
         current = {
             "encrypted": True,
             "id": "vol_one",
@@ -608,18 +608,20 @@ class FindVolumeTests(TestCase):
             }
         )
 
-        with (
-            patch.object(volumes, "find_volume", return_value=current),
-            patch.object(volumes, "put_result", return_value=response),
-            patch.object(volumes, "wait_for_volume", return_value=current),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            volumes.ensure_present(module, {})
+        for waited in (current, {"id": "vol_one", "state": "extending"}):
+            with (
+                self.subTest(waited=waited),
+                patch.object(volumes, "find_volume", return_value=current),
+                patch.object(volumes, "put_result", return_value=response),
+                patch.object(volumes, "wait_for_volume", return_value=waited),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                volumes.ensure_present(module, {})
 
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Extension of volume 'vol_one' in app 'example' timed out",
-        )
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "Extension of volume 'vol_one' in app 'example' timed out",
+            )
 
     def test_rejects_malformed_extension_response(self):
         current = {
@@ -825,9 +827,8 @@ class FindVolumeTests(TestCase):
             "Encryption cannot be changed for volume 'vol_one' in app 'example'",
         )
 
-    def test_omitted_encryption_accepts_existing_unencrypted_volume(self):
+    def test_omitted_encryption_accepts_missing_provider_field(self):
         current = {
-            "encrypted": False,
             "id": "vol_one",
             "size_gb": 1,
             "state": "created",
@@ -852,11 +853,10 @@ class FindVolumeTests(TestCase):
 
         self.assertFalse(raised.exception.values["changed"])
 
-    def test_omitted_size_accepts_larger_existing_volume(self):
+    def test_omitted_size_accepts_missing_provider_size(self):
         current = {
             "encrypted": True,
             "id": "vol_one",
-            "size_gb": 10,
             "state": "created",
         }
         module = FakeModule(

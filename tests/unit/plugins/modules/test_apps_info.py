@@ -52,7 +52,7 @@ class AppsInfoTests(TestCase):
         ):
             apps_info.list_resources(module, {})
 
-        get.assert_called_once_with({}, "/apps?org_slug=linux%26hq", default={})
+        get.assert_called_once_with({}, "/apps?org_slug=linux%26hq")
         self.assertEqual(raised.exception.values["apps"], listed)
 
     def test_rejects_missing_apps_envelope(self):
