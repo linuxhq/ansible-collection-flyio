@@ -22,9 +22,7 @@ class SecretsTests(TestCase):
         )
 
     def test_sets_new_secret_without_returning_value(self):
-        module = FakeModule(
-            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
-        )
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
         response = {
             "name": "APP_SECRET",
             "value": "secret",
@@ -39,17 +37,13 @@ class SecretsTests(TestCase):
         ):
             secrets.ensure_present(module, {})
 
-        post.assert_called_once_with(
-            {}, "/apps/example/secrets/APP_SECRET", {"value": "secret"}
-        )
+        post.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET", {"value": "secret"})
         self.assertTrue(raised.exception.values["changed"])
         self.assertNotIn("value", raised.exception.values["secret"])
         self.assertEqual(raised.exception.values["version"], 2)
 
     def test_identical_secret_is_unchanged(self):
-        module = FakeModule(
-            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
-        )
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
         current = {"name": "APP_SECRET", "digest": "same"}
         response = {"name": "APP_SECRET", "digest": "same"}
 
@@ -60,15 +54,11 @@ class SecretsTests(TestCase):
         ):
             secrets.ensure_present(module, {})
 
-        post.assert_called_once_with(
-            {}, "/apps/example/secrets/APP_SECRET", {"value": "secret"}
-        )
+        post.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET", {"value": "secret"})
         self.assertFalse(raised.exception.values["changed"])
 
     def test_changed_secret_is_set(self):
-        module = FakeModule(
-            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
-        )
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
         current = {"name": "APP_SECRET", "digest": "old"}
         response = {"name": "APP_SECRET", "digest": "new"}
 
@@ -82,9 +72,7 @@ class SecretsTests(TestCase):
         self.assertTrue(raised.exception.values["changed"])
 
     def test_rejects_malformed_set_response(self):
-        module = FakeModule(
-            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
-        )
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
 
         for response in (
             [],
@@ -106,14 +94,11 @@ class SecretsTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data while setting secret "
-                "'APP_SECRET' for app 'example'",
+                "Fly.io API returned malformed data while setting secret 'APP_SECRET' for app 'example'",
             )
 
     def test_rejects_malformed_current_secret_timestamps(self):
-        module = FakeModule(
-            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
-        )
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
 
         with (
             patch.object(
@@ -133,9 +118,7 @@ class SecretsTests(TestCase):
         post.assert_not_called()
 
     def test_rejects_malformed_read_before_setting(self):
-        module = FakeModule(
-            {"app_name": "example", "name": "APP_SECRET", "value": "secret"}
-        )
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
 
         with (
             patch.object(
@@ -205,16 +188,12 @@ class SecretsTests(TestCase):
 
         with (
             patch.object(secrets, "get_resource", return_value=current),
-            patch.object(
-                secrets, "delete_result", return_value={"version": 3}
-            ) as delete,
+            patch.object(secrets, "delete_result", return_value={"version": 3}) as delete,
             self.assertRaises(ModuleExit) as raised,
         ):
             secrets.ensure_absent(module, {})
 
-        delete.assert_called_once_with(
-            {}, "/apps/example/secrets/APP_SECRET", ok_statuses=[404]
-        )
+        delete.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET", ok_statuses=[404])
         self.assertTrue(raised.exception.values["changed"])
         self.assertNotIn("value", raised.exception.values["secret"])
         self.assertEqual(raised.exception.values["version"], 3)
@@ -237,8 +216,7 @@ class SecretsTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data while removing secret "
-                "'APP_SECRET' from app 'example'",
+                "Fly.io API returned malformed data while removing secret 'APP_SECRET' from app 'example'",
             )
 
     def test_rejects_malformed_read_before_removing(self):

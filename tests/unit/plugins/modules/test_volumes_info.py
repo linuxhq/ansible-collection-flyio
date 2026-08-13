@@ -55,9 +55,7 @@ class VolumesInfoTests(TestCase):
         ):
             volumes_info.list_resources(module, {})
 
-        list_all.assert_called_once_with(
-            {}, "/apps/example/volumes", ok_statuses=[404], required_field="id"
-        )
+        list_all.assert_called_once_with({}, "/apps/example/volumes", ok_statuses=[404], required_field="id")
         self.assertEqual(raised.exception.values["volumes"], volumes)
 
     def test_rejects_malformed_documented_fields(self):

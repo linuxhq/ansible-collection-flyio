@@ -40,9 +40,7 @@ class AppsTests(TestCase):
         self.assertFalse(raised.exception.values["changed"])
 
     def test_creates_app_with_network(self):
-        module = FakeModule(
-            {"name": "example", "network": "private", "org_slug": "linuxhq"}
-        )
+        module = FakeModule({"name": "example", "network": "private", "org_slug": "linuxhq"})
         created = {"name": "example"}
 
         with (
@@ -72,9 +70,7 @@ class AppsTests(TestCase):
         ):
             apps.ensure_absent(module, {})
 
-        delete.assert_called_once_with(
-            {}, "/apps/example?force=true", timeout=120, ok_statuses=[404]
-        )
+        delete.assert_called_once_with({}, "/apps/example?force=true", timeout=120, ok_statuses=[404])
         wait.assert_called_once_with({}, "example", 100)
         self.assertTrue(raised.exception.values["changed"])
         self.assertNotIn("app", raised.exception.values)

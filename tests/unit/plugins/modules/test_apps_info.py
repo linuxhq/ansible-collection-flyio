@@ -66,17 +66,14 @@ class AppsInfoTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed data while listing apps "
-            "for organization 'linuxhq'",
+            "Fly.io API returned malformed data while listing apps for organization 'linuxhq'",
         )
 
     def test_rejects_whitespace_app_name(self):
         module = FakeModule({"org_slug": "linuxhq"})
 
         with (
-            patch.object(
-                apps_info, "get_result", return_value={"apps": [{"name": " "}]}
-            ),
+            patch.object(apps_info, "get_result", return_value={"apps": [{"name": " "}]}),
             self.assertRaises(ModuleFail),
         ):
             apps_info.list_resources(module, {})

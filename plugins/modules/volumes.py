@@ -155,6 +155,7 @@ message:
 """
 
 from ansible.module_utils.basic import AnsibleModule
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     delete_result,
     flyio_client,
@@ -194,10 +195,7 @@ def validate_volume_data(module, volume):
         volume_id = volume.get("id") if isinstance(volume, dict) else None
         detail = f" for volume '{volume_id}'" if volume_id else " volume"
         module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data{detail} in app "
-                f"'{module.params['app_name']}'"
-            ),
+            msg=(f"Fly.io API returned malformed data{detail} in app " f"'{module.params['app_name']}'"),
             volume=volume,
         )
     name = module.params.get("name")
@@ -239,9 +237,7 @@ def validate_created_volume(module, volume):
 
 
 def is_live(volume):
-    return volume is not None and volume.get("state") not in (
-        DEAD_STATES | DELETING_STATES
-    )
+    return volume is not None and volume.get("state") not in (DEAD_STATES | DELETING_STATES)
 
 
 def find_volume(
@@ -263,11 +259,7 @@ def find_volume(
             expected_value=volume_id,
             required_fields=("state",),
         )
-        if is_live(volume) or (
-            include_deleting
-            and volume is not None
-            and volume.get("state") in DELETING_STATES
-        ):
+        if is_live(volume) or (include_deleting and volume is not None and volume.get("state") in DELETING_STATES):
             return volume
         return None
 
@@ -282,10 +274,7 @@ def find_volume(
         volume
         for volume in volumes
         if (
-            (
-                is_live(volume)
-                or (include_deleting and volume.get("state") in DELETING_STATES)
-            )
+            (is_live(volume) or (include_deleting and volume.get("state") in DELETING_STATES))
             and volume.get("name") == name
             and (region is None or volume.get("region") == region)
         )
@@ -293,10 +282,7 @@ def find_volume(
 
     if len(matches) > 1:
         module.fail_json(
-            msg=(
-                f"Multiple volumes named '{name}' in region '{region}' match "
-                f"in app '{app_name}'; specify id"
-            ),
+            msg=(f"Multiple volumes named '{name}' in region '{region}' match " f"in app '{app_name}'; specify id"),
             volume_ids=[volume.get("id") for volume in matches],
         )
 
@@ -311,10 +297,7 @@ def settle_volume(module, client, current):
         return current
     if not params["wait"]:
         module.fail_json(
-            msg=(
-                f"Volume '{volume_id}' in app '{app_name}' is transitioning; "
-                "enable wait or retry"
-            ),
+            msg=(f"Volume '{volume_id}' in app '{app_name}' is transitioning; " "enable wait or retry"),
             volume=current,
         )
     current = wait_for_volume(
@@ -337,30 +320,18 @@ def validate_volume_update(module, current):
     desired_encrypted = module.params["encrypted"]
     desired_size = module.params["size_gb"]
     current_size = current.get("size_gb")
-    if (
-        desired_encrypted is not None and not isinstance(current.get("encrypted"), bool)
-    ) or (
+    if (desired_encrypted is not None and not isinstance(current.get("encrypted"), bool)) or (
         desired_size is not None
-        and (
-            not isinstance(current_size, int)
-            or isinstance(current_size, bool)
-            or current_size <= 0
-        )
+        and (not isinstance(current_size, int) or isinstance(current_size, bool) or current_size <= 0)
     ):
         module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data for volume "
-                f"'{volume_id}' in app '{app_name}'"
-            ),
+            msg=(f"Fly.io API returned malformed data for volume " f"'{volume_id}' in app '{app_name}'"),
             volume=current,
         )
 
     if desired_encrypted is not None and current["encrypted"] != desired_encrypted:
         module.fail_json(
-            msg=(
-                f"Encryption cannot be changed for volume '{volume_id}' "
-                f"in app '{app_name}'"
-            ),
+            msg=(f"Encryption cannot be changed for volume '{volume_id}' " f"in app '{app_name}'"),
             volume=current,
         )
     return current_size
@@ -384,9 +355,7 @@ def update_volume(module, client, current):
         )
 
     if desired_size is None or desired_size == current_size:
-        module.exit_json(
-            changed=False, message="Volume already present", volume=current
-        )
+        module.exit_json(changed=False, message="Volume already present", volume=current)
     if module.check_mode:
         module.exit_json(
             changed=True,
@@ -394,10 +363,7 @@ def update_volume(module, client, current):
             volume=current,
         )
 
-    extension_error = (
-        f"Fly.io API returned malformed data while extending volume "
-        f"'{volume_id}' in app '{app_name}'"
-    )
+    extension_error = f"Fly.io API returned malformed data while extending volume " f"'{volume_id}' in app '{app_name}'"
     result = put_result(
         client,
         flyio_path("apps", app_name, "volumes", volume_id, "extend"),
@@ -405,9 +371,7 @@ def update_volume(module, client, current):
     )
     needs_restart = result.get("needs_restart") if isinstance(result, dict) else None
     response_volume = result.get("volume") if isinstance(result, dict) else None
-    response_size = (
-        response_volume.get("size_gb") if isinstance(response_volume, dict) else None
-    )
+    response_size = response_volume.get("size_gb") if isinstance(response_volume, dict) else None
     if (
         not isinstance(result, dict)
         or not isinstance(needs_restart, bool)
@@ -436,10 +400,7 @@ def update_volume(module, client, current):
             or current_size < desired_size
         ):
             module.fail_json(
-                msg=(
-                    f"Extension of volume '{volume_id}' in app "
-                    f"'{app_name}' timed out"
-                ),
+                msg=(f"Extension of volume '{volume_id}' in app " f"'{app_name}' timed out"),
                 volume=current,
             )
     else:
@@ -475,8 +436,7 @@ def create_volume(module, client):
     if not valid_volume(current):
         module.fail_json(
             msg=(
-                f"Fly.io API returned malformed data while creating volume "
-                f"'{params['name']}' in app '{app_name}'"
+                f"Fly.io API returned malformed data while creating volume " f"'{params['name']}' in app '{app_name}'"
             ),
             volume=current,
         )
@@ -535,10 +495,7 @@ def wait_until_volume_deleted(module, client, volume):
     )
     if current is not None and current.get("state") not in DEAD_STATES:
         module.fail_json(
-            msg=(
-                f"Deletion of volume '{volume['id']}' in app "
-                f"'{module.params['app_name']}' timed out"
-            ),
+            msg=(f"Deletion of volume '{volume['id']}' in app " f"'{module.params['app_name']}' timed out"),
             volume=current,
         )
     return current
@@ -578,9 +535,7 @@ def ensure_absent(module, client):
         module.exit_json(**values)
 
     if module.check_mode:
-        module.exit_json(
-            changed=True, message="Volume would be deleted", volume=current
-        )
+        module.exit_json(changed=True, message="Volume would be deleted", volume=current)
 
     result = delete_result(
         client,
@@ -594,10 +549,7 @@ def ensure_absent(module, client):
         or result.get("state") not in (DEAD_STATES | DELETING_STATES)
     ):
         module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data while deleting volume "
-                f"'{volume_id}' in app '{app_name}'"
-            ),
+            msg=(f"Fly.io API returned malformed data while deleting volume " f"'{volume_id}' in app '{app_name}'"),
             volume=result,
         )
     if params["wait"]:
@@ -605,9 +557,7 @@ def ensure_absent(module, client):
     else:
         current = result
 
-    deleted = (params["wait"] and current is None) or (
-        current is not None and current.get("state") in DEAD_STATES
-    )
+    deleted = (params["wait"] and current is None) or (current is not None and current.get("state") in DEAD_STATES)
     message = "Volume deleted" if deleted else "Volume deletion requested"
     values = {"changed": True, "message": message}
     if current is not None:

@@ -112,6 +112,7 @@ message:
 """
 
 from ansible.module_utils.basic import AnsibleModule
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     FlyioApiError,
     delete_result,
@@ -131,9 +132,7 @@ def secret_path(app_name, name):
 
 
 def valid_version(value):
-    return value is None or (
-        isinstance(value, int) and not isinstance(value, bool) and value >= 0
-    )
+    return value is None or (isinstance(value, int) and not isinstance(value, bool) and value >= 0)
 
 
 def get_secret(client, path, name):

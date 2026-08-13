@@ -11,6 +11,8 @@ build_ignore:
   - .claude/**
   - .codex
   - .codex/**
+  - .config
+  - .config/**
   - .DS_Store
   - .github
   - .github/**
@@ -26,13 +28,16 @@ build_ignore:
   - AGENTS.md
   - ansible.cfg
   - CLAUDE.md
-  - Makefile
+  - pyproject.toml
   - requirements.txt
   - requirements.yml
   - roles/*/molecule
   - roles/*/molecule/**
   - venv
   - venv/**
+  - .tox
+  - .tox/**
+  - tox.ini
   - '**/.DS_Store'
   - '**/__pycache__'
   - '**/__pycache__/**'

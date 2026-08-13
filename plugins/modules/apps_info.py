@@ -74,6 +74,7 @@ apps:
 from urllib.parse import urlencode
 
 from ansible.module_utils.basic import AnsibleModule
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
     flyio_path,
@@ -88,16 +89,10 @@ def list_resources(module, client):
 
     apps = result.get("apps") if isinstance(result, dict) else None
     if not isinstance(apps, list) or not all(
-        isinstance(app, dict)
-        and isinstance(app.get("name"), str)
-        and app["name"].strip()
-        for app in apps
+        isinstance(app, dict) and isinstance(app.get("name"), str) and app["name"].strip() for app in apps
     ):
         module.fail_json(
-            msg=(
-                "Fly.io API returned malformed data while listing apps "
-                f"for organization '{org_slug}'"
-            )
+            msg=("Fly.io API returned malformed data while listing apps " f"for organization '{org_slug}'")
         )
 
     module.exit_json(changed=False, apps=apps)

@@ -63,9 +63,7 @@ class MachinesInfoTests(TestCase):
         ):
             machines_info.list_resources(module, {})
 
-        list_all.assert_called_once_with(
-            {}, "/apps/example/machines", ok_statuses=[404], required_field="id"
-        )
+        list_all.assert_called_once_with({}, "/apps/example/machines", ok_statuses=[404], required_field="id")
         self.assertEqual(raised.exception.values["machines"], [machine])
 
     def test_rejects_malformed_documented_fields(self):
