@@ -14,9 +14,7 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
 class SecretsInfoTests(TestCase):
     def test_lists_secret_metadata_without_values(self):
         module = FakeModule({"app_name": "example/app"})
-        response = {
-            "secrets": [{"name": "APP_SECRET", "digest": "digest", "value": "secret"}]
-        }
+        response = {"secrets": [{"name": "APP_SECRET", "digest": "digest", "value": "secret"}]}
 
         with (
             patch.object(secrets_info, "get_result", return_value=response) as get,
@@ -72,6 +70,5 @@ class SecretsInfoTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data while listing secrets "
-                "for app 'example'",
+                "Fly.io API returned malformed data while listing secrets for app 'example'",
             )

@@ -74,6 +74,7 @@ ip_addresses:
 """
 
 from ansible.module_utils.basic import AnsibleModule
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
     get_ip_addresses,

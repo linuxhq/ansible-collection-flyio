@@ -371,3 +371,10 @@ releases:
     - machine-wait-instance-id.yml
     - volume-extension-response-validation.yml
     release_date: '2026-08-10'
+  1.1.1:
+    changes:
+      release_summary: Maintenance release that migrates development and CI tooling
+        from Make to Tox and refreshes Ruff.
+    fragments:
+    - tooling-to-tox.yml
+    release_date: '2026-08-13'

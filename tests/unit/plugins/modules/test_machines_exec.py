@@ -35,9 +35,7 @@ class MachinesExecTests(TestCase):
                 machines_exec.exec_command(module(**{name: " "}), {})
 
             request.assert_not_called()
-            self.assertEqual(
-                raised.exception.values["msg"], f"{name} must not be empty"
-            )
+            self.assertEqual(raised.exception.values["msg"], f"{name} must not be empty")
 
     def test_rejects_nonpositive_timeout(self):
         with (
@@ -47,9 +45,7 @@ class MachinesExecTests(TestCase):
             machines_exec.exec_command(module(timeout=0), {})
 
         request.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"], "timeout must be greater than zero"
-        )
+        self.assertEqual(raised.exception.values["msg"], "timeout must be greater than zero")
 
     def test_check_mode_does_not_execute(self):
         with (

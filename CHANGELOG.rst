@@ -4,6 +4,14 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.1.1
+======
+
+Release Summary
+---------------
+
+Maintenance release that migrates development and CI tooling from Make to Tox and refreshes Ruff.
+
 v1.1.0
 ======
 

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 from ansible.module_utils.urls import ConnectionError as AnsibleConnectionError
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     _MISSING,
     FlyioApiError,
@@ -38,9 +39,7 @@ class FlyioUtilsTests(TestCase):
         with self.assertRaises(RuntimeError):
             require_positive(module, "timeout")
 
-        module.fail_json.assert_called_once_with(
-            msg="timeout must be greater than zero"
-        )
+        module.fail_json.assert_called_once_with(msg="timeout must be greater than zero")
 
     def test_encodes_api_path_components(self):
         self.assertEqual(
@@ -71,9 +70,7 @@ class FlyioUtilsTests(TestCase):
         with self.assertRaises(RuntimeError), flyio_client(module):
             pass
 
-        module.fail_json.assert_called_once_with(
-            msg="api_token must not contain line breaks"
-        )
+        module.fail_json.assert_called_once_with(msg="api_token must not contain line breaks")
 
     def test_client_rejects_invalid_tokens(self):
         for token, message in (
@@ -152,17 +149,7 @@ class FlyioUtilsTests(TestCase):
                 "env": {"TOKEN": "secret"},
                 "files": [{"guest_path": "/secret", "raw_value": "c2VjcmV0"}],
                 "image": "example:latest",
-                "services": [
-                    {
-                        "ports": [
-                            {
-                                "http_options": {
-                                    "response": {"headers": {"Authorization": "secret"}}
-                                }
-                            }
-                        ]
-                    }
-                ],
+                "services": [{"ports": [{"http_options": {"response": {"headers": {"Authorization": "secret"}}}}]}],
             },
             "headers": {"Authorization": "secret"},
             "id": "machine-one",
@@ -231,8 +218,7 @@ class FlyioUtilsTests(TestCase):
             with (
                 self.subTest(expected=expected),
                 patch(
-                    "ansible_collections.linuxhq.flyio.plugins.module_utils."
-                    "flyio_utils.open_url",
+                    "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.open_url",
                     side_effect=AnsibleConnectionError("TLS setup failed"),
                 ),
                 self.assertRaises(FlyioApiError) as raised,
@@ -280,9 +266,7 @@ class FlyioUtilsTests(TestCase):
             patch(f"{FLYIO_UTILS}.open_url") as open_url,
             self.assertRaises(FlyioApiError) as raised,
         ):
-            open_url.return_value.read.return_value = json.dumps(
-                {"errors": errors}
-            ).encode()
+            open_url.return_value.read.return_value = json.dumps({"errors": errors}).encode()
             graphql_request(
                 {"headers": {}},
                 "query { app { id } }",
@@ -370,8 +354,7 @@ class FlyioUtilsTests(TestCase):
 
     def test_ip_addresses_omit_unavailable_fields(self):
         with patch(
-            "ansible_collections.linuxhq.flyio.plugins.module_utils."
-            "flyio_utils.graphql_request",
+            "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.graphql_request",
             return_value={
                 "app": {
                     "ipAddresses": {
@@ -443,10 +426,7 @@ class FlyioUtilsTests(TestCase):
         request.assert_called_once_with(
             {},
             "get",
-            (
-                "/apps/example/machines/machine-one/wait?state=stopped&timeout=60"
-                "&instance_id=instance-one"
-            ),
+            ("/apps/example/machines/machine-one/wait?state=stopped&timeout=60&instance_id=instance-one"),
             ok_statuses=None,
             timeout=70,
         )
@@ -459,9 +439,7 @@ class FlyioUtilsTests(TestCase):
             ):
                 wait_for_machine({}, "example", "machine-one", instance_id=instance_id)
 
-            self.assertIn(
-                "Machine 'machine-one' in app 'example'", str(raised.exception)
-            )
+            self.assertIn("Machine 'machine-one' in app 'example'", str(raised.exception))
 
     def test_machine_wait_requires_stopped_instance_id(self):
         with self.assertRaises(FlyioApiError) as raised:
@@ -474,17 +452,14 @@ class FlyioUtilsTests(TestCase):
             with (
                 self.subTest(result=result),
                 patch(
-                    "ansible_collections.linuxhq.flyio.plugins.module_utils."
-                    "flyio_utils.api_request",
+                    "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.api_request",
                     return_value=result,
                 ),
                 self.assertRaises(FlyioApiError) as raised,
             ):
                 wait_for_machine({}, "example", "machine-one")
 
-            self.assertIn(
-                "Machine 'machine-one' in app 'example'", str(raised.exception)
-            )
+            self.assertIn("Machine 'machine-one' in app 'example'", str(raised.exception))
 
     def test_machine_settle_waits_for_stable_state(self):
         updating = {"id": "machine-one", "state": "updating"}
@@ -518,9 +493,7 @@ class FlyioUtilsTests(TestCase):
         ) as request:
             result = get_result({}, "/apps/example", timeout=4)
 
-        request.assert_called_once_with(
-            {}, "get", "/apps/example", ok_statuses=None, timeout=4
-        )
+        request.assert_called_once_with({}, "get", "/apps/example", ok_statuses=None, timeout=4)
         self.assertEqual(result, {"id": "example"})
 
     def test_get_result_distinguishes_empty_success_from_missing(self):
@@ -611,9 +584,7 @@ class FlyioUtilsTests(TestCase):
         ) as request:
             result = list_all({}, "/apps/missing/machines", ok_statuses=[404])
 
-        request.assert_called_once_with(
-            {}, "get", "/apps/missing/machines", ok_statuses=[404]
-        )
+        request.assert_called_once_with({}, "get", "/apps/missing/machines", ok_statuses=[404])
         self.assertEqual(result, [])
 
     def test_list_all_rejects_empty_success_with_tolerated_status(self):

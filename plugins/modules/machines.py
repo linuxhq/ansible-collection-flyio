@@ -590,6 +590,7 @@ import base64
 import binascii
 
 from ansible.module_utils.basic import AnsibleModule
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_request,
     delete_result,
@@ -632,11 +633,7 @@ CHECK_INTEGER_FIELDS = ("port",)
 CHECK_DURATION_FIELDS = ("grace_period", "interval", "timeout")
 CHECK_BOOLEAN_FIELDS = ("tls_skip_verify",)
 CHECK_FIELDS = set(
-    CHECK_STRING_FIELDS
-    + CHECK_INTEGER_FIELDS
-    + CHECK_DURATION_FIELDS
-    + CHECK_BOOLEAN_FIELDS
-    + ("headers",)
+    CHECK_STRING_FIELDS + CHECK_INTEGER_FIELDS + CHECK_DURATION_FIELDS + CHECK_BOOLEAN_FIELDS + ("headers",)
 )
 LIST_ITEM_KEYS = (
     "guest_path",
@@ -729,12 +726,9 @@ def validate_string_mappings(module, config):
     for field in ("env", "metadata"):
         value = config.get(field)
         if value is not None and not all(
-            isinstance(key, str) and key.strip() and isinstance(item, str)
-            for key, item in value.items()
+            isinstance(key, str) and key.strip() and isinstance(item, str) for key, item in value.items()
         ):
-            module.fail_json(
-                msg=f"{field} must use non-empty string keys and string values"
-            )
+            module.fail_json(msg=f"{field} must use non-empty string keys and string values")
 
 
 def validate_check_strings(module, name, check):
@@ -787,13 +781,8 @@ def validate_check_durations(module, name, check):
         if field not in check:
             continue
         value = check[field]
-        if not (
-            (isinstance(value, int) and not isinstance(value, bool))
-            or (isinstance(value, str) and value.strip())
-        ):
-            module.fail_json(
-                msg=f"checks.{name}.{field} must be an integer or duration string"
-            )
+        if not ((isinstance(value, int) and not isinstance(value, bool)) or (isinstance(value, str) and value.strip())):
+            module.fail_json(msg=f"checks.{name}.{field} must be an integer or duration string")
         if isinstance(value, int) and not isinstance(value, bool):
             validate_integer_range(module, value, f"checks.{name}.{field}", 1)
 
@@ -811,17 +800,14 @@ def validate_check_headers(module, name, headers):
             for header in headers
         )
     ):
-        module.fail_json(
-            msg=f"checks.{name}.headers must contain name and string values"
-        )
+        module.fail_json(msg=f"checks.{name}.headers must contain name and string values")
 
 
 def validate_checks(module, checks):
     if checks is None:
         return
     if not isinstance(checks, dict) or not all(
-        isinstance(name, str) and name.strip() and isinstance(check, dict)
-        for name, check in checks.items()
+        isinstance(name, str) and name.strip() and isinstance(check, dict) for name, check in checks.items()
     ):
         module.fail_json(msg="checks must map names to configuration dictionaries")
 
@@ -835,15 +821,11 @@ def validate_checks(module, checks):
 def validate_paths(module, config):
     for option, field in (("files", "guest_path"), ("mounts", "path")):
         if any(
-            not isinstance(item.get(field), str) or not item[field].startswith("/")
-            for item in config.get(option) or []
+            not isinstance(item.get(field), str) or not item[field].startswith("/") for item in config.get(option) or []
         ):
             module.fail_json(msg=f"{option}[].{field} must be an absolute path")
     for field in ("guest_path", "url_prefix"):
-        if any(
-            not isinstance(item.get(field), str) or not item[field].strip()
-            for item in config.get("statics") or []
-        ):
+        if any(not isinstance(item.get(field), str) or not item[field].strip() for item in config.get("statics") or []):
             module.fail_json(msg=f"statics[].{field} must not be empty")
 
 
@@ -893,21 +875,12 @@ def validate_services(module, services):
             and concurrency.get("hard_limit") is not None
             and concurrency["soft_limit"] > concurrency["hard_limit"]
         ):
-            module.fail_json(
-                msg="services[].concurrency.soft_limit must not exceed hard_limit"
-            )
+            module.fail_json(msg="services[].concurrency.soft_limit must not exceed hard_limit")
         autostop = service.get("autostop")
-        if autostop is not None and not (
-            isinstance(autostop, bool) or autostop in ("off", "stop", "suspend")
-        ):
-            module.fail_json(
-                msg="service autostop must be off, stop, suspend, true, or false"
-            )
+        if autostop is not None and not (isinstance(autostop, bool) or autostop in ("off", "stop", "suspend")):
+            module.fail_json(msg="service autostop must be off, stop, suspend, true, or false")
         ports = service.get("ports")
-        if ports is not None and (
-            not isinstance(ports, list)
-            or not all(isinstance(port, dict) for port in ports)
-        ):
+        if ports is not None and (not isinstance(ports, list) or not all(isinstance(port, dict) for port in ports)):
             module.fail_json(msg="services[].ports must be a list of dictionaries")
         for port in ports or []:
             for field in ("port", "start_port", "end_port"):
@@ -923,9 +896,7 @@ def validate_services(module, services):
                 and port.get("end_port") is not None
                 and port["start_port"] > port["end_port"]
             ):
-                module.fail_json(
-                    msg="services[].ports[].start_port must not exceed end_port"
-                )
+                module.fail_json(msg="services[].ports[].start_port must not exceed end_port")
             http_options = validate_dictionary(
                 module,
                 port.get("http_options"),
@@ -945,18 +916,14 @@ def validate_services(module, services):
                     and (
                         value is False
                         or isinstance(value, str)
-                        or (
-                            isinstance(value, list)
-                            and all(isinstance(item, str) for item in value)
-                        )
+                        or (isinstance(value, list) and all(isinstance(item, str) for item in value))
                     )
                     for header, value in headers.items()
                 )
             ):
                 module.fail_json(
                     msg=(
-                        "service HTTP response headers must map non-empty strings "
-                        "to strings, string lists, or false"
+                        "service HTTP response headers must map non-empty strings " "to strings, string lists, or false"
                     )
                 )
 
@@ -989,14 +956,9 @@ def validate_mounts(module, mounts):
                 f"mounts[].{field}",
                 0,
             )
-        if (mount.get("extend_threshold_percent") == 0) != (
-            mount.get("add_size_gb") == 0
-        ):
+        if (mount.get("extend_threshold_percent") == 0) != (mount.get("add_size_gb") == 0):
             module.fail_json(
-                msg=(
-                    "mounts[].extend_threshold_percent and add_size_gb must both "
-                    "be zero to disable extension"
-                )
+                msg=("mounts[].extend_threshold_percent and add_size_gb must both " "be zero to disable extension")
             )
 
 
@@ -1048,9 +1010,7 @@ def validate_complete_config(
         if "policy" not in restart:
             module.fail_json(msg="restart.policy is required")
         if "max_retries" in requested_restart and restart["policy"] != "on-failure":
-            module.fail_json(
-                msg="restart.max_retries is valid only with policy=on-failure"
-            )
+            module.fail_json(msg="restart.max_retries is valid only with policy=on-failure")
 
 
 def find_list_item(values, value):
@@ -1059,11 +1019,7 @@ def find_list_item(values, value):
 
     keys = [key for key in LIST_ITEM_KEYS if key in value]
     matches = [
-        item
-        for item in values
-        if isinstance(item, dict)
-        and keys
-        and all(item.get(key) == value[key] for key in keys)
+        item for item in values if isinstance(item, dict) and keys and all(item.get(key) == value[key] for key in keys)
     ]
     for item in matches:
         if item == value:
@@ -1085,14 +1041,9 @@ def match_list_items(current, desired):
 
 
 def config_values_differ(current, desired, purge=False):
-    if (
-        isinstance(current, list)
-        and isinstance(desired, list)
-        and all(has_list_identity(value) for value in desired)
-    ):
+    if isinstance(current, list) and isinstance(desired, list) and all(has_list_identity(value) for value in desired):
         return len(current) != len(desired) or any(
-            match is None or config_values_differ(match, value)
-            for match, value in match_list_items(current, desired)
+            match is None or config_values_differ(match, value) for match, value in match_list_items(current, desired)
         )
 
     if isinstance(current, list) and isinstance(desired, list):
@@ -1104,16 +1055,13 @@ def config_values_differ(current, desired, purge=False):
         return type(current) is not type(desired) or current != desired
 
     return (purge and current.keys() != desired.keys()) or any(
-        key not in current or config_values_differ(current[key], value)
-        for key, value in desired.items()
+        key not in current or config_values_differ(current[key], value) for key, value in desired.items()
     )
 
 
 def merge_values(current, desired):
     if isinstance(current, list) and isinstance(desired, list):
-        if len(current) == len(desired) and not all(
-            has_list_identity(value) for value in desired
-        ):
+        if len(current) == len(desired) and not all(has_list_identity(value) for value in desired):
             return [merge_values(cur, value) for cur, value in zip(current, desired)]
         return [
             merge_values(match, value) if match is not None else value
@@ -1148,10 +1096,7 @@ def merge_config(current, desired):
             checks = current.get("checks")
             if not isinstance(checks, dict):
                 checks = {}
-            config[field] = {
-                name: merge_values(checks.get(name, {}), value)
-                for name, value in desired[field].items()
-            }
+            config[field] = {name: merge_values(checks.get(name, {}), value) for name, value in desired[field].items()}
         else:
             config[field] = desired[field]
 
@@ -1165,28 +1110,18 @@ def matching_mount(current, desired):
         return None
 
     mount = desired_mounts[0]
-    identifiers = {
-        mount[key]
-        for key in ("volume", "name")
-        if isinstance(mount.get(key), str) and mount[key]
-    }
+    identifiers = {mount[key] for key in ("volume", "name") if isinstance(mount.get(key), str) and mount[key]}
     current_identifiers = {
         current_mounts[0][key]
         for key in ("volume", "name")
         if isinstance(current_mounts[0].get(key), str) and current_mounts[0][key]
     }
-    return (
-        current_mounts[0]
-        if identifiers and identifiers <= current_identifiers
-        else None
-    )
+    return current_mounts[0] if identifiers and identifiers <= current_identifiers else None
 
 
 def mounts_differ(current, desired):
     current_mounts = current.get("mounts", [])
-    if not isinstance(current_mounts, list) or not all(
-        isinstance(mount, dict) for mount in current_mounts
-    ):
+    if not isinstance(current_mounts, list) or not all(isinstance(mount, dict) for mount in current_mounts):
         return True
     if len(current_mounts) != len(desired.get("mounts", [])):
         return True
@@ -1197,11 +1132,7 @@ def mount_values_differ(current, desired):
     desired_mounts = desired.get("mounts", [])
     if not desired_mounts:
         return False
-    values = {
-        key: value
-        for key, value in desired_mounts[0].items()
-        if key not in ("volume", "name")
-    }
+    values = {key: value for key, value in desired_mounts[0].items() if key not in ("volume", "name")}
     match = matching_mount(current, desired)
     return match is None or config_values_differ(match, values)
 
@@ -1209,10 +1140,7 @@ def mount_values_differ(current, desired):
 def validate_machine_data(module, machine):
     if machine is not None and not valid_machine(machine):
         module.fail_json(
-            msg=(
-                "Fly.io API returned malformed Machine data for app "
-                f"'{module.params['app_name']}'"
-            ),
+            msg=("Fly.io API returned malformed Machine data for app " f"'{module.params['app_name']}'"),
             machine=sanitize_machine(machine),
         )
     return machine
@@ -1255,10 +1183,7 @@ def settle_machine(module, client, current, desired_state):
     state = current.get("state")
     if state in TERMINAL_STATES:
         module.fail_json(
-            msg=(
-                f"Machine '{machine_id}' in app '{app_name}' is in terminal "
-                f"state '{state}'"
-            ),
+            msg=(f"Machine '{machine_id}' in app '{app_name}' is in terminal " f"state '{state}'"),
             machine=sanitize_machine(current),
         )
 
@@ -1267,10 +1192,7 @@ def settle_machine(module, client, current, desired_state):
         if state in AMBIGUOUS_TRANSITIONS:
             if not module.params["wait"]:
                 module.fail_json(
-                    msg=(
-                        f"Machine '{machine_id}' in app '{app_name}' is currently "
-                        f"{state}; enable wait or retry"
-                    ),
+                    msg=(f"Machine '{machine_id}' in app '{app_name}' is currently " f"{state}; enable wait or retry"),
                     machine=sanitize_machine(current),
                 )
             current = wait_for_machine_settled(
@@ -1290,10 +1212,7 @@ def settle_machine(module, client, current, desired_state):
         )
     elif not module.params["wait"]:
         module.fail_json(
-            msg=(
-                f"Machine '{machine_id}' in app '{app_name}' is currently "
-                f"{state}; enable wait or retry"
-            ),
+            msg=(f"Machine '{machine_id}' in app '{app_name}' is currently " f"{state}; enable wait or retry"),
             machine=sanitize_machine(current),
         )
     else:
@@ -1304,11 +1223,7 @@ def settle_machine(module, client, current, desired_state):
             current["id"],
             wait_state,
             module.params["wait_timeout"],
-            instance_id=(
-                machine_instance_id(module, current)
-                if wait_state == "stopped"
-                else None
-            ),
+            instance_id=(machine_instance_id(module, current) if wait_state == "stopped" else None),
         )
         current = get_resource(
             client,
@@ -1337,10 +1252,7 @@ def validate_machine_update(module, current, desired_config):
     current_config = current.get("config")
     if not isinstance(current_config, dict):
         module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed configuration for Machine "
-                f"'{current['id']}' in app '{app_name}'"
-            ),
+            msg=(f"Fly.io API returned malformed configuration for Machine " f"'{current['id']}' in app '{app_name}'"),
             machine=sanitize_machine(current),
         )
 
@@ -1349,24 +1261,15 @@ def validate_machine_update(module, current, desired_config):
         if not isinstance(current_region, str) or not current_region:
             module.fail_json(
                 msg=(
-                    f"Fly.io API returned malformed region data for Machine "
-                    f"'{current['id']}' in app '{app_name}'"
+                    f"Fly.io API returned malformed region data for Machine " f"'{current['id']}' in app '{app_name}'"
                 ),
                 machine=sanitize_machine(current),
             )
         if module.params["region"] != current_region:
-            module.fail_json(
-                msg=(
-                    f"Region cannot be changed for Machine '{current['id']}' "
-                    f"in app '{app_name}'"
-                )
-            )
+            module.fail_json(msg=(f"Region cannot be changed for Machine '{current['id']}' " f"in app '{app_name}'"))
     if "mounts" in desired_config and mounts_differ(current_config, desired_config):
         module.fail_json(
-            msg=(
-                f"Attached volume cannot be changed for Machine '{current['id']}' "
-                f"in app '{app_name}'"
-            )
+            msg=(f"Attached volume cannot be changed for Machine '{current['id']}' " f"in app '{app_name}'")
         )
     return current_config
 
@@ -1400,9 +1303,7 @@ def validate_machine_postcondition(
     validate_machine_data(module, machine)
     config = machine.get("config") if machine is not None else None
     machine_id = (
-        machine.get("id")
-        if isinstance(machine, dict)
-        else module.params.get("id") or module.params.get("name")
+        machine.get("id") if isinstance(machine, dict) else module.params.get("id") or module.params.get("name")
     )
     if (
         not isinstance(config, dict)
@@ -1429,20 +1330,14 @@ def update_machine(module, client, current, desired_config):
     config = merge_config(current_config, desired_config)
     existing_checks = current_config.get("checks")
     if isinstance(existing_checks, dict):
-        existing_checks = {
-            name for name, check in existing_checks.items() if isinstance(check, dict)
-        }
+        existing_checks = {name for name, check in existing_checks.items() if isinstance(check, dict)}
     else:
         existing_checks = ()
     requested_config = {field: config[field] for field in desired_config}
     validate_config(module, requested_config)
     validate_complete_config(
         module,
-        {
-            field: requested_config[field]
-            for field in ("checks", "services", "restart")
-            if field in desired_config
-        },
+        {field: requested_config[field] for field in ("checks", "services", "restart") if field in desired_config},
         existing_checks,
         requested_restart=desired_config.get("restart"),
     )
@@ -1474,8 +1369,7 @@ def update_machine(module, client, current, desired_config):
     if not valid_machine(result) or result["id"] != current["id"]:
         module.fail_json(
             msg=(
-                f"Fly.io API returned malformed data while updating Machine "
-                f"'{current['id']}' in app '{app_name}'"
+                f"Fly.io API returned malformed data while updating Machine " f"'{current['id']}' in app '{app_name}'"
             ),
             machine=sanitize_machine(result),
         )
@@ -1526,8 +1420,7 @@ def create_machine(module, client, desired_config):
     if not valid_machine(result):
         module.fail_json(
             msg=(
-                f"Fly.io API returned malformed data while creating Machine "
-                f"'{params['name']}' in app '{app_name}'"
+                f"Fly.io API returned malformed data while creating Machine " f"'{params['name']}' in app '{app_name}'"
             ),
             machine=sanitize_machine(result),
         )

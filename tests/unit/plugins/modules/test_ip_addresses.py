@@ -20,9 +20,7 @@ class IpAddressesTests(TestCase):
         }
 
         self.assertIs(
-            ip_addresses.find_ip_by_address(
-                [current], "2001:0db8:0000:0000:0000:0000:0000:0001"
-            ),
+            ip_addresses.find_ip_by_address([current], "2001:0db8:0000:0000:0000:0000:0000:0001"),
             current,
         )
 
@@ -63,9 +61,7 @@ class IpAddressesTests(TestCase):
 
         with (
             patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
-            patch.object(
-                ip_addresses, "graphql_request", return_value=response
-            ) as query,
+            patch.object(ip_addresses, "graphql_request", return_value=response) as query,
             self.assertRaises(ModuleExit) as raised,
         ):
             ip_addresses.ensure_present(module, {})
@@ -81,9 +77,7 @@ class IpAddressesTests(TestCase):
         )
 
     def test_allocates_private_address_in_requested_region(self):
-        module = FakeModule(
-            {"app_name": "example", "region": "iad", "type": "private_v6"}
-        )
+        module = FakeModule({"app_name": "example", "region": "iad", "type": "private_v6"})
         response = {
             "allocateIpAddress": {
                 "ipAddress": {
@@ -96,9 +90,7 @@ class IpAddressesTests(TestCase):
 
         with (
             patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
-            patch.object(
-                ip_addresses, "graphql_request", return_value=response
-            ) as query,
+            patch.object(ip_addresses, "graphql_request", return_value=response) as query,
             self.assertRaises(ModuleExit),
         ):
             ip_addresses.ensure_present(module, {})
@@ -128,9 +120,7 @@ class IpAddressesTests(TestCase):
 
         with (
             patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
-            patch.object(
-                ip_addresses, "graphql_request", return_value=response
-            ) as query,
+            patch.object(ip_addresses, "graphql_request", return_value=response) as query,
             self.assertRaises(ModuleExit) as raised,
         ):
             ip_addresses.ensure_present(module, {})
@@ -142,9 +132,7 @@ class IpAddressesTests(TestCase):
         self.assertEqual(raised.exception.values["ip_address"]["region"], "")
 
     def test_rejects_regional_shared_address_before_lookup(self):
-        module = FakeModule(
-            {"app_name": "example", "region": "iad", "type": "shared_v4"}
-        )
+        module = FakeModule({"app_name": "example", "region": "iad", "type": "shared_v4"})
 
         with (
             patch.object(ip_addresses, "get_ip_addresses") as get,
@@ -159,9 +147,7 @@ class IpAddressesTests(TestCase):
         )
 
     def test_rejects_whitespace_region_before_lookup(self):
-        module = FakeModule(
-            {"app_name": "example", "region": " ", "type": "private_v6"}
-        )
+        module = FakeModule({"app_name": "example", "region": " ", "type": "private_v6"})
 
         with (
             patch.object(ip_addresses, "get_ip_addresses") as get,
@@ -214,8 +200,7 @@ class IpAddressesTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data while allocating a 'v4' "
-                "address for app 'example'",
+                "Fly.io API returned malformed data while allocating a 'v4' address for app 'example'",
             )
 
     def test_rejects_malformed_allocation_region(self):
@@ -378,8 +363,7 @@ class IpAddressesTests(TestCase):
         query.assert_not_called()
         self.assertEqual(
             raised.exception.values["msg"],
-            "Multiple 'v4' addresses in region 'ord' match for app 'example'; "
-            "specify address",
+            "Multiple 'v4' addresses in region 'ord' match for app 'example'; specify address",
         )
 
     def test_rejects_malformed_release_response(self):
@@ -412,6 +396,5 @@ class IpAddressesTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data while releasing address "
-                "'1.2.3.4' from app 'example'",
+                "Fly.io API returned malformed data while releasing address '1.2.3.4' from app 'example'",
             )

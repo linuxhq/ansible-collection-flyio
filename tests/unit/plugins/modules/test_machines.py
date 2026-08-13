@@ -226,10 +226,7 @@ class MachinesTests(TestCase):
                         }
                     ]
                 },
-                (
-                    "mounts[].extend_threshold_percent and add_size_gb must both be "
-                    "zero to disable extension"
-                ),
+                ("mounts[].extend_threshold_percent and add_size_gb must both be zero to disable extension"),
             ),
             (
                 {"restart": {"max_retries": -1, "policy": "on-failure"}},
@@ -240,36 +237,22 @@ class MachinesTests(TestCase):
                     "services": [
                         {
                             "internal_port": 8080,
-                            "ports": [
-                                {
-                                    "http_options": {
-                                        "response": {"headers": {"X-Test": True}}
-                                    }
-                                }
-                            ],
+                            "ports": [{"http_options": {"response": {"headers": {"X-Test": True}}}}],
                         }
                     ]
                 },
-                (
-                    "service HTTP response headers must map non-empty strings to "
-                    "strings, string lists, or false"
-                ),
+                ("service HTTP response headers must map non-empty strings to strings, string lists, or false"),
             ),
             (
                 {
                     "services": [
                         {
                             "internal_port": 8080,
-                            "ports": [
-                                {"http_options": {"response": {"headers": {"": "x"}}}}
-                            ],
+                            "ports": [{"http_options": {"response": {"headers": {"": "x"}}}}],
                         }
                     ]
                 },
-                (
-                    "service HTTP response headers must map non-empty strings to "
-                    "strings, string lists, or false"
-                ),
+                ("service HTTP response headers must map non-empty strings to strings, string lists, or false"),
             ),
             (
                 {"services": [{"autostop": 1, "internal_port": 8080}]},
@@ -353,11 +336,7 @@ class MachinesTests(TestCase):
         self.assertIsNone(machines.validate_config(FakeModule(params()), config))
 
     def test_accepts_documented_check_headers(self):
-        checks = {
-            "health": {
-                "headers": [{"name": "Authorization", "values": ["Bearer secret"]}]
-            }
-        }
+        checks = {"health": {"headers": [{"name": "Authorization", "values": ["Bearer secret"]}]}}
 
         self.assertIsNone(machines.validate_checks(FakeModule(params()), checks))
 
@@ -469,9 +448,7 @@ class MachinesTests(TestCase):
             machines.ensure_present(module, {})
 
         post.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"], "each service requires protocol"
-        )
+        self.assertEqual(raised.exception.values["msg"], "each service requires protocol")
 
     def test_create_requires_complete_checks(self):
         module = FakeModule(params(checks={"health": {"port": 8080}}))
@@ -831,8 +808,7 @@ class MachinesTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data while updating Machine "
-                "'machine-one' in app 'example'",
+                "Fly.io API returned malformed data while updating Machine 'machine-one' in app 'example'",
             )
 
     def test_rejects_unapplied_update_response(self):
@@ -852,8 +828,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API did not apply the requested configuration to Machine "
-            "'machine-one' in app 'example'",
+            "Fly.io API did not apply the requested configuration to Machine 'machine-one' in app 'example'",
         )
 
     def test_rejects_malformed_current_configuration(self):
@@ -868,8 +843,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed configuration for Machine "
-            "'machine-one' in app 'example'",
+            "Fly.io API returned malformed configuration for Machine 'machine-one' in app 'example'",
         )
 
     def test_preserves_unmanaged_nested_config_on_update(self):
@@ -1237,8 +1211,7 @@ class MachinesTests(TestCase):
         post.assert_not_called()
         self.assertEqual(
             raised.exception.values["msg"],
-            "Attached volume cannot be changed for Machine 'machine-one' "
-            "in app 'example'",
+            "Attached volume cannot be changed for Machine 'machine-one' in app 'example'",
         )
 
     def test_updates_stopped_machine_without_launching(self):
@@ -1336,8 +1309,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed region data for Machine "
-            "'machine-one' in app 'example'",
+            "Fly.io API returned malformed region data for Machine 'machine-one' in app 'example'",
         )
 
     def test_check_mode_does_not_create_machine(self):
@@ -1415,8 +1387,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed data while creating Machine "
-            "'worker' in app 'example'",
+            "Fly.io API returned malformed data while creating Machine 'worker' in app 'example'",
         )
 
     def test_rejects_unapplied_create_response(self):
@@ -1437,8 +1408,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API did not apply the requested configuration to Machine "
-            "'machine-one' in app 'example'",
+            "Fly.io API did not apply the requested configuration to Machine 'machine-one' in app 'example'",
         )
 
     def test_destroy_waits_for_destroyed_state(self):
@@ -1579,9 +1549,7 @@ class MachinesTests(TestCase):
         ):
             machines.ensure_started(module, {})
 
-        request.assert_called_once_with(
-            {}, "post", "/apps/example/machines/machine-one/start"
-        )
+        request.assert_called_once_with({}, "post", "/apps/example/machines/machine-one/start")
         wait.assert_called_once_with(
             {},
             "example",
@@ -1701,17 +1669,13 @@ class MachinesTests(TestCase):
         with (
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "api_request") as request,
-            patch.object(
-                machines, "wait_for_machine_settled", return_value=started
-            ) as wait,
+            patch.object(machines, "wait_for_machine_settled", return_value=started) as wait,
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_started(module, {})
 
         request.assert_not_called()
-        wait.assert_called_once_with(
-            {}, "example", "machine-one", machines.TRANSITIONAL_STATES, 60
-        )
+        wait.assert_called_once_with({}, "example", "machine-one", machines.TRANSITIONAL_STATES, 60)
         self.assertFalse(raised.exception.values["changed"])
 
     def test_rejects_ambiguous_machine_transition_without_wait(self):
@@ -1726,8 +1690,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Machine 'machine-one' in app 'example' is currently updating; "
-            "enable wait or retry",
+            "Machine 'machine-one' in app 'example' is currently updating; enable wait or retry",
         )
 
     def test_rejects_timed_out_machine_transition(self):
@@ -1787,9 +1750,7 @@ class MachinesTests(TestCase):
         ):
             machines.ensure_stopped(module, {})
 
-        request.assert_called_once_with(
-            {}, "post", "/apps/example/machines/machine-one/stop"
-        )
+        request.assert_called_once_with({}, "post", "/apps/example/machines/machine-one/stop")
         wait.assert_called_once_with(
             {},
             "example",

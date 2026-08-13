@@ -137,8 +137,7 @@ def valid_machine(machine):
         and isinstance(machine.get("id"), str)
         and bool(machine["id"].strip())
         and all(
-            field not in machine
-            or (isinstance(machine[field], str) and machine[field].strip())
+            field not in machine or (isinstance(machine[field], str) and machine[field].strip())
             for field in ("name", "region", "state")
         )
     )
@@ -150,16 +149,13 @@ def valid_volume(volume):
         and isinstance(volume.get("id"), str)
         and bool(volume["id"].strip())
         and all(
-            field not in volume
-            or (isinstance(volume[field], str) and volume[field].strip())
+            field not in volume or (isinstance(volume[field], str) and volume[field].strip())
             for field in ("name", "region", "state")
         )
         and (
             "size_gb" not in volume
             or (
-                isinstance(volume["size_gb"], int)
-                and not isinstance(volume["size_gb"], bool)
-                and volume["size_gb"] > 0
+                isinstance(volume["size_gb"], int) and not isinstance(volume["size_gb"], bool) and volume["size_gb"] > 0
             )
         )
         and ("encrypted" not in volume or isinstance(volume["encrypted"], bool))
@@ -174,8 +170,7 @@ def valid_secret_metadata(secret):
         and isinstance(secret.get("digest"), str)
         and bool(secret["digest"].strip())
         and all(
-            field not in secret
-            or (isinstance(secret[field], str) and bool(secret[field].strip()))
+            field not in secret or (isinstance(secret[field], str) and bool(secret[field].strip()))
             for field in ("created_at", "updated_at")
         )
     )
@@ -207,14 +202,10 @@ def valid_ip_address(address):
         expected_version is not None
         and address_version == expected_version
         and all(
-            address.get(field) is None
-            or (isinstance(address[field], str) and address[field].strip())
+            address.get(field) is None or (isinstance(address[field], str) and address[field].strip())
             for field in ("id", "created_at")
         )
-        and (
-            address.get("region") is None
-            or (isinstance(address["region"], str) and not address["region"].isspace())
-        )
+        and (address.get("region") is None or (isinstance(address["region"], str) and not address["region"].isspace()))
     )
 
 
@@ -265,14 +256,10 @@ def get_ip_addresses(client, app_name, missing_ok=False):
 
     ip_addresses = app.get("ipAddresses")
     if not isinstance(ip_addresses, dict):
-        raise FlyioApiError(
-            f"{operation} returned malformed data: expected an address connection"
-        )
+        raise FlyioApiError(f"{operation} returned malformed data: expected an address connection")
 
     addresses = ip_addresses.get("nodes")
-    if not isinstance(addresses, list) or not all(
-        valid_ip_address(address) for address in addresses
-    ):
+    if not isinstance(addresses, list) or not all(valid_ip_address(address) for address in addresses):
         raise FlyioApiError(f"{operation} returned malformed data: expected a list")
 
     addresses = [normalize_ip_address(address) for address in addresses]
@@ -281,17 +268,13 @@ def get_ip_addresses(client, app_name, missing_ok=False):
     if shared is not None:
         shared_address = {"address": shared, "type": "shared_v4", "region": ""}
         if not valid_ip_address(shared_address):
-            raise FlyioApiError(
-                f"{operation} returned malformed data: expected a shared address"
-            )
+            raise FlyioApiError(f"{operation} returned malformed data: expected a shared address")
         addresses.append(shared_address)
 
     return addresses
 
 
-def graphql_request(
-    client, query, variables=None, timeout=30, operation="GraphQL request"
-):
+def graphql_request(client, query, variables=None, timeout=30, operation="GraphQL request"):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
@@ -333,9 +316,7 @@ def graphql_request(
 
     data = result.get("data")
     if not isinstance(data, dict):
-        raise FlyioApiError(
-            f"{operation} returned malformed data: expected a data object"
-        )
+        raise FlyioApiError(f"{operation} returned malformed data: expected a data object")
 
     return data
 
@@ -369,8 +350,7 @@ def get_resource(
     if result is _MISSING:
         return None
     if not _valid_resource(result, required_field, required_fields) or (
-        expected_value is not None
-        and (required_field is None or result[required_field] != expected_value)
+        expected_value is not None and (required_field is None or result[required_field] != expected_value)
     ):
         raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
     return result
@@ -416,11 +396,7 @@ def sanitize_machine(machine):
             return [sanitize_config(item) for item in value]
         if not isinstance(value, dict):
             return value
-        return {
-            key: sanitize_config(item)
-            for key, item in value.items()
-            if key not in ("env", "headers", "raw_value")
-        }
+        return {key: sanitize_config(item) for key, item in value.items() if key not in ("env", "headers", "raw_value")}
 
     result = sanitize_config(machine)
     for field in ("config", "incomplete_config"):
@@ -436,16 +412,9 @@ def require_positive(module, *names):
             module.fail_json(msg=f"{name} must be greater than zero")
 
 
-def wait_for_machine(
-    client, app_name, machine_id, state="started", timeout=60, instance_id=None
-):
-    operation = (
-        f"Wait for Machine '{machine_id}' in app '{app_name}' "
-        f"to reach state '{state}'"
-    )
-    if instance_id is not None and (
-        not isinstance(instance_id, str) or not instance_id.strip()
-    ):
+def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, instance_id=None):
+    operation = f"Wait for Machine '{machine_id}' in app '{app_name}' " f"to reach state '{state}'"
+    if instance_id is not None and (not isinstance(instance_id, str) or not instance_id.strip()):
         raise FlyioApiError(f"{operation} received a malformed instance ID")
     if state == "stopped" and instance_id is None:
         raise FlyioApiError(f"{operation} requires an instance ID")
@@ -472,9 +441,7 @@ def wait_for_machine(
         raise FlyioApiError(f"{operation} returned malformed data: expected ok=true")
 
 
-def wait_for_machine_settled(
-    client, app_name, machine_id, transient_states, timeout=60
-):
+def wait_for_machine_settled(client, app_name, machine_id, transient_states, timeout=60):
     deadline = time.monotonic() + timeout
     machine = None
     while True:
@@ -547,10 +514,7 @@ def wait_for_volume(
         if volume is None:
             return volume
         if not valid_volume(volume):
-            raise FlyioApiError(
-                f"Wait for volume '{volume_id}' in app '{app_name}' returned "
-                "malformed data"
-            )
+            raise FlyioApiError(f"Wait for volume '{volume_id}' in app '{app_name}' returned " "malformed data")
 
         if volume.get("state") in states:
             if size_gb is None:

@@ -139,6 +139,7 @@ message:
 import ipaddress
 
 from ansible.module_utils.basic import AnsibleModule
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
     get_ip_addresses,
@@ -167,10 +168,7 @@ def ips_by_type_and_region(addresses, ip_type, region):
         addr
         for addr in addresses
         if addr.get("type") == ip_type
-        and (
-            ip_type == "shared_v4"
-            or normalize_region(addr.get("region")) == normalize_region(region)
-        )
+        and (ip_type == "shared_v4" or normalize_region(addr.get("region")) == normalize_region(region))
     ]
 
 
@@ -236,10 +234,7 @@ def ensure_present(module, client):
     result = data.get("allocateIpAddress")
     if not isinstance(result, dict):
         module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data while allocating a '{ip_type}' "
-                f"address for app '{app_name}'"
-            )
+            msg=(f"Fly.io API returned malformed data while allocating a '{ip_type}' " f"address for app '{app_name}'")
         )
 
     ip_address = result.get("ipAddress")
@@ -252,23 +247,15 @@ def ensure_present(module, client):
     if (
         not valid_ip_address(ip_address)
         or ip_address["type"] != ip_type
-        or (
-            ip_type != "shared_v4"
-            and normalize_region(ip_address.get("region")) != normalize_region(region)
-        )
+        or (ip_type != "shared_v4" and normalize_region(ip_address.get("region")) != normalize_region(region))
     ):
         module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data while allocating a '{ip_type}' "
-                f"address for app '{app_name}'"
-            )
+            msg=(f"Fly.io API returned malformed data while allocating a '{ip_type}' " f"address for app '{app_name}'")
         )
 
     ip_address = normalize_ip_address(ip_address)
 
-    module.exit_json(
-        changed=True, message="IP address allocated", ip_address=ip_address
-    )
+    module.exit_json(changed=True, message="IP address allocated", ip_address=ip_address)
 
 
 def ensure_absent(module, client):
@@ -334,10 +321,7 @@ def ensure_absent(module, client):
     if (
         not isinstance(result, dict)
         or "clientMutationId" not in result
-        or (
-            result["clientMutationId"] is not None
-            and not isinstance(result["clientMutationId"], str)
-        )
+        or (result["clientMutationId"] is not None and not isinstance(result["clientMutationId"], str))
     ):
         module.fail_json(
             msg=(

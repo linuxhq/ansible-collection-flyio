@@ -18,22 +18,50 @@ An Ansible collection of Fly.io modules and roles.
 
 ## Development
 
-    make
-    source venv/bin/activate
+With Tox installed, install the pre-commit hook:
 
-### Build
+```sh
+tox run -e pre-commit
+```
 
-    ansible-galaxy collection build
+Tox manages isolated environments under `.tox/`; no environment activation is required.
 
-### Changelog
+### Checks
 
-    antsibull-changelog generate
+Run the default checks:
 
-### Lint
+```sh
+tox
+```
 
-    ansible-lint
-    yamllint -s .
+Run grouped checks:
 
-### Test
+```sh
+tox run -m format
+tox run -m lint
+tox run -m unit
+```
 
-Every role includes a Molecule scenario with an example playbook.
+Run Ansible sanity tests for a module:
+
+```sh
+tox run -e ansible-test -- sanity --python "$(cat .python-version)" plugins/modules/apps.py
+```
+
+### Molecule
+
+Each role has a Molecule scenario that also serves as an example playbook. Set `MOLECULE_ROLE`
+to select a role:
+
+```sh
+MOLECULE_ROLE=apps_info tox run -e molecule -- test -s default
+```
+
+Molecule scenarios may create real Fly.io resources.
+
+### Changelog and build
+
+```sh
+tox run -e changelog -- generate
+tox run -e build
+```

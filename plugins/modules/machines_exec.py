@@ -91,6 +91,7 @@ stdout:
 """
 
 from ansible.module_utils.basic import AnsibleModule
+
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_request,
     flyio_client,
@@ -120,9 +121,7 @@ def exec_command(module, client):
     result = api_request(
         client,
         "post",
-        flyio_path(
-            "apps", module.params["app_name"], "machines", module.params["id"], "exec"
-        ),
+        flyio_path("apps", module.params["app_name"], "machines", module.params["id"], "exec"),
         body=body,
         timeout=module.params["timeout"] + 10,
     )
@@ -130,9 +129,7 @@ def exec_command(module, client):
         not isinstance(result, dict)
         or not isinstance(result.get("exit_code"), int)
         or isinstance(result["exit_code"], bool)
-        or not all(
-            isinstance(result.get(field, ""), str) for field in ("stderr", "stdout")
-        )
+        or not all(isinstance(result.get(field, ""), str) for field in ("stderr", "stdout"))
     ):
         module.fail_json(
             msg=(
@@ -151,10 +148,7 @@ def exec_command(module, client):
 
     if values["exit_code"] != 0:
         module.fail_json(
-            msg=(
-                f"Command failed on Machine '{module.params['id']}' "
-                f"for app '{module.params['app_name']}'"
-            ),
+            msg=(f"Command failed on Machine '{module.params['id']}' " f"for app '{module.params['app_name']}'"),
             **values,
         )
 

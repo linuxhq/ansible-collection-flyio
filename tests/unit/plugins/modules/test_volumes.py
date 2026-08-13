@@ -86,8 +86,7 @@ class FindVolumeTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                f"Fly.io API did not apply requested {field} to volume "
-                "'vol_one' in app 'example'",
+                f"Fly.io API did not apply requested {field} to volume 'vol_one' in app 'example'",
             )
 
     def test_rejects_empty_region_for_name_lookup(self):
@@ -125,9 +124,7 @@ class FindVolumeTests(TestCase):
             )
 
             list_all.reset_mock()
-            volumes.find_volume(
-                FakeModule({}), {}, "example", name="data", missing_ok=True
-            )
+            volumes.find_volume(FakeModule({}), {}, "example", name="data", missing_ok=True)
             list_all.assert_called_once_with(
                 {},
                 "/apps/example/volumes",
@@ -152,9 +149,7 @@ class FindVolumeTests(TestCase):
             volumes.ensure_present(module, {})
 
         find.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"], "size_gb must be greater than zero"
-        )
+        self.assertEqual(raised.exception.values["msg"], "size_gb must be greater than zero")
 
     def test_rejects_size_above_provider_limit(self):
         module = FakeModule(
@@ -191,9 +186,7 @@ class FindVolumeTests(TestCase):
         }
 
         with patch.object(volumes, "list_all", return_value=[pending, created]):
-            result = volumes.find_volume(
-                FakeModule({}), {}, "example", name="data", region="ord"
-            )
+            result = volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord")
 
         self.assertEqual(result, created)
 
@@ -201,9 +194,7 @@ class FindVolumeTests(TestCase):
         destroyed = {"id": "vol_old", "state": "destroyed"}
 
         with patch.object(volumes, "get_resource", return_value=destroyed):
-            result = volumes.find_volume(
-                FakeModule({}), {}, "example", volume_id="vol_old"
-            )
+            result = volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old")
 
         self.assertIsNone(result)
 
@@ -211,9 +202,7 @@ class FindVolumeTests(TestCase):
         deleting = {"id": "vol_old", "state": "scheduling_destroy"}
 
         with patch.object(volumes, "get_resource", return_value=deleting):
-            self.assertIsNone(
-                volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old")
-            )
+            self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old"))
             self.assertEqual(
                 volumes.find_volume(
                     FakeModule({}),
@@ -235,14 +224,11 @@ class FindVolumeTests(TestCase):
             patch.object(volumes, "list_all", return_value=matches),
             self.assertRaises(ModuleFail) as raised,
         ):
-            volumes.find_volume(
-                FakeModule({}), {}, "example", name="data", region="ord"
-            )
+            volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord")
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Multiple volumes named 'data' in region 'ord' match in app "
-            "'example'; specify id",
+            "Multiple volumes named 'data' in region 'ord' match in app 'example'; specify id",
         )
         self.assertEqual(raised.exception.values["volume_ids"], ["vol_one", "vol_two"])
 
@@ -343,8 +329,7 @@ class FindVolumeTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed data while creating volume "
-            "'data' in app 'example'",
+            "Fly.io API returned malformed data while creating volume 'data' in app 'example'",
         )
 
     def test_missing_volume_id_fails_instead_of_creating(self):
@@ -399,9 +384,7 @@ class FindVolumeTests(TestCase):
         ):
             volumes.ensure_absent(module, {})
 
-        delete.assert_called_once_with(
-            {}, "/apps/example/volumes/vol_one", ok_statuses=[404]
-        )
+        delete.assert_called_once_with({}, "/apps/example/volumes/vol_one", ok_statuses=[404])
         wait.assert_called_once_with(
             {},
             "example",
@@ -439,8 +422,7 @@ class FindVolumeTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed data while deleting volume "
-            "'vol_one' in app 'example'",
+            "Fly.io API returned malformed data while deleting volume 'vol_one' in app 'example'",
         )
 
     def test_delete_without_wait_returns_provider_state(self):
@@ -483,9 +465,7 @@ class FindVolumeTests(TestCase):
         with (
             patch.object(volumes, "find_volume", return_value=current),
             patch.object(volumes, "delete_result", return_value=None),
-            patch.object(
-                volumes, "wait_until_volume_deleted", return_value=None
-            ) as wait,
+            patch.object(volumes, "wait_until_volume_deleted", return_value=None) as wait,
             self.assertRaises(ModuleExit),
         ):
             volumes.ensure_absent(module, {})
@@ -512,9 +492,7 @@ class FindVolumeTests(TestCase):
         ):
             volumes.ensure_absent(module, {})
 
-        self.assertEqual(
-            raised.exception.values["message"], "Volume deletion requested"
-        )
+        self.assertEqual(raised.exception.values["message"], "Volume deletion requested")
         self.assertNotIn("volume", raised.exception.values)
 
     def test_deleting_volume_does_not_wait_in_check_mode(self):
@@ -577,9 +555,7 @@ class FindVolumeTests(TestCase):
         ):
             volumes.ensure_present(module, {})
 
-        put.assert_called_once_with(
-            {}, "/apps/example/volumes/vol_one/extend", {"size_gb": 2}
-        )
+        put.assert_called_once_with({}, "/apps/example/volumes/vol_one/extend", {"size_gb": 2})
         wait.assert_called_once_with({}, "example", "vol_one", 60, size_gb=2)
         self.assertEqual(raised.exception.values["volume"], extended)
         self.assertTrue(raised.exception.values["needs_restart"])
@@ -651,8 +627,7 @@ class FindVolumeTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed data while extending volume "
-            "'vol_one' in app 'example'",
+            "Fly.io API returned malformed data while extending volume 'vol_one' in app 'example'",
         )
 
     def test_rejects_malformed_extension_fields(self):
@@ -697,8 +672,7 @@ class FindVolumeTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data while extending volume "
-                "'vol_one' in app 'example'",
+                "Fly.io API returned malformed data while extending volume 'vol_one' in app 'example'",
             )
 
     def test_extension_requires_restart_flag(self):
@@ -730,8 +704,7 @@ class FindVolumeTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Fly.io API returned malformed data while extending volume "
-            "'vol_one' in app 'example'",
+            "Fly.io API returned malformed data while extending volume 'vol_one' in app 'example'",
         )
 
     def test_waits_for_existing_volume_transition(self):
@@ -940,8 +913,7 @@ class FindVolumeTests(TestCase):
 
             self.assertEqual(
                 raised.exception.values["msg"],
-                "Fly.io API returned malformed data for volume "
-                "'vol_one' in app 'example'",
+                "Fly.io API returned malformed data for volume 'vol_one' in app 'example'",
             )
 
     def test_fails_when_volume_deletion_times_out(self):
