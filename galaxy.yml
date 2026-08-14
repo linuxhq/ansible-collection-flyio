@@ -27,6 +27,7 @@ build_ignore:
   - .yamllint
   - AGENTS.md
   - ansible.cfg
+  - changelogs/.plugin-cache.yaml
   - CLAUDE.md
   - pyproject.toml
   - requirements.txt
