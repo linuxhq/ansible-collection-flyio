@@ -105,6 +105,7 @@ def exec_command(module, client):
         value = module.params[name]
         if value is not None and not value.strip():
             module.fail_json(msg=f"{name} must not be empty")
+
     require_positive(module, "timeout")
 
     if module.check_mode:

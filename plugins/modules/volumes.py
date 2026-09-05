@@ -186,6 +186,7 @@ def validate_name_region(module):
     region = params.get("region")
     if params.get("name") is not None and not (params.get("region") or "").strip():
         module.fail_json(msg="region must not be empty when name is specified")
+
     if region is not None and not region.strip():
         module.fail_json(msg="region must not be empty")
 
@@ -198,6 +199,7 @@ def validate_volume_data(module, volume):
             msg=(f"Fly.io API returned malformed data{detail} in app " f"'{module.params['app_name']}'"),
             volume=volume,
         )
+
     name = module.params.get("name")
     if volume is not None and name is not None and volume.get("name") != name:
         module.fail_json(
@@ -207,6 +209,7 @@ def validate_volume_data(module, volume):
             ),
             volume=volume,
         )
+
     region = module.params.get("region")
     if volume is not None and region is not None and volume.get("region") != region:
         module.fail_json(
@@ -216,6 +219,7 @@ def validate_volume_data(module, volume):
             ),
             volume=volume,
         )
+
     return volume
 
 
@@ -223,6 +227,7 @@ def validate_created_volume(module, volume):
     volume = validate_volume_data(module, volume)
     if volume is None:
         return None
+
     for field in ("size_gb", "encrypted"):
         expected = module.params.get(field)
         if expected is not None and volume.get(field) != expected:
@@ -233,6 +238,7 @@ def validate_created_volume(module, volume):
                 ),
                 volume=volume,
             )
+
     return volume
 
 
@@ -261,6 +267,7 @@ def find_volume(
         )
         if is_live(volume) or (include_deleting and volume is not None and volume.get("state") in DELETING_STATES):
             return volume
+
         return None
 
     volumes = list_all(
@@ -295,11 +302,13 @@ def settle_volume(module, client, current):
     volume_id = current["id"]
     if current.get("state") not in TRANSITIONAL_STATES:
         return current
+
     if not params["wait"]:
         module.fail_json(
             msg=(f"Volume '{volume_id}' in app '{app_name}' is transitioning; " "enable wait or retry"),
             volume=current,
         )
+
     current = wait_for_volume(
         client,
         app_name,
@@ -311,6 +320,7 @@ def settle_volume(module, client, current):
             msg=f"Transition of volume '{volume_id}' in app '{app_name}' timed out",
             volume=current,
         )
+
     return current
 
 
@@ -334,6 +344,7 @@ def validate_volume_update(module, current):
             msg=(f"Encryption cannot be changed for volume '{volume_id}' " f"in app '{app_name}'"),
             volume=current,
         )
+
     return current_size
 
 
@@ -356,6 +367,7 @@ def update_volume(module, client, current):
 
     if desired_size is None or desired_size == current_size:
         module.exit_json(changed=False, message="Volume already present", volume=current)
+
     if module.check_mode:
         module.exit_json(
             changed=True,
@@ -440,6 +452,7 @@ def create_volume(module, client):
             ),
             volume=current,
         )
+
     current = validate_created_volume(module, current)
 
     volume_id = current["id"]
@@ -465,6 +478,7 @@ def ensure_present(module, client):
         require_positive(module, "size_gb")
         if params["size_gb"] > 500:
             module.fail_json(msg="size_gb must not exceed 500")
+
     if params["wait"]:
         require_positive(module, "wait_timeout")
 
@@ -481,6 +495,7 @@ def ensure_present(module, client):
     )
     if current is not None:
         return update_volume(module, client, current)
+
     return create_volume(module, client)
 
 
@@ -498,6 +513,7 @@ def wait_until_volume_deleted(module, client, volume):
             msg=(f"Deletion of volume '{volume['id']}' in app " f"'{module.params['app_name']}' timed out"),
             volume=current,
         )
+
     return current
 
 
@@ -529,9 +545,11 @@ def ensure_absent(module, client):
     if current.get("state") in DELETING_STATES:
         if params["wait"] and not module.check_mode:
             current = wait_until_volume_deleted(module, client, current)
+
         values = {"changed": False, "message": "Volume already being deleted"}
         if current is not None:
             values["volume"] = current
+
         module.exit_json(**values)
 
     if module.check_mode:
@@ -552,6 +570,7 @@ def ensure_absent(module, client):
             msg=(f"Fly.io API returned malformed data while deleting volume " f"'{volume_id}' in app '{app_name}'"),
             volume=result,
         )
+
     if params["wait"]:
         current = wait_until_volume_deleted(module, client, current)
     else:
@@ -562,6 +581,7 @@ def ensure_absent(module, client):
     values = {"changed": True, "message": message}
     if current is not None:
         values["volume"] = current
+
     module.exit_json(**values)
 
 

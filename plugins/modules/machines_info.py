@@ -124,6 +124,7 @@ def info(module, client):
 
     if machine is None:
         module.fail_json(msg=(f"Machine '{module.params['id']}' not found in app " f"'{module.params['app_name']}'"))
+
     validate_machines(module, [machine])
 
     module.exit_json(changed=False, machines=[sanitize_machine(machine)])

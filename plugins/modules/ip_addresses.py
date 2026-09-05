@@ -153,12 +153,14 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 def normalize_region(value):
     if not value or value == "global":
         return ""
+
     return value
 
 
 def validate_region(module, ip_type, region):
     if region and not region.strip():
         module.fail_json(msg="region must not contain only whitespace")
+
     if ip_type == "shared_v4" and normalize_region(region):
         module.fail_json(msg="region must be global for type=shared_v4")
 
@@ -177,6 +179,7 @@ def find_ip_by_address(addresses, address):
     for addr in addresses:
         if ipaddress.ip_address(addr["address"]) == requested:
             return addr
+
     return None
 
 
@@ -266,9 +269,11 @@ def ensure_absent(module, client):
     requested_region = params.get("region") or ""
     if address is not None and ip_version(address) is None:
         module.fail_json(msg="address must be a valid IPv4 or IPv6 address")
+
     validate_region(module, ip_type, requested_region)
     if address and requested_region:
         module.fail_json(msg="region is valid only when type is specified")
+
     region = normalize_region(requested_region)
     addresses = get_ip_addresses(client, app_name, missing_ok=True)
 
@@ -284,7 +289,9 @@ def ensure_absent(module, client):
                 ),
                 ip_addresses=matches,
             )
+
         current = matches[0] if matches else None
+
     if current is None:
         module.exit_json(changed=False, message="IP address already released")
 

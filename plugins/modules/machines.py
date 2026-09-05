@@ -663,8 +663,10 @@ PRESENT_STATES = {"created", "started", "stopped", "suspended"}
 def clean(value):
     if isinstance(value, dict):
         return {key: clean(item) for key, item in value.items() if item is not None}
+
     if isinstance(value, list):
         return [clean(item) for item in value]
+
     return value
 
 
@@ -701,14 +703,17 @@ def build_config(params):
             service["autostop"] = False
         elif service.get("autostop") == "stop":
             service["autostop"] = True
+
     return config
 
 
 def validate_integer_range(module, value, name, minimum, maximum=None):
     if value is None:
         return
+
     if not isinstance(value, int) or isinstance(value, bool):
         module.fail_json(msg=f"{name} must be an integer")
+
     if value < minimum or (maximum is not None and value > maximum):
         if maximum is None:
             module.fail_json(msg=f"{name} must be at least {minimum}")
@@ -719,6 +724,7 @@ def validate_integer_range(module, value, name, minimum, maximum=None):
 def validate_dictionary(module, value, name):
     if value is not None and not isinstance(value, dict):
         module.fail_json(msg=f"{name} must be a dictionary")
+
     return value or {}
 
 
@@ -735,8 +741,10 @@ def validate_check_strings(module, name, check):
     for field in CHECK_STRING_FIELDS:
         if field not in check:
             continue
+
         if not isinstance(check[field], str):
             module.fail_json(msg=f"checks.{name}.{field} must be a string")
+
         if not check[field].strip():
             module.fail_json(msg=f"checks.{name}.{field} must not be empty")
 
@@ -744,6 +752,7 @@ def validate_check_strings(module, name, check):
 def validate_check_fields(module, name, check):
     if not all(isinstance(field, str) for field in check):
         module.fail_json(msg=f"checks.{name} field names must be strings")
+
     unsupported = check.keys() - CHECK_FIELDS
     if unsupported:
         module.fail_json(
@@ -752,6 +761,7 @@ def validate_check_fields(module, name, check):
                 ", ".join(sorted(unsupported)),
             )
         )
+
     validate_check_strings(module, name, check)
     for field in CHECK_INTEGER_FIELDS:
         if field in check:
@@ -762,6 +772,7 @@ def validate_check_fields(module, name, check):
                 1,
                 65535,
             )
+
     for field in CHECK_BOOLEAN_FIELDS:
         if field in check and not isinstance(check[field], bool):
             module.fail_json(msg=f"checks.{name}.{field} must be a boolean")
@@ -770,8 +781,10 @@ def validate_check_fields(module, name, check):
 def validate_check_protocols(module, name, check):
     if check.get("kind") not in (None, "informational", "readiness"):
         module.fail_json(msg=f"checks.{name}.kind must be informational or readiness")
+
     if check.get("type") not in (None, "http", "tcp"):
         module.fail_json(msg=f"checks.{name}.type must be http or tcp")
+
     if check.get("protocol") not in (None, "http", "https"):
         module.fail_json(msg=f"checks.{name}.protocol must be http or https")
 
@@ -780,9 +793,11 @@ def validate_check_durations(module, name, check):
     for field in CHECK_DURATION_FIELDS:
         if field not in check:
             continue
+
         value = check[field]
         if not ((isinstance(value, int) and not isinstance(value, bool)) or (isinstance(value, str) and value.strip())):
             module.fail_json(msg=f"checks.{name}.{field} must be an integer or duration string")
+
         if isinstance(value, int) and not isinstance(value, bool):
             validate_integer_range(module, value, f"checks.{name}.{field}", 1)
 
@@ -806,6 +821,7 @@ def validate_check_headers(module, name, headers):
 def validate_checks(module, checks):
     if checks is None:
         return
+
     if not isinstance(checks, dict) or not all(
         isinstance(name, str) and name.strip() and isinstance(check, dict) for name, check in checks.items()
     ):
@@ -824,6 +840,7 @@ def validate_paths(module, config):
             not isinstance(item.get(field), str) or not item[field].startswith("/") for item in config.get(option) or []
         ):
             module.fail_json(msg=f"{option}[].{field} must be an absolute path")
+
     for field in ("guest_path", "url_prefix"):
         if any(not isinstance(item.get(field), str) or not item[field].strip() for item in config.get("statics") or []):
             module.fail_json(msg=f"statics[].{field} must not be empty")
@@ -834,9 +851,11 @@ def validate_files(module, files):
         secret_name = file.get("secret_name")
         if secret_name is not None and not secret_name.strip():
             module.fail_json(msg="files[].secret_name must not be empty")
+
         raw_value = file.get("raw_value")
         if raw_value is None:
             continue
+
         try:
             base64.b64decode(raw_value, validate=True)
         except (binascii.Error, TypeError, ValueError):
@@ -870,18 +889,22 @@ def validate_services(module, services):
                 f"services[].concurrency.{field}",
                 0,
             )
+
         if (
             concurrency.get("soft_limit") is not None
             and concurrency.get("hard_limit") is not None
             and concurrency["soft_limit"] > concurrency["hard_limit"]
         ):
             module.fail_json(msg="services[].concurrency.soft_limit must not exceed hard_limit")
+
         autostop = service.get("autostop")
         if autostop is not None and not (isinstance(autostop, bool) or autostop in ("off", "stop", "suspend")):
             module.fail_json(msg="service autostop must be off, stop, suspend, true, or false")
+
         ports = service.get("ports")
         if ports is not None and (not isinstance(ports, list) or not all(isinstance(port, dict) for port in ports)):
             module.fail_json(msg="services[].ports must be a list of dictionaries")
+
         for port in ports or []:
             for field in ("port", "start_port", "end_port"):
                 validate_integer_range(
@@ -891,12 +914,14 @@ def validate_services(module, services):
                     1,
                     65535,
                 )
+
             if (
                 port.get("start_port") is not None
                 and port.get("end_port") is not None
                 and port["start_port"] > port["end_port"]
             ):
                 module.fail_json(msg="services[].ports[].start_port must not exceed end_port")
+
             http_options = validate_dictionary(
                 module,
                 port.get("http_options"),
@@ -931,8 +956,10 @@ def validate_services(module, services):
 def validate_guest(module, guest):
     if guest is None:
         return
+
     for field in ("cpus", "gpus", "memory_mb"):
         validate_integer_range(module, guest.get(field), f"guest.{field}", 1)
+
     memory_mb = guest.get("memory_mb")
     if memory_mb is not None and memory_mb % 256:
         module.fail_json(msg="guest.memory_mb must be a multiple of 256")
@@ -942,6 +969,7 @@ def validate_mounts(module, mounts):
     for mount in mounts:
         if not isinstance(mount.get("volume"), str) or not mount["volume"].strip():
             module.fail_json(msg="mounts[].volume must not be empty")
+
         validate_integer_range(
             module,
             mount.get("extend_threshold_percent"),
@@ -956,6 +984,7 @@ def validate_mounts(module, mounts):
                 f"mounts[].{field}",
                 0,
             )
+
         if (mount.get("extend_threshold_percent") == 0) != (mount.get("add_size_gb") == 0):
             module.fail_json(
                 msg=("mounts[].extend_threshold_percent and add_size_gb must both " "be zero to disable extension")
@@ -965,6 +994,7 @@ def validate_mounts(module, mounts):
 def validate_restart(module, restart):
     if restart is None:
         return
+
     validate_integer_range(
         module,
         restart.get("max_retries"),
@@ -993,6 +1023,7 @@ def validate_complete_config(
     for name, check in config.get("checks", {}).items():
         if name in existing_checks:
             continue
+
         missing = {"port", "type"} - check.keys()
         if missing:
             module.fail_json(
@@ -1001,14 +1032,18 @@ def validate_complete_config(
                     " and ".join(sorted(missing)),
                 )
             )
+
     if any("protocol" not in service for service in config.get("services", [])):
         module.fail_json(msg="each service requires protocol")
+
     restart = config.get("restart")
     if restart is not None:
         if requested_restart is None:
             requested_restart = restart
+
         if "policy" not in restart:
             module.fail_json(msg="restart.policy is required")
+
         if "max_retries" in requested_restart and restart["policy"] != "on-failure":
             module.fail_json(msg="restart.max_retries is valid only with policy=on-failure")
 
@@ -1024,6 +1059,7 @@ def find_list_item(values, value):
     for item in matches:
         if item == value:
             return item
+
     return matches[0] if len(matches) == 1 else None
 
 
@@ -1037,6 +1073,7 @@ def match_list_items(current, desired):
         match = find_list_item(remaining, value)
         if match is not None:
             remaining.remove(match)
+
         yield match, value
 
 
@@ -1063,6 +1100,7 @@ def merge_values(current, desired):
     if isinstance(current, list) and isinstance(desired, list):
         if len(current) == len(desired) and not all(has_list_identity(value) for value in desired):
             return [merge_values(cur, value) for cur, value in zip(current, desired)]
+
         return [
             merge_values(match, value) if match is not None else value
             for match, value in match_list_items(current, desired)
@@ -1085,9 +1123,11 @@ def merge_config(current, desired):
         for field in ("image_config", "raw_value", "secret_name"):
             if field not in requested:
                 merged.pop(field, None)
+
     requested_restart = desired.get("restart") or {}
     if requested_restart.get("policy") not in (None, "on-failure"):
         config["restart"].pop("max_retries", None)
+
     for field in PURGE_CONFIG_FIELDS:
         if field not in desired:
             continue
@@ -1096,6 +1136,7 @@ def merge_config(current, desired):
             checks = current.get("checks")
             if not isinstance(checks, dict):
                 checks = {}
+
             config[field] = {name: merge_values(checks.get(name, {}), value) for name, value in desired[field].items()}
         else:
             config[field] = desired[field]
@@ -1123,8 +1164,10 @@ def mounts_differ(current, desired):
     current_mounts = current.get("mounts", [])
     if not isinstance(current_mounts, list) or not all(isinstance(mount, dict) for mount in current_mounts):
         return True
+
     if len(current_mounts) != len(desired.get("mounts", [])):
         return True
+
     return bool(current_mounts) and matching_mount(current, desired) is None
 
 
@@ -1132,6 +1175,7 @@ def mount_values_differ(current, desired):
     desired_mounts = desired.get("mounts", [])
     if not desired_mounts:
         return False
+
     values = {key: value for key, value in desired_mounts[0].items() if key not in ("volume", "name")}
     match = matching_mount(current, desired)
     return match is None or config_values_differ(match, values)
@@ -1143,6 +1187,7 @@ def validate_machine_data(module, machine):
             msg=("Fly.io API returned malformed Machine data for app " f"'{module.params['app_name']}'"),
             machine=sanitize_machine(machine),
         )
+
     return machine
 
 
@@ -1154,6 +1199,7 @@ def validate_waited_machine(module, machine_id, current, expected_state):
         reached = current is not None and current.get("state") in PRESENT_STATES
     else:
         reached = current is not None and current.get("state") == expected_state
+
     if not reached:
         module.fail_json(
             msg=(
@@ -1174,6 +1220,7 @@ def machine_instance_id(module, machine):
             ),
             machine=sanitize_machine(machine),
         )
+
     return instance_id
 
 
@@ -1195,6 +1242,7 @@ def settle_machine(module, client, current, desired_state):
                     msg=(f"Machine '{machine_id}' in app '{app_name}' is currently " f"{state}; enable wait or retry"),
                     machine=sanitize_machine(current),
                 )
+
             current = wait_for_machine_settled(
                 client,
                 module.params["app_name"],
@@ -1234,16 +1282,19 @@ def settle_machine(module, client, current, desired_state):
             required_fields=("state",),
         )
         validate_waited_machine(module, machine_id, current, wait_state)
+
     if current is None or current.get("state") in TERMINAL_STATES:
         module.fail_json(
             msg=f"Machine '{machine_id}' in app '{app_name}' is no longer available",
             machine=sanitize_machine(current),
         )
+
     if current.get("state") in TRANSITIONAL_STATES:
         module.fail_json(
             msg=f"Transition of Machine '{machine_id}' in app '{app_name}' timed out",
             machine=sanitize_machine(current),
         )
+
     return current
 
 
@@ -1265,12 +1316,15 @@ def validate_machine_update(module, current, desired_config):
                 ),
                 machine=sanitize_machine(current),
             )
+
         if module.params["region"] != current_region:
             module.fail_json(msg=(f"Region cannot be changed for Machine '{current['id']}' " f"in app '{app_name}'"))
+
     if "mounts" in desired_config and mounts_differ(current_config, desired_config):
         module.fail_json(
             msg=(f"Attached volume cannot be changed for Machine '{current['id']}' " f"in app '{app_name}'")
         )
+
     return current_config
 
 
@@ -1281,6 +1335,7 @@ def machine_config_changed(current_config, desired_config):
     for field, value in desired_config.items():
         if field == "image":
             continue
+
         if field == "mounts":
             if mount_values_differ(current_config, desired_config):
                 return True
@@ -1290,6 +1345,7 @@ def machine_config_changed(current_config, desired_config):
             purge=field in PURGE_CONFIG_FIELDS,
         ):
             return True
+
     return False
 
 
@@ -1318,6 +1374,7 @@ def validate_machine_postcondition(
             ),
             machine=sanitize_machine(machine),
         )
+
     return machine
 
 
@@ -1333,6 +1390,7 @@ def update_machine(module, client, current, desired_config):
         existing_checks = {name for name, check in existing_checks.items() if isinstance(check, dict)}
     else:
         existing_checks = ()
+
     requested_config = {field: config[field] for field in desired_config}
     validate_config(module, requested_config)
     validate_complete_config(
@@ -1348,6 +1406,7 @@ def update_machine(module, client, current, desired_config):
             message="Machine already present",
             machine=sanitize_machine(current),
         )
+
     if module.check_mode:
         module.exit_json(
             changed=True,
@@ -1358,6 +1417,7 @@ def update_machine(module, client, current, desired_config):
     body = {"config": config}
     if current.get("instance_id") is not None:
         body["current_version"] = machine_instance_id(module, current)
+
     if current.get("state") in ("created", "failed", "stopped", "suspended"):
         body["skip_launch"] = True
 
@@ -1413,6 +1473,7 @@ def create_machine(module, client, desired_config):
     body = {"config": desired_config}
     if params.get("name") is not None:
         body["name"] = params["name"]
+
     if params.get("region") is not None:
         body["region"] = params["region"]
 
@@ -1461,10 +1522,13 @@ def ensure_present(module, client):
     params = module.params
     if not params["image"].strip():
         module.fail_json(msg="image must not be empty")
+
     if params.get("region") is not None and not params["region"].strip():
         module.fail_json(msg="region must not be empty")
+
     if params["wait"]:
         require_positive(module, "wait_timeout")
+
     if len(params.get("mounts") or []) > 1:
         module.fail_json(msg="only one volume can be mounted to a Machine")
 
@@ -1481,6 +1545,7 @@ def ensure_present(module, client):
     )
     if current is not None:
         return update_machine(module, client, current, desired_config)
+
     return create_machine(module, client, desired_config)
 
 
@@ -1529,9 +1594,11 @@ def ensure_absent(module, client):
     if current.get("state") == "destroying":
         if params["wait"] and not module.check_mode:
             current = wait_until_machine_destroyed(module, client, current)
+
         values = {"changed": False, "message": "Machine already being destroyed"}
         if current is not None:
             values["machine"] = sanitize_machine(current)
+
         module.exit_json(**values)
 
     if module.check_mode:
@@ -1556,6 +1623,7 @@ def ensure_absent(module, client):
     values = {"changed": True, "message": message}
     if current is not None:
         values["machine"] = sanitize_machine(current)
+
     module.exit_json(**values)
 
 

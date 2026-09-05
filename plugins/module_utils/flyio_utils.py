@@ -19,8 +19,10 @@ _MISSING = object()
 def authorization_header(token):
     if token.startswith(("Bearer ", "FlyV1 ")):
         return token
+
     if any(part.partition("_")[0] in ("fm1r", "fm2") for part in token.split(",")):
         return f"FlyV1 {token}"
+
     return f"Bearer {token}"
 
 
@@ -33,10 +35,13 @@ def flyio_client(module):
     token = module.params.get("api_token")
     if not isinstance(token, str) or not token.strip():
         module.fail_json(msg="api_token is required")
+
     if "\r" in token or "\n" in token:
         module.fail_json(msg="api_token must not contain line breaks")
+
     if any(ord(character) < 32 or ord(character) == 127 for character in token):
         module.fail_json(msg="api_token must not contain control characters")
+
     token = token.strip()
     if token in ("Bearer", "FlyV1"):
         module.fail_json(msg="api_token credential must not be empty")
@@ -76,13 +81,16 @@ def _error_response(exc):
         content = exc.read()
     except (AttributeError, OSError):
         return None
+
     if not content:
         return None
+
     try:
         return json.loads(content)
     except ValueError:
         if isinstance(content, bytes):
             return content.decode("utf-8", errors="replace")
+
         return str(content)
 
 
@@ -103,6 +111,7 @@ def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
         content = response.read()
         if content:
             return json.loads(content)
+
         return None
     except urllib.error.HTTPError as exc:
         status_code = exc.code
@@ -179,6 +188,7 @@ def valid_secret_metadata(secret):
 def ip_version(value):
     if not isinstance(value, str) or "%" in value:
         return None
+
     try:
         return ipaddress.ip_address(value).version
     except ValueError:
@@ -188,10 +198,12 @@ def ip_version(value):
 def valid_ip_address(address):
     if not isinstance(address, dict):
         return False
+
     address_version = ip_version(address.get("address"))
     address_type = address.get("type")
     if not isinstance(address_type, str):
         return False
+
     expected_version = {
         "private_v6": 6,
         "shared_v4": 4,
@@ -245,12 +257,16 @@ def get_ip_addresses(client, app_name, missing_ok=False):
     except FlyioApiError as exc:
         if missing_ok and "could not find app" in str(exc).lower():
             return []
+
         raise
+
     app = data.get("app")
     if app is None:
         if missing_ok:
             return []
+
         raise FlyioApiError(f"App '{app_name}' not found")
+
     if not isinstance(app, dict):
         raise FlyioApiError(f"{operation} returned malformed data: expected an app")
 
@@ -269,6 +285,7 @@ def get_ip_addresses(client, app_name, missing_ok=False):
         shared_address = {"address": shared, "type": "shared_v4", "region": ""}
         if not valid_ip_address(shared_address):
             raise FlyioApiError(f"{operation} returned malformed data: expected a shared address")
+
         addresses.append(shared_address)
 
     return addresses
@@ -325,6 +342,7 @@ def get_result(client, path, default=None, ok_statuses=None, timeout=30):
     result = api_request(client, "get", path, ok_statuses=ok_statuses, timeout=timeout)
     if result is _MISSING:
         return default
+
     return result
 
 
@@ -332,6 +350,7 @@ def _valid_resource(value, required_field=None, required_fields=None):
     fields = tuple(required_fields or ())
     if required_field is not None:
         fields = (required_field, *fields)
+
     return isinstance(value, dict) and all(
         isinstance(value.get(field), str) and value[field].strip() for field in fields
     )
@@ -349,10 +368,12 @@ def get_resource(
     result = api_request(client, "get", path, ok_statuses=ok_statuses, timeout=timeout)
     if result is _MISSING:
         return None
+
     if not _valid_resource(result, required_field, required_fields) or (
         expected_value is not None and (required_field is None or result[required_field] != expected_value)
     ):
         raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
+
     return result
 
 
@@ -366,10 +387,12 @@ def list_all(
     result = api_request(client, "get", path, ok_statuses=ok_statuses)
     if result is _MISSING:
         return []
+
     if not isinstance(result, list) or not all(
         _valid_resource(item, required_field, required_fields) for item in result
     ):
         raise FlyioApiError(f"GET {path} returned malformed data: expected a list")
+
     return result
 
 
@@ -388,20 +411,24 @@ def select_fields(value, fields):
 def sanitize_machine(machine):
     if machine is None:
         return None
+
     if not isinstance(machine, dict):
         return {}
 
     def sanitize_config(value):
         if isinstance(value, list):
             return [sanitize_config(item) for item in value]
+
         if not isinstance(value, dict):
             return value
+
         return {key: sanitize_config(item) for key, item in value.items() if key not in ("env", "headers", "raw_value")}
 
     result = sanitize_config(machine)
     for field in ("config", "incomplete_config"):
         if field in result and not isinstance(result[field], dict):
             del result[field]
+
     return result
 
 
@@ -416,6 +443,7 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, 
     operation = f"Wait for Machine '{machine_id}' in app '{app_name}' " f"to reach state '{state}'"
     if instance_id is not None and (not isinstance(instance_id, str) or not instance_id.strip()):
         raise FlyioApiError(f"{operation} received a malformed instance ID")
+
     if state == "stopped" and instance_id is None:
         raise FlyioApiError(f"{operation} requires an instance ID")
 
@@ -437,6 +465,7 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, 
     )
     if result is _MISSING and state == "destroyed":
         return
+
     if not isinstance(result, dict) or result.get("ok") is not True:
         raise FlyioApiError(f"{operation} returned malformed data: expected ok=true")
 
@@ -513,6 +542,7 @@ def wait_for_volume(
         )
         if volume is None:
             return volume
+
         if not valid_volume(volume):
             raise FlyioApiError(f"Wait for volume '{volume_id}' in app '{app_name}' returned " "malformed data")
 
@@ -526,6 +556,7 @@ def wait_for_volume(
                     f"Wait for volume '{volume_id}' in app '{app_name}' returned "
                     "malformed data: expected an integer size"
                 )
+
             if current_size >= size_gb:
                 return volume
 
