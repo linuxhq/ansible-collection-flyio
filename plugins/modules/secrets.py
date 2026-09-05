@@ -146,6 +146,7 @@ def get_secret(client, path, name):
     )
     if secret is not None and not valid_secret_metadata(secret):
         raise FlyioApiError(f"GET {path} returned malformed data: expected a secret")
+
     return secret
 
 
@@ -157,6 +158,7 @@ def ensure_present(module, client):
         values = {"changed": True, "message": "Secret would be set"}
         if current is not None:
             values["secret"] = select_fields(current, SECRET_FIELDS)
+
         module.exit_json(**values)
 
     result = post_result(client, path, {"value": module.params["value"]})

@@ -128,6 +128,7 @@ def info(module, client):
 
     if volume is None:
         module.fail_json(msg=(f"Volume '{module.params['id']}' not found in app " f"'{module.params['app_name']}'"))
+
     validate_volumes(module, [volume])
 
     module.exit_json(changed=False, volumes=[volume])
