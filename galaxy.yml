@@ -7,10 +7,6 @@ build_ignore:
   - .ansible
   - .ansible/**
   - .ansible-lint
-  - .claude
-  - .claude/**
-  - .codex
-  - .codex/**
   - .config
   - .config/**
   - .DS_Store
@@ -28,7 +24,6 @@ build_ignore:
   - AGENTS.md
   - ansible.cfg
   - changelogs/.plugin-cache.yaml
-  - CLAUDE.md
   - pyproject.toml
   - requirements.txt
   - requirements.yml
