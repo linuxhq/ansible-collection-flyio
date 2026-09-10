@@ -10,6 +10,7 @@ driver:
     managed: false
     ansible_connection_options:
       ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
 platforms:
   - name: localhost
@@ -54,6 +55,7 @@ provisioner:
 scenario:
   test_sequence:
     - dependency
+    - cleanup
     - destroy
     - syntax
     - create

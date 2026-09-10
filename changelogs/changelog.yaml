@@ -378,3 +378,10 @@ releases:
     fragments:
     - tooling-to-tox.yml
     release_date: '2026-08-13'
+  1.1.2:
+    changes:
+      release_summary: Maintenance release aligning agent setup guidance and Molecule
+        cleanup, interpreter selection, and organization environment-variable forwarding.
+    fragments:
+    - final-collection-cleanup.yml
+    release_date: '2026-09-10'
