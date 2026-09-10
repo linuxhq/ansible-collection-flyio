@@ -4,6 +4,14 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.1.2
+======
+
+Release Summary
+---------------
+
+Maintenance release aligning agent setup guidance and Molecule cleanup, interpreter selection, and organization environment-variable forwarding.
+
 v1.1.1
 ======
 
