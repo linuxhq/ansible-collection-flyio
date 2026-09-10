@@ -9,14 +9,17 @@ An Ansible collection of Fly.io modules and roles.
 
 ## Requirements
 
-- Python `>= 3.13`
-- `ansible-core >= 2.18.0`
+See [requirements.yml](requirements.yml).
 
 ## Installation
 
-    ansible-galaxy collection install linuxhq.flyio
+```sh
+ansible-galaxy collection install linuxhq.flyio
+```
 
 ## Development
+
+Local Tox environments use the Python version selected by `.python-version`.
 
 With Tox installed, install the pre-commit hook:
 
@@ -45,7 +48,7 @@ tox run -m unit
 Run Ansible sanity tests for a module:
 
 ```sh
-tox run -e ansible-test -- sanity --python "$(cat .python-version)" plugins/modules/apps.py
+tox run -e ansible-test -- sanity plugins/modules/apps.py
 ```
 
 ### Molecule
