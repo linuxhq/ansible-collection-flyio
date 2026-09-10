@@ -2,14 +2,22 @@
 authors:
   - Taylor Kimball (https://github.com/tkimball83)
 build_ignore:
+  - '**/*.pyc'
+  - '**/*.pyo'
+  - '**/.DS_Store'
+  - '**/AGENTS.md'
+  - '**/__pycache__'
+  - '**/__pycache__/**'
+  - '*.tar.gz'
+  - '*.tgz'
+  - .DS_Store
   - .agents
   - .agents/**
   - .ansible
-  - .ansible/**
   - .ansible-lint
+  - .ansible/**
   - .config
   - .config/**
-  - .DS_Store
   - .github
   - .github/**
   - .gitignore
@@ -20,6 +28,8 @@ build_ignore:
   - .ruff.toml
   - .ruff_cache
   - .ruff_cache/**
+  - .tox
+  - .tox/**
   - .yamllint
   - AGENTS.md
   - ansible.cfg
@@ -29,19 +39,9 @@ build_ignore:
   - requirements.yml
   - roles/*/molecule
   - roles/*/molecule/**
+  - tox.ini
   - venv
   - venv/**
-  - .tox
-  - .tox/**
-  - tox.ini
-  - '**/.DS_Store'
-  - '**/__pycache__'
-  - '**/__pycache__/**'
-  - '**/*.pyc'
-  - '**/*.pyo'
-  - '**/AGENTS.md'
-  - '*.tar.gz'
-  - '*.tgz'
 description: A collection of flyio roles
 dependencies: {}
 documentation: https://github.com/linuxhq/ansible-collection-flyio/blob/main/README.md
