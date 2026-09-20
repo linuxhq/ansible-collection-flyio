@@ -4,6 +4,7 @@
 
 import ipaddress
 import json
+import math
 import time
 import urllib.error
 import urllib.parse
@@ -448,22 +449,39 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, 
     if state == "stopped" and instance_id is None:
         raise FlyioApiError(f"{operation} requires an instance ID")
 
-    query = {"state": state, "timeout": timeout}
-    if instance_id is not None:
-        query["instance_id"] = instance_id
-
-    path = "{}?{}".format(
-        flyio_path("apps", app_name, "machines", machine_id, "wait"),
-        urllib.parse.urlencode(query),
-    )
     ok_statuses = [404] if state == "destroyed" else None
-    result = api_request(
-        client,
-        "get",
-        path,
-        ok_statuses=ok_statuses,
-        timeout=timeout + 10,
-    )
+    deadline = time.monotonic() + timeout
+    remaining = timeout
+    while True:
+        if remaining <= 0:
+            raise FlyioApiError(f"{operation} timed out", status_code=408)
+
+        request_timeout = min(60, math.ceil(remaining))
+        query = {"state": state, "timeout": request_timeout}
+        if instance_id is not None:
+            query["instance_id"] = instance_id
+
+        path = "{}?{}".format(
+            flyio_path("apps", app_name, "machines", machine_id, "wait"),
+            urllib.parse.urlencode(query),
+        )
+        try:
+            result = api_request(
+                client,
+                "get",
+                path,
+                ok_statuses=ok_statuses,
+                timeout=request_timeout + 10,
+            )
+            break
+        except FlyioApiError as exc:
+            if exc.status_code != 408:
+                raise
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise FlyioApiError(f"{operation} timed out", status_code=408) from exc
+
     if result is _MISSING and state == "destroyed":
         return
 
