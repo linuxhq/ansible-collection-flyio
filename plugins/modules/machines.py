@@ -176,7 +176,8 @@ options:
             description:
               - Maximum concurrency limit.
               - Must not be negative.
-              - Must be greater than or equal to O(services[].concurrency.soft_limit).
+              - Set to C(0) to remove the hard limit.
+              - When positive, must be greater than or equal to O(services[].concurrency.soft_limit).
       ports:
         type: list
         elements: dict
@@ -588,6 +589,9 @@ message:
 
 import base64
 import binascii
+import copy
+import re
+from decimal import Decimal
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -637,6 +641,7 @@ CHECK_FIELDS = set(
 )
 LIST_ITEM_KEYS = (
     "guest_path",
+    "url_prefix",
     "internal_port",
     "port",
     "start_port",
@@ -893,6 +898,7 @@ def validate_services(module, services):
         if (
             concurrency.get("soft_limit") is not None
             and concurrency.get("hard_limit") is not None
+            and concurrency["hard_limit"] > 0
             and concurrency["soft_limit"] > concurrency["hard_limit"]
         ):
             module.fail_json(msg="services[].concurrency.soft_limit must not exceed hard_limit")
@@ -1119,7 +1125,11 @@ def merge_values(current, desired):
 
 def merge_config(current, desired):
     config = merge_values(current, desired)
-    for merged, requested in zip(config.get("files", []), desired.get("files", [])):
+    mount = matching_mount(current, desired)
+    if mount is not None:
+        config["mounts"] = [merge_values(mount, desired["mounts"][0])]
+
+    for merged, requested in zip(config.get("files") or [], desired.get("files") or []):
         for field in ("image_config", "raw_value", "secret_name"):
             if field not in requested:
                 merged.pop(field, None)
@@ -1136,6 +1146,16 @@ def merge_config(current, desired):
             checks = current.get("checks")
             if not isinstance(checks, dict):
                 checks = {}
+
+            checks = copy.deepcopy(checks)
+            for check in checks.values():
+                headers = check.get("headers") if isinstance(check, dict) else None
+                if isinstance(headers, list):
+                    for header in headers:
+                        if isinstance(header, dict) and header.get("values") is None:
+                            # Fly omits empty values in existing headers. Caller
+                            # headers are validated before merging provider data.
+                            header["values"] = []
 
             config[field] = {name: merge_values(checks.get(name, {}), value) for name, value in desired[field].items()}
         else:
@@ -1162,6 +1182,9 @@ def matching_mount(current, desired):
 
 def mounts_differ(current, desired):
     current_mounts = current.get("mounts", [])
+    if current_mounts is None:
+        current_mounts = []
+
     if not isinstance(current_mounts, list) or not all(isinstance(mount, dict) for mount in current_mounts):
         return True
 
@@ -1328,7 +1351,130 @@ def validate_machine_update(module, current, desired_config):
     return current_config
 
 
+def duration_nanoseconds(value):
+    if not isinstance(value, str):
+        return value
+
+    units = {
+        "ns": 1,
+        "us": 1000,
+        "µs": 1000,
+        "μs": 1000,
+        "ms": 1000000,
+        "s": 1000000000,
+        "m": 60000000000,
+        "h": 3600000000000,
+    }
+    pattern = r"(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)"
+    unsigned = value.lstrip("+-")
+    if value in ("0", "+0", "-0"):
+        return 0
+
+    if not re.fullmatch(r"[+-]?(?:" + pattern + r")+", value):
+        return value
+
+    total = sum(int(Decimal(number) * units[unit]) for number, unit in re.findall(pattern, unsigned))
+    return -total if value.startswith("-") else total
+
+
+def normalize_requested_defaults(config, requested, defaults):
+    if not isinstance(config, dict) or not isinstance(requested, dict):
+        return
+
+    for field, default in defaults.items():
+        if field in requested and config.get(field) is None:
+            config[field] = copy.deepcopy(default)
+
+
+def normalize_config_comparison(config, requested):
+    # Fly omits zero-value fields in responses. Only supply defaults for fields
+    # the caller manages, so omitted options remain unmanaged.
+    config = copy.deepcopy(config)
+    defaults = {
+        "env": {},
+        "metadata": {},
+        "checks": {},
+        "services": [],
+        "files": [],
+        "statics": [],
+        "mounts": [],
+        "init": {},
+        "auto_destroy": False,
+    }
+    normalize_requested_defaults(config, requested, defaults)
+    normalize_requested_defaults(
+        config.get("init"),
+        requested.get("init"),
+        {"cmd": [], "entrypoint": [], "exec": [], "tty": False},
+    )
+    normalize_requested_defaults(
+        config.get("guest"),
+        requested.get("guest"),
+        {"kernel_args": []},
+    )
+    normalize_requested_defaults(
+        config.get("restart"),
+        requested.get("restart"),
+        {"max_retries": 0},
+    )
+    if requested.get("mounts"):
+        normalize_requested_defaults(
+            matching_mount(config, requested),
+            requested["mounts"][0],
+            {"extend_threshold_percent": 0, "add_size_gb": 0, "size_gb_limit": 0, "encrypted": False},
+        )
+
+    for current, desired in match_list_items(config.get("services") or [], requested.get("services") or []):
+        if current is None:
+            continue
+
+        normalize_requested_defaults(current, desired, {"ports": []})
+        normalize_requested_defaults(
+            current.get("concurrency"),
+            desired.get("concurrency"),
+            {"soft_limit": 0, "hard_limit": 0},
+        )
+        for port, desired_port in match_list_items(current.get("ports") or [], desired.get("ports") or []):
+            if port is None:
+                continue
+
+            normalize_requested_defaults(
+                port, desired_port, {"handlers": [], "force_https": False, "tls_options": {}, "http_options": {}}
+            )
+            normalize_requested_defaults(
+                port.get("tls_options"),
+                desired_port.get("tls_options"),
+                {"alpn": [], "versions": []},
+            )
+            http_options = port.get("http_options")
+            desired_http_options = desired_port.get("http_options")
+            if isinstance(http_options, dict) and isinstance(desired_http_options, dict):
+                normalize_requested_defaults(http_options, desired_http_options, {"response": {}})
+                normalize_requested_defaults(
+                    http_options.get("response"), desired_http_options.get("response"), {"headers": {}}
+                )
+
+    checks = config.get("checks")
+    if isinstance(checks, dict):
+        for name, check in checks.items():
+            if isinstance(check, dict):
+                desired_check = (requested.get("checks") or {}).get(name) or {}
+                normalize_requested_defaults(check, desired_check, {"headers": []})
+                for header, desired_header in match_list_items(
+                    check.get("headers") or [], desired_check.get("headers") or []
+                ):
+                    normalize_requested_defaults(header, desired_header, {"values": []})
+
+                for field in CHECK_DURATION_FIELDS:
+                    if field in check:
+                        check[field] = duration_nanoseconds(check[field])
+
+    return config
+
+
 def machine_config_changed(current_config, desired_config):
+    current_config = normalize_config_comparison(current_config, desired_config)
+    desired_config = normalize_config_comparison(desired_config, desired_config)
     if current_config.get("image") != desired_config["image"]:
         return True
 

@@ -442,6 +442,50 @@ class FlyioUtilsTests(TestCase):
 
             self.assertIn("Machine 'machine-one' in app 'example'", str(raised.exception))
 
+    def test_machine_wait_retries_timeout_with_remaining_budget(self):
+        with (
+            patch(f"{FLYIO_UTILS}.time.monotonic", side_effect=[0, 60, 120]),
+            patch(
+                f"{FLYIO_UTILS}.api_request",
+                side_effect=[
+                    FlyioApiError("timeout", status_code=408),
+                    FlyioApiError("timeout", status_code=408),
+                    {"ok": True},
+                ],
+            ) as request,
+        ):
+            wait_for_machine({}, "example", "machine-one", "stopped", 150, instance_id="instance-one")
+
+        self.assertEqual(request.call_count, 3)
+        for call, seconds in zip(request.call_args_list, [60, 60, 30]):
+            self.assertIn(f"state=stopped&timeout={seconds}&instance_id=instance-one", call.args[2])
+            self.assertEqual(call.kwargs["timeout"], seconds + 10)
+
+    def test_machine_wait_stops_at_deadline(self):
+        with (
+            patch(f"{FLYIO_UTILS}.time.monotonic", side_effect=[0, 60, 90]),
+            patch(f"{FLYIO_UTILS}.api_request", side_effect=FlyioApiError("timeout", status_code=408)) as request,
+            self.assertRaises(FlyioApiError) as raised,
+        ):
+            wait_for_machine({}, "example", "machine-one", timeout=90)
+
+        self.assertEqual(request.call_count, 2)
+        self.assertIn("timed out", str(raised.exception))
+        self.assertEqual(raised.exception.status_code, 408)
+
+    def test_machine_wait_does_not_retry_other_errors(self):
+        for status in (None, 401, 404, 500):
+            error = FlyioApiError("failure", status_code=status)
+            with (
+                self.subTest(status=status),
+                patch(f"{FLYIO_UTILS}.api_request", side_effect=error) as request,
+                self.assertRaises(FlyioApiError) as raised,
+            ):
+                wait_for_machine({}, "example", "machine-one", timeout=120)
+
+            request.assert_called_once()
+            self.assertIs(raised.exception, error)
+
     def test_machine_wait_requires_stopped_instance_id(self):
         with self.assertRaises(FlyioApiError) as raised:
             wait_for_machine({}, "example", "machine-one", state="stopped")

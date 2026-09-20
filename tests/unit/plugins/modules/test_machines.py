@@ -26,6 +26,256 @@ def params(**updates):
 
 
 class MachinesTests(TestCase):
+    def test_accepts_normalized_machine_responses(self):
+        cases = [
+            ({"env": {}}, {}),
+            ({"metadata": {}}, {}),
+            ({"checks": {}}, {}),
+            ({"services": []}, {}),
+            ({"files": []}, {}),
+            ({"statics": []}, {}),
+            ({"auto_destroy": False}, {}),
+            ({"init": {"tty": False}}, {"init": {}}),
+            ({"init": {"cmd": []}}, {"init": {}}),
+            ({"init": {"entrypoint": [], "exec": []}}, {"init": {}}),
+            (
+                {
+                    "services": [
+                        {
+                            "protocol": "tcp",
+                            "internal_port": 8080,
+                            "ports": [{"port": 80, "force_https": False, "handlers": []}],
+                        }
+                    ]
+                },
+                {"services": [{"protocol": "tcp", "internal_port": 8080, "ports": [{"port": 80}]}]},
+            ),
+            (
+                {"services": [{"protocol": "tcp", "internal_port": 8080, "ports": []}]},
+                {"services": [{"protocol": "tcp", "internal_port": 8080}]},
+            ),
+        ]
+        for field in ("alpn", "versions"):
+            service = {"protocol": "tcp", "internal_port": 8080}
+            port = {"port": 443, "handlers": ["tls", "http"]}
+            for returned in ({}, {"tls_options": None}, {"tls_options": {}}, {"tls_options": {field: None}}):
+                cases.append(
+                    (
+                        {"services": [{**service, "ports": [{**port, "tls_options": {field: []}}]}]},
+                        {"services": [{**service, "ports": [{**port, **returned}]}]},
+                    )
+                )
+
+        service = {"protocol": "tcp", "internal_port": 8080}
+        port = {"port": 80, "handlers": ["http"]}
+        for returned in (
+            {},
+            {"http_options": None},
+            {"http_options": {}},
+            {"http_options": {"response": None}},
+            {"http_options": {"response": {}}},
+            {"http_options": {"response": {"headers": None}}},
+        ):
+            requested_port = {**port, "http_options": {"response": {"headers": {}}}}
+            cases.append(
+                (
+                    {"services": [{**service, "ports": [requested_port]}]},
+                    {"services": [{**service, "ports": [{**port, **returned}]}]},
+                )
+            )
+
+        check = {"port": 8080, "type": "http"}
+        for returned in ({"name": "X-Test"}, {"name": "X-Test", "values": None}):
+            cases.append(
+                (
+                    {"checks": {"health": {**check, "headers": [{"name": "X-Test", "values": []}]}}},
+                    {"checks": {"health": {**check, "headers": [returned]}}},
+                )
+            )
+
+        for field, value in (
+            ("env", {}),
+            ("metadata", {}),
+            ("checks", {}),
+            ("services", []),
+            ("files", []),
+            ("statics", []),
+            ("mounts", []),
+        ):
+            cases.append(({field: value}, {field: None}))
+
+        cases.append(
+            (
+                {"restart": {"policy": "on-failure", "max_retries": 0}},
+                {"restart": {"policy": "on-failure"}},
+            )
+        )
+        for values in (
+            {"extend_threshold_percent": 0, "add_size_gb": 0},
+            {"size_gb_limit": 0},
+            {"encrypted": False},
+        ):
+            mount = {"volume": "vol-one", "path": "/data"}
+            cases.append(({"mounts": [{**mount, **values}]}, {"mounts": [mount]}))
+
+        for requested_duration, returned_duration in (
+            (15000000000, "15s"),
+            ("60s", "1m0s"),
+            ("1500ms", "1.5s"),
+            ("1h30m", "1h30m0s"),
+        ):
+            for field in ("interval", "timeout", "grace_period"):
+                check = {"port": 8080, "type": "tcp"}
+                cases.append(
+                    (
+                        {"checks": {"health": {**check, field: requested_duration}}},
+                        {"checks": {"health": {**check, field: returned_duration}}},
+                    )
+                )
+
+        for requested, returned in cases:
+            for operation in ("create", "update", "unchanged"):
+                with self.subTest(requested=requested, operation=operation):
+                    result = {
+                        "id": "machine-one",
+                        "name": "worker",
+                        "region": "ord",
+                        "state": "started",
+                        "config": {"image": "example:latest", **returned},
+                    }
+                    current = (
+                        None
+                        if operation == "create"
+                        else {
+                            **result,
+                            "config": {
+                                **result["config"],
+                                "image": "example:old" if operation == "update" else "example:latest",
+                            },
+                        }
+                    )
+                    module = FakeModule(params(**requested))
+                    with (
+                        patch.object(machines, "find_machine", return_value=current),
+                        patch.object(machines, "post_result", return_value=result) as post,
+                        patch.object(machines, "wait_for_machine"),
+                        patch.object(machines, "get_resource", return_value=result),
+                        self.assertRaises(ModuleExit) as raised,
+                    ):
+                        machines.ensure_present(module, {})
+
+                    self.assertEqual(raised.exception.values["changed"], operation != "unchanged")
+                    if operation == "unchanged":
+                        post.assert_not_called()
+                    else:
+                        post.assert_called_once()
+                        for field, value in requested.items():
+                            self.assertEqual(post.call_args.args[2]["config"][field], value)
+
+    def test_normalization_preserves_real_configuration_differences(self):
+        for current, desired in (
+            ({"env": {"OLD": "value"}}, {"env": {}}),
+            ({"services": [{"internal_port": 8080}]}, {"services": []}),
+            ({"auto_destroy": True}, {"auto_destroy": False}),
+            ({}, {"auto_destroy": True}),
+            ({"checks": {"health": {"interval": "15s"}}}, {"checks": {"health": {"interval": "16s"}}}),
+            ({"env": {"TIME": "15s"}}, {"env": {"TIME": "15000ms"}}),
+            ({"init": {"tty": True}}, {"init": {"tty": False}}),
+            ({"init": {"cmd": ["old"]}}, {"init": {"cmd": []}}),
+            (
+                {"services": [{"internal_port": 80, "ports": [{"port": 80, "force_https": True}]}]},
+                {"services": [{"internal_port": 80, "ports": [{"port": 80, "force_https": False}]}]},
+            ),
+        ):
+            with self.subTest(current=current, desired=desired):
+                self.assertTrue(
+                    machines.machine_config_changed(
+                        {"image": "example:latest", **current},
+                        {"image": "example:latest", **desired},
+                    )
+                )
+
+        self.assertFalse(
+            machines.machine_config_changed(
+                {"image": "example:latest", "env": {"KEEP": "value"}, "auto_destroy": True},
+                {"image": "example:latest"},
+            )
+        )
+
+    def test_tls_normalization_preserves_managed_changes_and_unmanaged_lists(self):
+        def config(options):
+            return {
+                "image": "example:latest",
+                "services": [
+                    {
+                        "protocol": "tcp",
+                        "internal_port": 8080,
+                        "ports": [{"port": 443, "tls_options": options}],
+                    }
+                ],
+            }
+
+        for field, value in (("alpn", ["h2"]), ("versions", ["TLSv1.2"])):
+            for current, desired, changed in (
+                ({field: value}, {field: []}, True),
+                ({}, {field: value}, True),
+                ({field: value}, {}, False),
+            ):
+                with self.subTest(field=field, current=current, desired=desired):
+                    self.assertEqual(machines.machine_config_changed(config(current), config(desired)), changed)
+
+    def test_header_normalization_preserves_real_changes(self):
+        def config(values):
+            return {
+                "image": "example:latest",
+                "checks": {"health": {"type": "http", "port": 8080, "headers": [{"name": "X-Test", **values}]}},
+            }
+
+        for current, desired in (({"values": ["old"]}, {"values": []}), ({}, {"values": ["new"]})):
+            with self.subTest(current=current, desired=desired):
+                self.assertTrue(machines.machine_config_changed(config(current), config(desired)))
+
+        current = {
+            "image": "example:latest",
+            "services": [{"internal_port": 8080, "ports": [{"port": 80, "http_options": {"response": {}}}]}],
+        }
+        desired = {
+            "image": "example:latest",
+            "services": [
+                {
+                    "internal_port": 8080,
+                    "ports": [{"port": 80, "http_options": {"response": {"headers": {"X-Test": "new"}}}}],
+                }
+            ],
+        }
+        self.assertTrue(machines.machine_config_changed(current, desired))
+        self.assertFalse(machines.machine_config_changed(desired, current))
+
+    def test_zero_defaults_preserve_mount_and_restart_changes(self):
+        for field, old, new in (
+            ("extend_threshold_percent", 80, 0),
+            ("add_size_gb", 5, 0),
+            ("size_gb_limit", 100, 0),
+            ("encrypted", True, False),
+        ):
+            mount = {"volume": "vol-one", "path": "/data"}
+            for before, after in (({field: old}, {field: new}), ({}, {field: old})):
+                with self.subTest(field=field, before=before):
+                    self.assertTrue(
+                        machines.machine_config_changed(
+                            {"image": "example:latest", "mounts": [{**mount, **before}]},
+                            {"image": "example:latest", "mounts": [{**mount, **after}]},
+                        )
+                    )
+
+        for before, after in (({"max_retries": 3}, {"max_retries": 0}), ({}, {"max_retries": 3})):
+            self.assertTrue(
+                machines.machine_config_changed(
+                    {"image": "example:latest", "restart": {"policy": "on-failure", **before}},
+                    {"image": "example:latest", "restart": {"policy": "on-failure", **after}},
+                )
+            )
+
     def test_finds_machine_by_name(self):
         listed = {
             "config": {"restart": {"policy": "on-failure"}},
@@ -155,6 +405,14 @@ class MachinesTests(TestCase):
             ),
             (
                 {"checks": {"health": {"headers": {"X-Test": ["value"]}}}},
+                "checks.health.headers must contain name and string values",
+            ),
+            (
+                {"checks": {"health": {"headers": [{"name": "X-Test"}]}}},
+                "checks.health.headers must contain name and string values",
+            ),
+            (
+                {"checks": {"health": {"headers": [{"name": "X-Test", "values": None}]}}},
                 "checks.health.headers must contain name and string values",
             ),
             (
@@ -485,12 +743,63 @@ class MachinesTests(TestCase):
         post.assert_not_called()
         self.assertEqual(raised.exception.values["msg"], "check 'health' requires type")
 
+    def test_partial_check_update_preserves_normalized_header_values(self):
+        for header in (
+            {"name": "X-Test"},
+            {"name": "X-Test", "values": None},
+            {"name": "X-Test", "values": ["existing"]},
+        ):
+            for timeout in ("2s", "3s"):
+                for check_mode in (False, True):
+                    with self.subTest(header=header, timeout=timeout, check_mode=check_mode):
+                        check = {"type": "http", "port": 8080, "timeout": "2s", "headers": [header]}
+                        current = {
+                            "id": "machine-one",
+                            "region": "ord",
+                            "state": "started",
+                            "config": {"image": "example:latest", "checks": {"health": check}},
+                        }
+                        result = {
+                            **current,
+                            "config": {
+                                **current["config"],
+                                "checks": {"health": {**check, "timeout": timeout}},
+                            },
+                        }
+                        original_header = dict(header)
+                        requested = {"health": {"timeout": timeout}}
+                        module = FakeModule(params(checks=requested, wait=False), check_mode=check_mode)
+                        with (
+                            patch.object(machines, "find_machine", return_value=current),
+                            patch.object(machines, "post_result", return_value=result) as post,
+                            self.assertRaises(ModuleExit) as raised,
+                        ):
+                            machines.ensure_present(module, {})
+
+                        self.assertEqual(raised.exception.values["changed"], timeout != "2s")
+                        if check_mode or timeout == "2s":
+                            post.assert_not_called()
+                        else:
+                            post.assert_called_once()
+                            self.assertEqual(
+                                post.call_args.args[2]["config"]["checks"]["health"]["headers"],
+                                [{"name": "X-Test", "values": header.get("values") or []}],
+                            )
+
+                        self.assertEqual(header, original_header)
+                        self.assertEqual(check["timeout"], "2s")
+                        self.assertEqual(requested, {"health": {"timeout": timeout}})
+
     def test_update_requires_complete_malformed_existing_checks(self):
         module = FakeModule(params(checks={"health": {"timeout": "2s"}}, wait=False))
 
         for check, message in (
             (None, "check 'health' requires port and type"),
             ({"port": True, "type": "tcp"}, "checks.health.port must be an integer"),
+            (
+                {"port": 8080, "type": "http", "headers": [{"name": "X-Test", "values": "invalid"}]},
+                "checks.health.headers must contain name and string values",
+            ),
         ):
             current = {
                 "config": {
@@ -729,6 +1038,61 @@ class MachinesTests(TestCase):
             required_fields=("state",),
         )
         self.assertEqual(raised.exception.values["machine"], started)
+
+    def test_removes_concurrency_hard_limit(self):
+        service = {
+            "internal_port": 8080,
+            "protocol": "tcp",
+            "concurrency": {"type": "requests", "soft_limit": 20, "hard_limit": 30},
+        }
+        current = {
+            "id": "machine-one",
+            "state": "started",
+            "region": "ord",
+            "config": {"image": "example:latest", "services": [service]},
+        }
+        applied_service = {**service, "concurrency": {"type": "requests", "soft_limit": 20}}
+        applied = {**current, "config": {**current["config"], "services": [applied_service]}}
+        for concurrency in ({"hard_limit": 0}, {"soft_limit": 20, "hard_limit": 0}):
+            for check_mode in (False, True):
+                with self.subTest(concurrency=concurrency, check_mode=check_mode):
+                    module = FakeModule(
+                        params(services=[{"internal_port": 8080, "concurrency": concurrency}], wait=False),
+                        check_mode=check_mode,
+                    )
+                    with (
+                        patch.object(machines, "find_machine", return_value=current),
+                        patch.object(machines, "post_result", return_value=applied) as post,
+                        self.assertRaises(ModuleExit) as raised,
+                    ):
+                        machines.ensure_present(module, {})
+
+                    self.assertTrue(raised.exception.values["changed"])
+                    if check_mode:
+                        post.assert_not_called()
+                    else:
+                        post.assert_called_once_with(
+                            {},
+                            "/apps/example/machines/machine-one",
+                            {
+                                "config": {
+                                    **current["config"],
+                                    "services": [
+                                        {**service, "concurrency": {**service["concurrency"], "hard_limit": 0}}
+                                    ],
+                                }
+                            },
+                        )
+
+                    with (
+                        patch.object(machines, "find_machine", return_value=applied),
+                        patch.object(machines, "post_result") as post,
+                        self.assertRaises(ModuleExit) as raised,
+                    ):
+                        machines.ensure_present(module, {})
+
+                    self.assertFalse(raised.exception.values["changed"])
+                    post.assert_not_called()
 
     def test_update_wait_accepts_missing_response_instance_id(self):
         current = {
@@ -1083,6 +1447,39 @@ class MachinesTests(TestCase):
             [current[1], current[0]],
         )
 
+    def test_static_routes_with_shared_directory_match_by_url_prefix(self):
+        statics = [
+            {"guest_path": "/public", "url_prefix": "/assets", "index_document": "index.html"},
+            {"guest_path": "/public", "url_prefix": "/legacy", "index_document": "legacy.html"},
+        ]
+        current = {
+            "id": "machine-one",
+            "state": "started",
+            "region": "ord",
+            "config": {"image": "example:latest", "statics": statics},
+        }
+        requested = [
+            {"guest_path": route["guest_path"], "url_prefix": route["url_prefix"]} for route in reversed(statics)
+        ]
+        for image in ("example:latest", "example:new"):
+            for check_mode in (False, True):
+                with self.subTest(image=image, check_mode=check_mode):
+                    module = FakeModule(params(image=image, statics=requested, wait=False), check_mode=check_mode)
+                    applied = {**current, "config": {"image": image, "statics": list(reversed(statics))}}
+                    with (
+                        patch.object(machines, "find_machine", return_value=current),
+                        patch.object(machines, "post_result", return_value=applied) as post,
+                        self.assertRaises(ModuleExit) as raised,
+                    ):
+                        machines.ensure_present(module, {})
+
+                    self.assertEqual(raised.exception.values["changed"], image != "example:latest")
+                    if check_mode or image == "example:latest":
+                        post.assert_not_called()
+                    else:
+                        post.assert_called_once()
+                        self.assertEqual(post.call_args.args[2]["config"], applied["config"])
+
     def test_identityless_nested_items_preserve_defaults(self):
         current = [{"interval": "15s", "timeout": "2s", "type": "tcp"}]
         desired = [{"interval": "15s", "type": "tcp"}]
@@ -1140,6 +1537,45 @@ class MachinesTests(TestCase):
         post.assert_not_called()
         self.assertFalse(raised.exception.values["changed"])
 
+    def test_mount_updates_preserve_unmanaged_settings(self):
+        mount = {
+            "volume": "vol-data",
+            "name": "data",
+            "path": "/data",
+            "extend_threshold_percent": 80,
+            "add_size_gb": 5,
+            "size_gb_limit": 100,
+        }
+        current = {
+            "id": "machine-one",
+            "state": "started",
+            "region": "ord",
+            "config": {"image": "example:old", "mounts": [mount]},
+        }
+        for requested in (
+            {"volume": "data", "path": "/data"},
+            {"volume": "vol-data", "path": "/new-data"},
+            {"volume": "data", "path": "/data", "extend_threshold_percent": 0, "add_size_gb": 0},
+        ):
+            with self.subTest(requested=requested):
+                module = FakeModule(params(mounts=[requested], wait=False))
+                applied = {
+                    **current,
+                    "config": {"image": "example:latest", "mounts": [{**mount, **requested}]},
+                }
+                with (
+                    patch.object(machines, "find_machine", return_value=current),
+                    patch.object(machines, "post_result", return_value=applied) as post,
+                    self.assertRaises(ModuleExit) as raised,
+                ):
+                    machines.ensure_present(module, {})
+
+                self.assertTrue(raised.exception.values["changed"])
+                self.assertEqual(post.call_args.args[2]["config"], applied["config"])
+                self.assertEqual(current["config"], {"image": "example:old", "mounts": [mount]})
+                self.assertEqual(mount["extend_threshold_percent"], 80)
+                self.assertEqual(mount["add_size_gb"], 5)
+
     def test_conflicting_mount_identifiers_are_different(self):
         current = {"mounts": [{"name": "data", "path": "/data", "volume": "vol-old"}]}
         desired = {"mounts": [{"name": "data", "path": "/data", "volume": "vol-new"}]}
@@ -1147,7 +1583,7 @@ class MachinesTests(TestCase):
         self.assertTrue(machines.mounts_differ(current, desired))
 
     def test_malformed_current_mounts_are_different(self):
-        self.assertTrue(machines.mounts_differ({"mounts": None}, {"mounts": []}))
+        self.assertTrue(machines.mounts_differ({"mounts": "invalid"}, {"mounts": []}))
         self.assertTrue(
             machines.mounts_differ(
                 {"mounts": [{"volume": ["invalid"]}]},

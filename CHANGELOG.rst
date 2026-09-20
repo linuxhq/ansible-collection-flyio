@@ -4,6 +4,17 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.1.3
+======
+
+Bugfixes
+--------
+
+- machines - accept an unlimited concurrency hard limit of zero and normalize omitted health-check header values during partial updates.
+- machines - avoid unnecessary updates when Fly.io omits managed empty or zero-value configuration fields or returns equivalent health-check durations.
+- machines - preserve existing volume mount options during partial updates and match static mappings by URL prefix.
+- machines - split waits longer than 60 seconds into bounded API requests and retry timeout responses within the requested deadline.
+
 v1.1.2
 ======
 
