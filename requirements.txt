@@ -7,5 +7,5 @@ isort==9.0.2
 molecule==25.1.0
 pre-commit==4.6.2
 pytest==9.2.0
-ruff==0.16.9
+ruff==0.17.3
 yamllint==1.38.0
