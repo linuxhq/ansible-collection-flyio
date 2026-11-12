@@ -3,3 +3,4 @@ bugfixes:
   - apps, machines, secrets, volumes - with ``state=absent``, report no change when the resource is deleted elsewhere between the lookup and the delete.
   - apps, volumes - allow slack on each status check while waiting, so a slow final check reports the timeout instead of a connection error.
   - apps_info - with ``org_slug``, follow ``next_cursor`` and return every page of apps instead of only the first.
+  - machines_exec - in check mode, fail for a destroyed, replaced, or migrated Machine instead of predicting a change.
