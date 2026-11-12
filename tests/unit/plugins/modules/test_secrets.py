@@ -194,10 +194,33 @@ class SecretsTests(TestCase):
         ):
             secrets.ensure_absent(module, {})
 
-        delete.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET", ok_statuses=[404])
+        delete.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET")
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["secret"], current)
         self.assertEqual(raised.exception.values["version"], 3)
+
+    def test_secret_deleted_elsewhere_after_read_is_unchanged(self):
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
+
+        with (
+            patch.object(secrets, "get_resource", return_value={"digest": "current", "name": "APP_SECRET"}),
+            patch.object(secrets, "delete_result", side_effect=FlyioApiError("gone", status_code=404)),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets.ensure_absent(module, {})
+
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["message"], "Secret already absent")
+
+    def test_remove_error_other_than_not_found_is_raised(self):
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
+
+        with (
+            patch.object(secrets, "get_resource", return_value={"digest": "current", "name": "APP_SECRET"}),
+            patch.object(secrets, "delete_result", side_effect=FlyioApiError("denied", status_code=403)),
+            self.assertRaises(FlyioApiError),
+        ):
+            secrets.ensure_absent(module, {})
 
     def test_rejects_malformed_remove_response(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET"})

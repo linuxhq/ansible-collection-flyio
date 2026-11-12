@@ -1597,11 +1597,13 @@ def ensure_absent(module, client):
             **diff,
         )
 
-    delete_result(
-        client,
-        f"{flyio_path('apps', app_name, 'machines', current['id'])}?force=true",
-        ok_statuses=[404],
-    )
+    try:
+        delete_result(client, f"{flyio_path('apps', app_name, 'machines', current['id'])}?force=true")
+    except FlyioApiError as exc:
+        if exc.status_code != 404:
+            raise
+
+        module.exit_json(changed=False, message="Machine already absent")
 
     requested = current
     if params["wait"]:

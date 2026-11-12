@@ -1,0 +1,3 @@
+---
+bugfixes:
+  - apps, machines, secrets, volumes - with ``state=absent``, report no change when the resource is deleted elsewhere between the lookup and the delete.

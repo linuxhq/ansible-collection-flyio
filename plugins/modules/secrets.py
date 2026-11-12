@@ -221,7 +221,14 @@ def ensure_absent(module, client):
             **diff,
         )
 
-    result = delete_result(client, path, ok_statuses=[404])
+    try:
+        result = delete_result(client, path)
+    except FlyioApiError as exc:
+        if exc.status_code != 404:
+            raise
+
+        module.exit_json(changed=False, message="Secret already absent")
+
     if result is None:
         result = {}
     elif not isinstance(result, dict) or not valid_version(result.get("version")):

@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import volumes
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -388,6 +389,30 @@ class FindVolumeTests(TestCase):
             "Volume 'vol_missing' not found in app 'example'",
         )
 
+    def test_volume_deleted_elsewhere_after_read_is_unchanged(self):
+        module = FakeModule(
+            {
+                "app_name": "example",
+                "id": "vol_one",
+                "name": None,
+                "region": None,
+                "wait": True,
+                "wait_timeout": 60,
+            }
+        )
+
+        with (
+            patch.object(volumes, "get_resource", return_value={"id": "vol_one", "state": "created"}),
+            patch.object(volumes, "delete_result", side_effect=FlyioApiError("gone", status_code=404)),
+            patch.object(volumes, "wait_for_volume") as wait,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            volumes.ensure_absent(module, {})
+
+        wait.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["message"], "Volume already absent")
+
     def test_deletes_volume(self):
         current = {"id": "vol_one", "state": "created"}
         module = FakeModule(
@@ -414,7 +439,7 @@ class FindVolumeTests(TestCase):
         ):
             volumes.ensure_absent(module, {})
 
-        delete.assert_called_once_with({}, "/apps/example/volumes/vol_one", ok_statuses=[404])
+        delete.assert_called_once_with({}, "/apps/example/volumes/vol_one")
         wait.assert_called_once_with(
             {},
             "example",
