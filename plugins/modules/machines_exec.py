@@ -109,6 +109,9 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     require_positive,
 )
 
+# Machines in these states are gone and cannot run commands.
+TERMINAL_STATES = {"destroyed", "replaced", "migrated"}
+
 
 def exec_command(module, client):
     require_positive(module, "timeout")
@@ -126,7 +129,7 @@ def exec_command(module, client):
             required_fields=("id",),
             expected={"id": machine_id},
         )
-        if machine is None:
+        if machine is None or machine.get("state") in TERMINAL_STATES:
             module.fail_json(msg=f"Machine '{machine_id}' not found in app '{app_name}'")
 
         module.exit_json(changed=True)

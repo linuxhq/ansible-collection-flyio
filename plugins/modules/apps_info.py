@@ -21,6 +21,7 @@ options:
     type: str
     description:
       - App name.
+      - Fails when the app does not exist.
       - Either O(name) or O(org_slug) is required.
       - Mutually exclusive with O(org_slug).
   org_slug:
@@ -84,13 +85,30 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 def list_resources(module, client):
     org_slug = module.params["org_slug"]
-    result = api_request(client, "get", f"/apps?{urlencode({'org_slug': org_slug})}")
+    malformed = f"Fly.io API returned malformed data while listing apps for organization '{org_slug}'"
+    apps = []
+    cursor = None
+    while True:
+        query = {"org_slug": org_slug}
+        if cursor:
+            query["cursor"] = cursor
 
-    apps = result.get("apps") if isinstance(result, dict) else None
-    if not isinstance(apps, list) or not all(
-        isinstance(app, dict) and nonempty_string(app.get("name")) for app in apps
-    ):
-        module.fail_json(msg=f"Fly.io API returned malformed data while listing apps for organization '{org_slug}'")
+        result = api_request(client, "get", f"/apps?{urlencode(query)}")
+        page = result.get("apps") if isinstance(result, dict) else None
+        if not isinstance(page, list) or not all(
+            isinstance(app, dict) and nonempty_string(app.get("name")) for app in page
+        ):
+            module.fail_json(msg=malformed)
+
+        apps.extend(page)
+        next_cursor = result.get("next_cursor")
+        if not next_cursor:
+            break
+
+        if not isinstance(next_cursor, str) or next_cursor == cursor:
+            module.fail_json(msg=malformed)
+
+        cursor = next_cursor
 
     module.exit_json(changed=False, apps=apps)
 

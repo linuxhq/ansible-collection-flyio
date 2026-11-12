@@ -1846,6 +1846,22 @@ class MachinesTests(TestCase):
             "Fly.io API did not apply the requested configuration to Machine 'machine-one' in app 'example'",
         )
 
+    def test_machine_destroyed_elsewhere_after_read_is_unchanged(self):
+        current = {"id": "machine-one", "version": "instance-one", "state": "started"}
+        module = FakeModule(params(image=None))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "delete_result", side_effect=FlyioApiError("gone", status_code=404)),
+            patch.object(machines, "wait_for_machine") as wait,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_absent(module, {})
+
+        wait.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["message"], "Machine already absent")
+
     def test_destroy_waits_for_destroyed_state(self):
         current = {
             "id": "machine-one",
@@ -1864,11 +1880,7 @@ class MachinesTests(TestCase):
             machines.ensure_absent(module, {})
 
         wait.assert_called_once_with({}, "example", "machine-one", "destroyed", 60)
-        delete.assert_called_once_with(
-            {},
-            "/apps/example/machines/machine-one?force=true",
-            ok_statuses=[404],
-        )
+        delete.assert_called_once_with({}, "/apps/example/machines/machine-one?force=true")
         get.assert_called_once_with(
             {},
             "/apps/example/machines/machine-one",

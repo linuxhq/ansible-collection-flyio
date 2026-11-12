@@ -25,6 +25,7 @@ options:
     type: str
     description:
       - Machine identifier.
+      - Fails when the Machine does not exist in the app.
 requirements:
   - python >= 3.9
 attributes:

@@ -164,6 +164,7 @@ message:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    FlyioApiError,
     api_request,
     api_token_option,
     delete_result,
@@ -561,11 +562,14 @@ def ensure_absent(module, client):
     if module.check_mode:
         module.exit_json(changed=True, message="Volume would be deleted", volume=current, **diff)
 
-    result = delete_result(
-        client,
-        flyio_path("apps", app_name, "volumes", volume_id),
-        ok_statuses=[404],
-    )
+    try:
+        result = delete_result(client, flyio_path("apps", app_name, "volumes", volume_id))
+    except FlyioApiError as exc:
+        if exc.status_code != 404:
+            raise
+
+        module.exit_json(changed=False, message="Volume already absent")
+
     if result is not None and (
         not valid_volume(result)
         or result.get("id") != volume_id

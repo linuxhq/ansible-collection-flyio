@@ -54,7 +54,7 @@
           - ip_create.message == 'IP address allocated'
           - ip_create.ip_address.type == 'v6'
           - "':' in ip_create.ip_address.address"
-          - ip_create.ip_address.region | d('') == ''
+          - (ip_create.ip_address.region | d('', true) | lower) in ['', 'global']
 
     - name: Allocate IPv6 address again
       linuxhq.flyio.ip_addresses:

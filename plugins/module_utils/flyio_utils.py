@@ -461,10 +461,14 @@ def seconds_left(deadline):
 
 
 def poll_until(fetch, done, timeout):
-    """Fetch at least once, then poll until done or timeout; return the last value."""
+    """Fetch at least once, then poll until done or timeout; return the last value.
+
+    Each fetch gets the remaining time plus slack as its request timeout, so a slow
+    final poll returns the last value instead of failing the request.
+    """
     deadline = wait_deadline(timeout)
     while True:
-        value = fetch(max(1, seconds_left(deadline)))
+        value = fetch(max(1, seconds_left(deadline)) + 10)
         if done(value) or time.monotonic() >= deadline:
             return value
 
@@ -483,7 +487,9 @@ def get_app(client, app_name, timeout=30):
 
 
 def wait_for_app_absent(client, app_name, timeout=60):
-    return poll_until(lambda remaining: get_app(client, app_name, remaining), lambda app: app is None, timeout)
+    return poll_until(
+        lambda request_timeout: get_app(client, app_name, request_timeout), lambda app: app is None, timeout
+    )
 
 
 def wait_for_volume(
@@ -497,12 +503,12 @@ def wait_for_volume(
 ):
     operation = f"Wait for volume '{volume_id}' in app '{app_name}'"
 
-    def fetch(remaining):
+    def fetch(request_timeout):
         volume = get_resource(
             client,
             flyio_path("apps", app_name, "volumes", volume_id),
             ok_statuses=ok_statuses,
-            timeout=remaining,
+            timeout=request_timeout,
             required_fields=("id", "state"),
             expected={"id": volume_id},
         )

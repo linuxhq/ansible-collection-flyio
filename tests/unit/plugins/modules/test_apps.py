@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import apps
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -71,10 +72,25 @@ class AppsTests(TestCase):
         ):
             apps.ensure_absent(module, {})
 
-        delete.assert_called_once_with({}, "/apps/example", timeout=120, ok_statuses=[404])
+        delete.assert_called_once_with({}, "/apps/example", timeout=120)
         wait.assert_called_once_with({}, "example", 100)
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["app"], current)
+
+    def test_app_deleted_elsewhere_after_read_is_unchanged(self):
+        module = FakeModule({"delete_timeout": 120, "force": True, "name": "example"})
+
+        with (
+            patch.object(apps, "get_app", return_value={"name": "example"}),
+            patch.object(apps, "delete_result", side_effect=FlyioApiError("gone", status_code=404)),
+            patch.object(apps, "wait_for_app_absent") as wait,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            apps.ensure_absent(module, {})
+
+        wait.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["message"], "App already absent")
 
     def test_fails_when_app_deletion_times_out(self):
         current = {"name": "example"}
@@ -107,6 +123,7 @@ class AppsTests(TestCase):
 
         post.assert_not_called()
         self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["app"], {"name": "example"})
 
     def test_create_tolerates_read_after_write_lag(self):
         module = FakeModule({"name": "example", "network": None, "org_slug": "linuxhq"})

@@ -626,7 +626,7 @@ class FlyioUtilsTests(TestCase):
             {},
             "/apps/example",
             ok_statuses=[404],
-            timeout=4,
+            timeout=14,
             required_fields=("name",),
             expected={"name": "example"},
         )
@@ -651,7 +651,7 @@ class FlyioUtilsTests(TestCase):
             {},
             "/apps/example/volumes/volume-one",
             ok_statuses=None,
-            timeout=4,
+            timeout=14,
             required_fields=("id", "state"),
             expected={"id": "volume-one"},
         )
@@ -705,6 +705,19 @@ class FlyioUtilsTests(TestCase):
 
         self.assertIn("volume 'volume-one' in app 'example'", str(raised.exception))
 
+    def test_volume_wait_keeps_request_slack_when_timeout_is_exhausted(self):
+        volume = {"id": "volume-one", "state": "creating"}
+        with (
+            patch(f"{FLYIO_UTILS}.time.monotonic", side_effect=[10, 10, 10]),
+            patch(f"{FLYIO_UTILS}.get_resource", return_value=volume) as get,
+            patch(f"{FLYIO_UTILS}.time.sleep"),
+        ):
+            result = wait_for_volume({}, "example", "volume-one", timeout=0)
+
+        get.assert_called_once()
+        self.assertEqual(get.call_args.kwargs["timeout"], 11)
+        self.assertEqual(result, volume)
+
     def test_wait_polls_at_least_once_when_timeout_is_exhausted(self):
         app = {"name": "example"}
         with (
@@ -715,7 +728,8 @@ class FlyioUtilsTests(TestCase):
             result = wait_for_app_absent({}, "example", timeout=0)
 
         get.assert_called_once()
-        self.assertEqual(get.call_args.kwargs["timeout"], 1)
+        # The final poll keeps request slack even when the wait budget is spent.
+        self.assertEqual(get.call_args.kwargs["timeout"], 11)
         sleep.assert_not_called()
         self.assertEqual(result, app)
 

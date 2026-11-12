@@ -70,6 +70,19 @@ class MachinesExecTests(TestCase):
         request.assert_not_called()
         self.assertEqual(raised.exception.values["msg"], "Machine 'machine-one' not found in app 'example'")
 
+    def test_check_mode_fails_for_gone_machine(self):
+        for state in ("destroyed", "replaced", "migrated"):
+            with (
+                self.subTest(state=state),
+                patch.object(machines_exec, "get_resource", return_value={"id": "machine-one", "state": state}),
+                patch.object(machines_exec, "post_result") as request,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines_exec.exec_command(module(check_mode=True), {})
+
+            request.assert_not_called()
+            self.assertEqual(raised.exception.values["msg"], "Machine 'machine-one' not found in app 'example'")
+
     def test_executes_command(self):
         result = {"exit_code": 0, "stderr": "", "stdout": "ready"}
 

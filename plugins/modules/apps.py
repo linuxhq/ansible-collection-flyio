@@ -111,6 +111,7 @@ message:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    FlyioApiError,
     api_token_option,
     delete_result,
     flyio_client,
@@ -137,7 +138,7 @@ def ensure_present(module, client):
         module.fail_json(msg="org_slug is required when creating an app")
 
     if module.check_mode:
-        module.exit_json(changed=True, message="App would be created")
+        module.exit_json(changed=True, message="App would be created", app={"name": params["name"]})
 
     body = {
         "name": params["name"],
@@ -169,12 +170,13 @@ def ensure_absent(module, client):
 
     path = flyio_path("apps", params["name"])
     deadline = wait_deadline(params["delete_timeout"])
-    delete_result(
-        client,
-        path,
-        timeout=params["delete_timeout"],
-        ok_statuses=[404],
-    )
+    try:
+        delete_result(client, path, timeout=params["delete_timeout"])
+    except FlyioApiError as exc:
+        if exc.status_code != 404:
+            raise
+
+        module.exit_json(changed=False, message="App already absent")
 
     remaining = wait_for_app_absent(
         client,
