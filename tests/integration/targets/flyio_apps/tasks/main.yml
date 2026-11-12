@@ -1,0 +1,134 @@
+---
+- name: Ensure Fly.io test settings are loaded
+  ansible.builtin.import_role:
+    name: setup_flyio
+
+- name: Ensure app resources are tested
+  module_defaults:
+    linuxhq.flyio.apps:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.apps_info:
+      api_token: "{{ flyio_api_token }}"
+  vars:
+    app_name: "{{ flyio_resource_prefix }}-apps"
+  block:
+    - name: Create app in check mode
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        org_slug: "{{ flyio_org_slug }}"
+        state: present
+      check_mode: true
+      register: app_check_create
+
+    - name: List apps after check mode create
+      linuxhq.flyio.apps_info:
+        org_slug: "{{ flyio_org_slug }}"
+      register: apps_check_create
+
+    - name: Assert check mode create predicted a change without creating the app
+      ansible.builtin.assert:
+        that:
+          - app_check_create is changed
+          - app_check_create.message == 'App would be created'
+          - app_name not in apps_check_create.apps | map(attribute='name') | list
+
+    - name: Create app
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        org_slug: "{{ flyio_org_slug }}"
+        state: present
+      register: app_create
+
+    - name: Assert app was created
+      ansible.builtin.assert:
+        that:
+          - app_create is changed
+          - app_create.message == 'App created'
+          - app_create.app.name == app_name
+
+    - name: Create app again
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        org_slug: "{{ flyio_org_slug }}"
+        state: present
+      register: app_create_again
+
+    - name: Assert app create is idempotent
+      ansible.builtin.assert:
+        that:
+          - app_create_again is not changed
+          - app_create_again.message == 'App already present'
+          - app_create_again.app.name == app_name
+
+    - name: Gather app info by name
+      linuxhq.flyio.apps_info:
+        name: "{{ app_name }}"
+      register: app_info
+
+    - name: Gather app info by organization
+      linuxhq.flyio.apps_info:
+        org_slug: "{{ flyio_org_slug }}"
+      register: apps_info
+
+    - name: Assert app info includes the app
+      ansible.builtin.assert:
+        that:
+          - app_info is not changed
+          - app_info.apps | length == 1
+          - app_info.apps[0].name == app_name
+          - apps_info is not changed
+          - app_name in apps_info.apps | map(attribute='name') | list
+
+    - name: Delete app in check mode
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        state: absent
+      check_mode: true
+      register: app_check_delete
+
+    - name: Gather app info after check mode delete
+      linuxhq.flyio.apps_info:
+        name: "{{ app_name }}"
+      register: app_check_delete_info
+
+    - name: Assert check mode delete predicted a change without deleting the app
+      ansible.builtin.assert:
+        that:
+          - app_check_delete is changed
+          - app_check_delete.message == 'App would be deleted'
+          - app_check_delete.app.name == app_name
+          - app_check_delete_info.apps[0].name == app_name
+
+    - name: Delete app
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        delete_timeout: 120
+        state: absent
+      register: app_delete
+
+    - name: Assert app was deleted
+      ansible.builtin.assert:
+        that:
+          - app_delete is changed
+          - app_delete.message == 'App deleted'
+          - app_delete.app.name == app_name
+
+    - name: Delete app again
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        state: absent
+      register: app_delete_again
+
+    - name: Assert app delete is idempotent
+      ansible.builtin.assert:
+        that:
+          - app_delete_again is not changed
+          - app_delete_again.message == 'App already absent'
+
+  always:
+    - name: Ensure app is absent
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        delete_timeout: 120
+        state: absent
+...

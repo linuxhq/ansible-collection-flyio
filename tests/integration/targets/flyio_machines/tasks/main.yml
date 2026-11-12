@@ -1,0 +1,246 @@
+---
+- name: Ensure Fly.io test settings are loaded
+  ansible.builtin.import_role:
+    name: setup_flyio
+
+- name: Ensure Machine resources are tested
+  module_defaults:
+    linuxhq.flyio.apps:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.machines:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.machines_exec:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.machines_info:
+      api_token: "{{ flyio_api_token }}"
+  vars:
+    app_name: "{{ flyio_resource_prefix }}-machines"
+    machine_name: ansible-test-web
+    machine_guest:
+      cpu_kind: shared
+      cpus: 1
+      memory_mb: 256
+    machine_image: nginx:alpine
+    machine_region: ord
+  block:
+    - name: Create app fixture
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        org_slug: "{{ flyio_org_slug }}"
+        state: present
+
+    - name: Create Machine in check mode
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        name: "{{ machine_name }}"
+        region: "{{ machine_region }}"
+        image: "{{ machine_image }}"
+        guest: "{{ machine_guest }}"
+        state: present
+      check_mode: true
+      register: machine_check_create
+
+    - name: List Machines after check mode create
+      linuxhq.flyio.machines_info:
+        app_name: "{{ app_name }}"
+      register: machines_check_create
+
+    - name: Assert check mode create predicted a change without creating the Machine
+      ansible.builtin.assert:
+        that:
+          - machine_check_create is changed
+          - machine_check_create.message == 'Machine would be created'
+          - machines_check_create.machines | length == 0
+
+    - name: Create Machine
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        name: "{{ machine_name }}"
+        region: "{{ machine_region }}"
+        image: "{{ machine_image }}"
+        guest: "{{ machine_guest }}"
+        state: present
+      register: machine_create
+
+    - name: Assert Machine was created
+      ansible.builtin.assert:
+        that:
+          - machine_create is changed
+          - machine_create.message == 'Machine created'
+          - machine_create.machine.id | length > 0
+          - machine_create.machine.name == machine_name
+          - machine_create.machine.region == machine_region
+          - machine_create.machine.state == 'started'
+
+    - name: Create Machine again
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        name: "{{ machine_name }}"
+        region: "{{ machine_region }}"
+        image: "{{ machine_image }}"
+        guest: "{{ machine_guest }}"
+        state: present
+      register: machine_create_again
+
+    - name: Assert Machine create is idempotent
+      ansible.builtin.assert:
+        that:
+          - machine_create_again is not changed
+          - machine_create_again.message == 'Machine already present'
+          - machine_create_again.machine.id == machine_create.machine.id
+
+    - name: List Machines
+      linuxhq.flyio.machines_info:
+        app_name: "{{ app_name }}"
+      register: machines_info
+
+    - name: Gather Machine info by identifier
+      linuxhq.flyio.machines_info:
+        app_name: "{{ app_name }}"
+        id: "{{ machine_create.machine.id }}"
+      register: machine_info
+
+    - name: Assert Machine info includes the Machine
+      ansible.builtin.assert:
+        that:
+          - machines_info is not changed
+          - machine_create.machine.id in machines_info.machines | map(attribute='id') | list
+          - machine_info is not changed
+          - machine_info.machines | length == 1
+          - machine_info.machines[0].id == machine_create.machine.id
+          - machine_info.machines[0].name == machine_name
+
+    - name: Execute command on Machine in check mode
+      linuxhq.flyio.machines_exec:
+        app_name: "{{ app_name }}"
+        id: "{{ machine_create.machine.id }}"
+        command: echo ansible-test
+      check_mode: true
+      register: machine_check_exec
+
+    - name: Assert check mode exec predicted a change without running the command
+      ansible.builtin.assert:
+        that:
+          - machine_check_exec is changed
+          - machine_check_exec.stdout is not defined
+
+    - name: Execute command on Machine
+      linuxhq.flyio.machines_exec:
+        app_name: "{{ app_name }}"
+        id: "{{ machine_create.machine.id }}"
+        command: echo ansible-test
+      register: machine_exec
+
+    - name: Assert command output was returned
+      ansible.builtin.assert:
+        that:
+          - machine_exec is changed
+          - machine_exec.exit_code == 0
+          - machine_exec.exit_signal == 0
+          - machine_exec.stdout | trim == 'ansible-test'
+
+    - name: Execute failing command on Machine
+      linuxhq.flyio.machines_exec:
+        app_name: "{{ app_name }}"
+        id: "{{ machine_create.machine.id }}"
+        command: echo ansible-test >&2; exit 3
+      register: machine_exec_failure
+      failed_when: machine_exec_failure.exit_code | d(none) != 3
+
+    - name: Assert failing command was reported
+      ansible.builtin.assert:
+        that:
+          - machine_exec_failure.exit_code == 3
+          - machine_exec_failure.stderr | trim == 'ansible-test'
+
+    - name: Stop Machine
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        id: "{{ machine_create.machine.id }}"
+        state: stopped
+      register: machine_stop
+
+    - name: Stop Machine again
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        id: "{{ machine_create.machine.id }}"
+        state: stopped
+      register: machine_stop_again
+
+    - name: Start Machine
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        id: "{{ machine_create.machine.id }}"
+        state: started
+      register: machine_start
+
+    - name: Assert Machine power state changes are idempotent
+      ansible.builtin.assert:
+        that:
+          - machine_stop is changed
+          - machine_stop.message == 'Machine stopped'
+          - machine_stop.machine.state == 'stopped'
+          - machine_stop_again is not changed
+          - machine_stop_again.message == 'Machine already stopped'
+          - machine_start is changed
+          - machine_start.message == 'Machine started'
+          - machine_start.machine.state == 'started'
+
+    - name: Destroy Machine in check mode
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        name: "{{ machine_name }}"
+        state: absent
+      check_mode: true
+      register: machine_check_delete
+
+    - name: List Machines after check mode destroy
+      linuxhq.flyio.machines_info:
+        app_name: "{{ app_name }}"
+      register: machines_check_delete
+
+    - name: Assert check mode destroy predicted a change without destroying the Machine
+      ansible.builtin.assert:
+        that:
+          - machine_check_delete is changed
+          - machine_check_delete.message == 'Machine would be destroyed'
+          - machine_check_delete.machine.id == machine_create.machine.id
+          - >-
+            machines_check_delete.machines
+            | selectattr('id', 'equalto', machine_create.machine.id)
+            | map(attribute='state') | list == ['started']
+
+    - name: Destroy Machine
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        name: "{{ machine_name }}"
+        state: absent
+      register: machine_delete
+
+    - name: Assert Machine was destroyed
+      ansible.builtin.assert:
+        that:
+          - machine_delete is changed
+          - machine_delete.message == 'Machine destroyed'
+          - machine_delete.machine.id == machine_create.machine.id
+
+    - name: Destroy Machine again
+      linuxhq.flyio.machines:
+        app_name: "{{ app_name }}"
+        name: "{{ machine_name }}"
+        state: absent
+      register: machine_delete_again
+
+    - name: Assert Machine destroy is idempotent
+      ansible.builtin.assert:
+        that:
+          - machine_delete_again is not changed
+          - machine_delete_again.message == 'Machine already absent'
+
+  always:
+    - name: Ensure app fixture is absent
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        delete_timeout: 120
+        state: absent
+...

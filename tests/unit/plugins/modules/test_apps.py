@@ -122,3 +122,18 @@ class AppsTests(TestCase):
         self.assertEqual(get.call_count, 2)
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["app"], {"name": "example"})
+
+    def test_check_mode_does_not_delete(self):
+        current = {"name": "example"}
+        module = FakeModule({"name": "example", "delete_timeout": 60}, check_mode=True)
+
+        with (
+            patch.object(apps, "get_app", return_value=current),
+            patch.object(apps, "delete_result") as delete,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            apps.ensure_absent(module, {})
+
+        delete.assert_not_called()
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["app"], current)

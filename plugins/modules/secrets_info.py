@@ -9,16 +9,14 @@ module: secrets_info
 short_description: Gather information about Fly.io app secrets
 description:
   - Gather secret names and digests for a Fly.io app.
-  - Secret values are never returned.
+  - Fly.io does not expose secret values, so results contain only the secret
+    metadata Fly.io returns.
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -46,7 +44,7 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 secrets:
-  description: List of Fly.io secret metadata. Values are never returned.
+  description: List of Fly.io secret metadata, as Fly.io returns it.
   returned: always
   type: list
   elements: dict
@@ -73,43 +71,40 @@ secrets:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
-    SECRET_FIELDS,
+    api_token_option,
     flyio_client,
     flyio_path,
-    get_result,
-    select_fields,
+    get_resource,
+    require_nonempty,
     valid_secret_metadata,
 )
 
 
 def list_resources(module, client):
-    result = get_result(
-        client,
-        flyio_path("apps", module.params["app_name"], "secrets"),
-        default={"secrets": []},
-        ok_statuses=[404],
-    )
-    if (
-        not isinstance(result, dict)
-        or not isinstance(result.get("secrets"), list)
-        or not all(valid_secret_metadata(secret) for secret in result["secrets"])
-    ):
+    result = get_resource(client, flyio_path("apps", module.params["app_name"], "secrets"), ok_statuses=[404])
+    if result is None:
+        # A missing app has no secrets.
+        result = {"secrets": []}
+
+    secrets = result.get("secrets")
+    if not isinstance(secrets, list) or not all(valid_secret_metadata(secret) for secret in secrets):
         module.fail_json(
             msg=f"Fly.io API returned malformed data while listing secrets for app '{module.params['app_name']}'"
         )
 
-    secrets = [select_fields(secret, SECRET_FIELDS) for secret in result["secrets"]]
     module.exit_json(changed=False, secrets=secrets)
 
 
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
         },
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name")
 
     with flyio_client(module) as client:
         list_resources(module, client)

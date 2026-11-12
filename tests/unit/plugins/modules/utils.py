@@ -16,7 +16,8 @@ class ModuleFail(ModuleResult):
 
 
 class FakeModule:
-    def __init__(self, params, check_mode=False):
+    def __init__(self, params, check_mode=False, diff=False):
+        self._diff = diff
         self.check_mode = check_mode
         self.params = params
 

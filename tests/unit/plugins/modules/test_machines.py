@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from ansible.module_utils.common.parameters import _list_no_log_values, remove_values
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_machine_config as machine_config
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import machines
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
@@ -201,14 +202,14 @@ class MachinesTests(TestCase):
         ):
             with self.subTest(current=current, desired=desired):
                 self.assertTrue(
-                    machines.machine_config_changed(
+                    machine_config.machine_config_changed(
                         {"image": "example:latest", **current},
                         {"image": "example:latest", **desired},
                     )
                 )
 
         self.assertFalse(
-            machines.machine_config_changed(
+            machine_config.machine_config_changed(
                 {"image": "example:latest", "env": {"KEEP": "value"}, "auto_destroy": True},
                 {"image": "example:latest"},
             )
@@ -234,7 +235,7 @@ class MachinesTests(TestCase):
                 ({field: value}, {}, False),
             ):
                 with self.subTest(field=field, current=current, desired=desired):
-                    self.assertEqual(machines.machine_config_changed(config(current), config(desired)), changed)
+                    self.assertEqual(machine_config.machine_config_changed(config(current), config(desired)), changed)
 
     def test_header_normalization_preserves_real_changes(self):
         def config(values):
@@ -245,7 +246,7 @@ class MachinesTests(TestCase):
 
         for current, desired in (({"values": ["old"]}, {"values": []}), ({}, {"values": ["new"]})):
             with self.subTest(current=current, desired=desired):
-                self.assertTrue(machines.machine_config_changed(config(current), config(desired)))
+                self.assertTrue(machine_config.machine_config_changed(config(current), config(desired)))
 
         current = {
             "image": "example:latest",
@@ -260,8 +261,8 @@ class MachinesTests(TestCase):
                 }
             ],
         }
-        self.assertTrue(machines.machine_config_changed(current, desired))
-        self.assertFalse(machines.machine_config_changed(desired, current))
+        self.assertTrue(machine_config.machine_config_changed(current, desired))
+        self.assertFalse(machine_config.machine_config_changed(desired, current))
 
     def test_zero_defaults_preserve_mount_and_restart_changes(self):
         for field, old, new in (
@@ -274,7 +275,7 @@ class MachinesTests(TestCase):
             for before, after in (({field: old}, {field: new}), ({}, {field: old})):
                 with self.subTest(field=field, before=before):
                     self.assertTrue(
-                        machines.machine_config_changed(
+                        machine_config.machine_config_changed(
                             {"image": "example:latest", "mounts": [{**mount, **before}]},
                             {"image": "example:latest", "mounts": [{**mount, **after}]},
                         )
@@ -282,7 +283,7 @@ class MachinesTests(TestCase):
 
         for before, after in (({"max_retries": 3}, {"max_retries": 0}), ({}, {"max_retries": 3})):
             self.assertTrue(
-                machines.machine_config_changed(
+                machine_config.machine_config_changed(
                     {"image": "example:latest", "restart": {"policy": "on-failure", **before}},
                     {"image": "example:latest", "restart": {"policy": "on-failure", **after}},
                 )
@@ -321,7 +322,7 @@ class MachinesTests(TestCase):
             )
 
     def test_builds_config_without_none_values(self):
-        config = machines.build_config(
+        config = machine_config.build_config(
             {
                 "checks": {"health": {"port": 8080}},
                 "env": None,
@@ -357,7 +358,7 @@ class MachinesTests(TestCase):
     def test_normalizes_autostop_to_provider_response_values(self):
         for value, expected in (("off", False), ("stop", True), ("suspend", "suspend")):
             with self.subTest(value=value):
-                config = machines.build_config(
+                config = machine_config.build_config(
                     {
                         "image": "example:latest",
                         "services": [{"autostop": value, "internal_port": 8080}],
@@ -684,7 +685,7 @@ class MachinesTests(TestCase):
         }
 
         self.assertIsNone(machines.validate_config(FakeModule(params()), desired))
-        self.assertEqual(machines.merge_config(current, desired), desired)
+        self.assertEqual(machine_config.merge_config(current, desired), desired)
 
     def test_create_requires_service_protocol(self):
         module = FakeModule(params(services=[{"internal_port": 8080}]))
@@ -939,9 +940,7 @@ class MachinesTests(TestCase):
 
         self.assertFalse(raised.exception.values["changed"])
         result = raised.exception.values["machine"]
-        self.assertNotIn("env", result["config"])
-        self.assertNotIn("raw_value", result["config"]["files"][0])
-        self.assertNotIn("headers", result["config"]["checks"]["health"])
+        self.assertEqual(result, current)
 
     def test_provider_restart_retries_do_not_break_always_policy(self):
         current = {
@@ -962,27 +961,6 @@ class MachinesTests(TestCase):
             machines.ensure_present(module, {})
 
         self.assertFalse(raised.exception.values["changed"])
-
-    def test_present_rejects_terminal_machine(self):
-        current = {
-            "config": {"image": "example:latest"},
-            "id": "machine-one",
-            "state": "destroyed",
-        }
-        module = FakeModule(params())
-
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "post_result") as post,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        post.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Machine 'machine-one' in app 'example' is in terminal state 'destroyed'",
-        )
 
     def test_present_waits_for_existing_transition(self):
         current = {
@@ -1329,7 +1307,7 @@ class MachinesTests(TestCase):
             ({"image_config": "old"}, {"raw_value": "bmV3"}),
         ):
             with self.subTest(desired_source=desired_source):
-                result = machines.merge_config(
+                result = machine_config.merge_config(
                     {"files": [{"guest_path": "/etc/example.conf", **current_source}]},
                     {"files": [{"guest_path": "/etc/example.conf", **desired_source}]},
                 )
@@ -1341,7 +1319,7 @@ class MachinesTests(TestCase):
 
     def test_changing_restart_policy_drops_stale_max_retries(self):
         self.assertEqual(
-            machines.merge_config(
+            machine_config.merge_config(
                 {"restart": {"max_retries": 3, "policy": "on-failure"}},
                 {"restart": {"policy": "always"}},
             ),
@@ -1407,9 +1385,9 @@ class MachinesTests(TestCase):
         ]
         desired = [{"internal_port": 9090}, {"internal_port": 8080}]
 
-        result = machines.merge_values(current, desired)
+        result = machine_config.merge_values(current, desired)
 
-        self.assertFalse(machines.config_values_differ(current, desired))
+        self.assertFalse(machine_config.config_values_differ(current, desired))
         self.assertEqual(
             result,
             [
@@ -1425,13 +1403,13 @@ class MachinesTests(TestCase):
         }
 
         self.assertFalse(
-            machines.config_values_differ(
+            machine_config.config_values_differ(
                 current,
                 {"health": {"port": 8080}},
             )
         )
         self.assertTrue(
-            machines.config_values_differ(
+            machine_config.config_values_differ(
                 current,
                 {"health": {"port": 8080}},
                 purge=True,
@@ -1439,14 +1417,14 @@ class MachinesTests(TestCase):
         )
 
     def test_config_comparison_distinguishes_booleans_from_integers(self):
-        self.assertTrue(machines.config_values_differ(True, 1))
-        self.assertTrue(machines.config_values_differ(False, 0))
+        self.assertTrue(machine_config.config_values_differ(True, 1))
+        self.assertTrue(machine_config.config_values_differ(False, 0))
 
     def test_nested_list_items_are_compared_by_identity(self):
         current = [{"internal_port": 8080, "ports": [{"port": 80}, {"port": 443}]}]
         desired = [{"internal_port": 8080, "ports": [{"port": 443}, {"port": 80}]}]
 
-        self.assertFalse(machines.config_values_differ(current, desired))
+        self.assertFalse(machine_config.config_values_differ(current, desired))
 
     def test_range_ports_are_merged_by_identity(self):
         current = [
@@ -1458,9 +1436,9 @@ class MachinesTests(TestCase):
             {"end_port": 1099, "start_port": 1000},
         ]
 
-        self.assertFalse(machines.config_values_differ(current, desired))
+        self.assertFalse(machine_config.config_values_differ(current, desired))
         self.assertEqual(
-            machines.merge_values(current, desired),
+            machine_config.merge_values(current, desired),
             [current[1], current[0]],
         )
 
@@ -1501,15 +1479,15 @@ class MachinesTests(TestCase):
         current = [{"interval": "15s", "timeout": "2s", "type": "tcp"}]
         desired = [{"interval": "15s", "type": "tcp"}]
 
-        self.assertFalse(machines.config_values_differ(current, desired))
-        self.assertEqual(machines.merge_values(current, desired), current)
+        self.assertFalse(machine_config.config_values_differ(current, desired))
+        self.assertEqual(machine_config.merge_values(current, desired), current)
 
     def test_duplicate_list_items_need_distinct_matches(self):
         current = [{"internal_port": 8080}, {"internal_port": 9090}]
         desired = [{"internal_port": 8080}, {"internal_port": 8080}]
 
-        self.assertTrue(machines.config_values_differ(current, desired))
-        self.assertFalse(machines.config_values_differ(desired, desired))
+        self.assertTrue(machine_config.config_values_differ(current, desired))
+        self.assertFalse(machine_config.config_values_differ(desired, desired))
 
     def test_rejects_multiple_mounts(self):
         module = FakeModule(
@@ -1601,12 +1579,12 @@ class MachinesTests(TestCase):
         current = {"mounts": [{"name": "data", "path": "/data", "volume": "vol-old"}]}
         desired = {"mounts": [{"name": "data", "path": "/data", "volume": "vol-new"}]}
 
-        self.assertTrue(machines.mounts_differ(current, desired))
+        self.assertTrue(machine_config.mounts_differ(current, desired))
 
     def test_malformed_current_mounts_are_different(self):
-        self.assertTrue(machines.mounts_differ({"mounts": "invalid"}, {"mounts": []}))
+        self.assertTrue(machine_config.mounts_differ({"mounts": "invalid"}, {"mounts": []}))
         self.assertTrue(
-            machines.mounts_differ(
+            machine_config.mounts_differ(
                 {"mounts": [{"volume": ["invalid"]}]},
                 {"mounts": [{"volume": "data"}]},
             )
@@ -1615,7 +1593,7 @@ class MachinesTests(TestCase):
     def test_malformed_current_checks_do_not_crash_merge(self):
         desired = {"checks": {"health": {"port": 8080}}}
 
-        self.assertEqual(machines.merge_config({"checks": None}, desired), desired)
+        self.assertEqual(machine_config.merge_config({"checks": None}, desired), desired)
 
     def test_merges_duplicate_ports_by_complete_identity(self):
         current = [
@@ -1623,7 +1601,7 @@ class MachinesTests(TestCase):
             {"internal_port": 53, "protocol": "udp", "udp_checks": ["preserve"]},
         ]
 
-        result = machines.merge_values(
+        result = machine_config.merge_values(
             current,
             [
                 {"internal_port": 53, "protocol": "udp"},
@@ -1936,18 +1914,6 @@ class MachinesTests(TestCase):
         )
         self.assertEqual(raised.exception.values["machine"], current)
 
-    def test_destroyed_machine_is_unchanged_in_check_mode(self):
-        current = {"id": "machine-one", "state": "destroyed"}
-        module = FakeModule(params(image=None), check_mode=True)
-
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            machines.ensure_absent(module, {})
-
-        self.assertFalse(raised.exception.values["changed"])
-
     def test_destroying_machine_waits_without_deleting_again(self):
         current = {"id": "machine-one", "state": "destroying"}
         module = FakeModule(params(image=None))
@@ -1964,6 +1930,7 @@ class MachinesTests(TestCase):
         delete.assert_not_called()
         wait.assert_called_once_with({}, "example", "machine-one", "destroyed", 60)
         self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["machine"], current)
 
     def test_destroying_machine_does_not_wait_in_check_mode(self):
         current = {"id": "machine-one", "state": "destroying"}
@@ -2170,22 +2137,22 @@ class MachinesTests(TestCase):
             "Transition of Machine 'machine-one' in app 'example' timed out",
         )
 
-    def test_rejects_terminal_machine_state(self):
-        current = {"id": "machine-one", "state": "migrated"}
-        module = FakeModule(params(image=None))
+    def test_settle_reports_machine_headed_for_destruction_as_gone(self):
+        for state in ("destroying", "launch_failed"):
+            with (
+                self.subTest(state=state),
+                patch.object(machines, "find_machine", return_value={"id": "machine-one", "state": "creating"}),
+                patch.object(machines, "wait_for_machine"),
+                patch.object(machines, "get_resource", return_value={"id": "machine-one", "state": state}),
+                patch.object(machines, "post_result") as request,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
 
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "post_result") as request,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_power_state(module, {}, "stopped")
-
-        request.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Machine 'machine-one' in app 'example' is in terminal state 'migrated'",
-        )
+            request.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"], "Machine 'machine-one' in app 'example' is no longer available"
+            )
 
     def test_stops_machine(self):
         current = {
@@ -2292,7 +2259,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             str(raised.exception),
-            "Multiple Machines named 'worker' match in app 'example'; specify id",
+            "Multiple Machines named 'worker' match in app 'example' (machine-one, machine-two); specify id",
         )
 
     def test_returned_configuration_is_not_masked_by_no_log(self):
@@ -2400,6 +2367,71 @@ class MachinesTests(TestCase):
                 machines.find_machine({}, "example", name="worker", include_destroying=True),
                 destroying,
             )
+
+    def test_multiple_destroying_machines_are_not_ambiguous_for_absent(self):
+        destroying = [
+            {"id": "machine-one", "name": "worker", "state": "destroying"},
+            {"id": "machine-two", "name": "worker", "state": "destroying"},
+        ]
+
+        live = [{**machine, "state": "started"} for machine in destroying]
+
+        with patch.object(machines, "list_all", return_value=destroying):
+            found = machines.find_machine({}, "example", name="worker", include_destroying=True)
+
+        with (
+            patch.object(machines, "list_all", return_value=live),
+            self.assertRaises(FlyioApiError),
+        ):
+            machines.find_machine({}, "example", name="worker", include_destroying=True)
+
+        self.assertEqual(found["id"], "machine-one")
+
+    def test_id_lookup_treats_terminal_machines_as_absent(self):
+        for state in ("destroyed", "replaced", "migrated"):
+            with (
+                self.subTest(state=state),
+                patch.object(machines, "get_resource", return_value={"id": "machine-one", "state": state}),
+            ):
+                self.assertIsNone(
+                    machines.find_machine({}, "example", machine_id="machine-one", include_destroying=True)
+                )
+
+    def test_absent_by_id_reports_migrated_machine_unchanged(self):
+        module = FakeModule(params(id="machine-one", name=None, state="absent"))
+
+        with (
+            patch.object(machines, "get_resource", return_value={"id": "machine-one", "state": "migrated"}),
+            patch.object(machines, "delete_result") as delete,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_absent(module, {})
+
+        delete.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["message"], "Machine already absent")
+
+    def test_lookup_treats_launch_failed_machines_as_not_live(self):
+        failed = {"id": "machine-old", "name": "worker", "state": "launch_failed"}
+        started = {"id": "machine-new", "name": "worker", "state": "started"}
+
+        with patch.object(machines, "list_all", return_value=[failed, started]):
+            self.assertEqual(machines.find_machine({}, "example", name="worker"), started)
+
+        with patch.object(machines, "list_all", return_value=[failed]):
+            self.assertIsNone(machines.find_machine({}, "example", name="worker"))
+            self.assertEqual(machines.find_machine({}, "example", name="worker", include_destroying=True), failed)
+
+        with patch.object(machines, "get_resource", return_value=failed):
+            self.assertIsNone(machines.find_machine({}, "example", machine_id="machine-old"))
+
+    def test_negative_soft_limit_reports_documented_minimum(self):
+        services = [{"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": -1}}]
+
+        with self.assertRaises(ModuleFail) as raised:
+            machines.ensure_present(FakeModule(params(services=services)), {})
+
+        self.assertEqual(raised.exception.values["msg"], "services[].concurrency.soft_limit must be at least 1")
 
     def test_create_accepts_auto_destroyed_machine_after_wait(self):
         created = {"id": "machine-one", "version": "v1", "state": "created"}
@@ -2703,7 +2735,7 @@ class MachinesTests(TestCase):
         }
         desired = {"mounts": [{"volume": "vol_1", "path": "/data", "extend_threshold_percent": 80, "add_size_gb": 5}]}
 
-        mount = machines.merge_config(current, desired)["mounts"][0]
+        mount = machine_config.merge_config(current, desired)["mounts"][0]
 
         self.assertEqual(mount["add_size_gb"], 5)
         self.assertNotIn("add_size_percent", mount)
@@ -2742,7 +2774,7 @@ class MachinesTests(TestCase):
             ],
         }
 
-        self.assertFalse(machines.machine_config_changed(returned, requested))
+        self.assertFalse(machine_config.machine_config_changed(returned, requested))
 
     def test_machine_moving_on_after_settled_wait_is_accepted(self):
         created = {"id": "machine-one", "version": "v1", "state": "created"}
@@ -2967,13 +2999,13 @@ class MachinesTests(TestCase):
             ],
         }
 
-        self.assertFalse(machines.machine_config_changed(current, desired))
+        self.assertFalse(machine_config.machine_config_changed(current, desired))
 
     def test_check_named_headers_keeps_merge_comparison(self):
         current = {"image": "example:latest", "checks": {"headers": {"type": "tcp", "port": 8080, "interval": "15s"}}}
         desired = {"image": "example:latest", "checks": {"headers": {"type": "tcp", "port": 8080}}}
 
-        self.assertFalse(machines.machine_config_changed(current, desired))
+        self.assertFalse(machine_config.machine_config_changed(current, desired))
 
     def test_response_headers_merge_with_current_headers(self):
         def config(headers):
@@ -2986,10 +3018,10 @@ class MachinesTests(TestCase):
         current = config({"A": "1", "B": "2"})
         desired = config({"A": "1"})
 
-        self.assertFalse(machines.machine_config_changed(current, desired))
-        merged = machines.merge_config(current, desired)
+        self.assertFalse(machine_config.machine_config_changed(current, desired))
+        merged = machine_config.merge_config(current, desired)
         self.assertEqual(merged["services"][0]["ports"][0]["http_options"]["response"]["headers"], {"A": "1", "B": "2"})
-        self.assertTrue(machines.machine_config_changed(current, config({"A": "1", "B": False})))
+        self.assertTrue(machine_config.machine_config_changed(current, config({"A": "1", "B": False})))
 
     def test_power_state_accepts_stable_state_reached_after_successful_wait(self):
         for desired_state, state, reread, message in (
@@ -3044,7 +3076,7 @@ class MachinesTests(TestCase):
             ],
         }
 
-        merged = machines.merge_config(current, desired)
+        merged = machine_config.merge_config(current, desired)
 
         self.assertTrue(merged["services"][0]["autostart"])
         self.assertEqual(merged["services"][0]["min_machines_running"], 1)
@@ -3066,7 +3098,7 @@ class MachinesTests(TestCase):
             ],
         }
 
-        merged = machines.merge_config(current, desired)
+        merged = machine_config.merge_config(current, desired)
 
         self.assertEqual(merged["services"][0]["concurrency"], {"soft_limit": 5})
         self.assertNotIn("concurrency", merged["services"][1])
@@ -3088,9 +3120,9 @@ class MachinesTests(TestCase):
             ],
         }
 
-        merged = machines.merge_config(current, desired)
+        merged = machine_config.merge_config(current, desired)
 
-        self.assertFalse(machines.machine_config_changed(merged, desired))
+        self.assertFalse(machine_config.machine_config_changed(merged, desired))
         self.assertEqual(merged["services"][0]["ports"], [{"port": 80}])
         self.assertEqual(merged["services"][1]["concurrency"], {"soft_limit": 5})
 
@@ -3100,10 +3132,10 @@ class MachinesTests(TestCase):
         current = {"image": "example:latest", "services": [first, second]}
 
         self.assertFalse(
-            machines.machine_config_changed(current, {"image": "example:latest", "services": [first, second]})
+            machine_config.machine_config_changed(current, {"image": "example:latest", "services": [first, second]})
         )
         self.assertTrue(
-            machines.machine_config_changed(current, {"image": "example:latest", "services": [second, first]})
+            machine_config.machine_config_changed(current, {"image": "example:latest", "services": [second, first]})
         )
 
     def test_rejects_zero_soft_limit(self):
@@ -3135,3 +3167,121 @@ class MachinesTests(TestCase):
             machines.ensure_present(module, {})
 
         self.assertTrue(raised.exception.values["changed"])
+
+    def test_diff_mode_reports_created_config(self):
+        module = FakeModule(params(env={"TOKEN": "secret"}), check_mode=True, diff=True)
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        diff = raised.exception.values["diff"]
+        self.assertEqual(diff["before"], {})
+        self.assertEqual(diff["after"]["config"]["image"], "example:latest")
+        self.assertEqual(diff["after"]["name"], "worker")
+        self.assertEqual(diff["after"]["config"]["env"], {"TOKEN": "secret"})
+
+    def test_diff_mode_reports_updated_config(self):
+        current = {
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "started",
+            "config": {"image": "example:old", "env": {"TOKEN": "secret"}},
+        }
+        module = FakeModule(params(env={"TOKEN": "changed"}), check_mode=True, diff=True)
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(
+            raised.exception.values["diff"],
+            {
+                "before": {"config": {"image": "example:old", "env": {"TOKEN": "secret"}}},
+                "after": {"config": {"image": "example:latest", "env": {"TOKEN": "changed"}}},
+            },
+        )
+
+    def test_diff_mode_reports_power_state(self):
+        current = {"id": "machine-one", "name": "worker", "region": "ord", "state": "stopped"}
+        module = FakeModule(params(state="started"), check_mode=True, diff=True)
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_power_state(module, {}, "started")
+
+        self.assertEqual(
+            raised.exception.values["diff"],
+            {"before": {"state": "stopped"}, "after": {"state": "started"}},
+        )
+
+    def test_diff_is_omitted_without_diff_mode(self):
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(), check_mode=True), {})
+
+        self.assertNotIn("diff", raised.exception.values)
+
+    def test_diff_mode_reports_auto_destroyed_machine(self):
+        created = {"id": "machine-one", "version": "v1", "state": "created"}
+        module = FakeModule(params(auto_destroy=True), diff=True)
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertEqual(raised.exception.values["message"], "Machine created; it completed and destroyed itself")
+        self.assertEqual(raised.exception.values["diff"]["before"], {})
+        self.assertEqual(raised.exception.values["diff"]["after"]["config"]["image"], "example:latest")
+
+    def test_rejects_tty_that_fly_ignores(self):
+        with (
+            patch.object(machines, "find_machine") as find,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(init={"tty": True})), {})
+
+        find.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "init.tty cannot be true because Fly.io ignores it")
+
+    def test_region_change_fails_before_waiting_for_transition(self):
+        current = {"id": "machine-one", "name": "worker", "region": "ord", "state": "starting"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "wait_for_machine") as wait,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(region="iad")), {})
+
+        wait.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"], "Region cannot be changed for Machine 'machine-one' in app 'example'"
+        )
+
+    def test_rejects_inverted_port_range(self):
+        services = [{"internal_port": 8080, "protocol": "tcp", "ports": [{"start_port": 2000, "end_port": 1000}]}]
+
+        with (
+            patch.object(machines, "find_machine") as find,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(services=services)), {})
+
+        find.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "services[].ports[].start_port must not exceed end_port")

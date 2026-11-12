@@ -12,12 +12,12 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
 
 
 class SecretsInfoTests(TestCase):
-    def test_lists_secret_metadata_without_values(self):
+    def test_lists_secret_metadata(self):
         module = FakeModule({"app_name": "example/app"})
         response = {"secrets": [{"name": "APP_SECRET", "digest": "digest", "value": "secret"}]}
 
         with (
-            patch.object(secrets_info, "get_result", return_value=response) as get,
+            patch.object(secrets_info, "get_resource", return_value=response) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             secrets_info.list_resources(module, {})
@@ -25,12 +25,11 @@ class SecretsInfoTests(TestCase):
         get.assert_called_once_with(
             {},
             "/apps/example%2Fapp/secrets",
-            default={"secrets": []},
             ok_statuses=[404],
         )
         self.assertEqual(
             raised.exception.values["secrets"],
-            [{"name": "APP_SECRET", "digest": "digest"}],
+            response["secrets"],
         )
 
     def test_rejects_malformed_response(self):
@@ -63,7 +62,7 @@ class SecretsInfoTests(TestCase):
         ):
             with (
                 self.subTest(response=response),
-                patch.object(secrets_info, "get_result", return_value=response),
+                patch.object(secrets_info, "get_resource", return_value=response),
                 self.assertRaises(ModuleFail) as raised,
             ):
                 secrets_info.list_resources(module, {})
@@ -72,3 +71,23 @@ class SecretsInfoTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while listing secrets for app 'example'",
             )
+
+    def test_missing_app_lists_no_secrets(self):
+        module = FakeModule({"app_name": "missing"})
+
+        with (
+            patch.object(secrets_info, "get_resource", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets_info.list_resources(module, {})
+
+        self.assertEqual(raised.exception.values["secrets"], [])
+
+    def test_rejects_empty_listing_object(self):
+        module = FakeModule({"app_name": "example"})
+
+        with (
+            patch.object(secrets_info, "get_resource", return_value={}),
+            self.assertRaises(ModuleFail),
+        ):
+            secrets_info.list_resources(module, {})

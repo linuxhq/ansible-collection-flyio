@@ -41,19 +41,19 @@ class AppsInfoTests(TestCase):
         module = FakeModule({"org_slug": "linux&hq"})
 
         with (
-            patch.object(apps_info, "get_result", return_value={"apps": listed}) as get,
+            patch.object(apps_info, "api_request", return_value={"apps": listed}) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             apps_info.list_resources(module, {})
 
-        get.assert_called_once_with({}, "/apps?org_slug=linux%26hq")
+        get.assert_called_once_with({}, "get", "/apps?org_slug=linux%26hq")
         self.assertEqual(raised.exception.values["apps"], listed)
 
     def test_rejects_missing_apps_envelope(self):
         module = FakeModule({"org_slug": "linuxhq"})
 
         with (
-            patch.object(apps_info, "get_result", return_value={}),
+            patch.object(apps_info, "api_request", return_value={}),
             self.assertRaises(ModuleFail) as raised,
         ):
             apps_info.list_resources(module, {})
@@ -67,7 +67,7 @@ class AppsInfoTests(TestCase):
         module = FakeModule({"org_slug": "linuxhq"})
 
         with (
-            patch.object(apps_info, "get_result", return_value={"apps": [{"name": " "}]}),
+            patch.object(apps_info, "api_request", return_value={"apps": [{"name": " "}]}),
             self.assertRaises(ModuleFail),
         ):
             apps_info.list_resources(module, {})

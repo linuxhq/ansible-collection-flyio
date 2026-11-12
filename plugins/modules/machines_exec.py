@@ -12,15 +12,15 @@ description:
   - Command execution is inherently non-idempotent and reports a change when run.
   - The task fails when the command exits with a non-zero status or is
     terminated by a signal.
+  - Results include every field of the Fly.io exec response as Fly.io
+    reports it. The documented fields default to C(0) or an empty string
+    when Fly.io omits them.
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -100,24 +100,35 @@ stdout:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_token_option,
     flyio_client,
     flyio_path,
+    get_resource,
     post_result,
+    require_nonempty,
     require_positive,
 )
 
 
 def exec_command(module, client):
-    for name in ("command", "container"):
-        value = module.params[name]
-        if value is not None and not value.strip():
-            module.fail_json(msg=f"{name} must not be empty")
-
     require_positive(module, "timeout")
     if module.params["timeout"] > 600:
         module.fail_json(msg="timeout must not exceed 600")
 
+    app_name = module.params["app_name"]
+    machine_id = module.params["id"]
     if module.check_mode:
+        # Predict the real run's failure for a missing app or Machine instead of a change.
+        machine = get_resource(
+            client,
+            flyio_path("apps", app_name, "machines", machine_id),
+            ok_statuses=[404],
+            required_fields=("id",),
+            expected={"id": machine_id},
+        )
+        if machine is None:
+            module.fail_json(msg=f"Machine '{machine_id}' not found in app '{app_name}'")
+
         module.exit_json(changed=True)
 
     body = {
@@ -150,14 +161,9 @@ def exec_command(module, client):
             response=result,
         )
 
-    values = {
-        "changed": True,
-        # The API marks no response field as required; a missing exit code means success.
-        "exit_code": result.get("exit_code", 0),
-        "exit_signal": result.get("exit_signal", 0),
-        "stderr": result.get("stderr", ""),
-        "stdout": result.get("stdout", ""),
-    }
+    # Return the response as reported. The API marks no field as required, so the documented
+    # fields default when absent; a missing exit code means success.
+    values = {"exit_code": 0, "exit_signal": 0, "stderr": "", "stdout": "", **result, "changed": True}
 
     if values["exit_code"] != 0 or values["exit_signal"] != 0:
         module.fail_json(
@@ -171,7 +177,7 @@ def exec_command(module, client):
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
             "command": {"required": True, "type": "str"},
             "container": {"type": "str"},
@@ -181,6 +187,8 @@ def main():
         },
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name", "id", "command", "container")
 
     with flyio_client(module) as client:
         exec_command(module, client)

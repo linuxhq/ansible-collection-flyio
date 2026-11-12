@@ -35,9 +35,7 @@ class MachinesInfoTests(TestCase):
             required_fields=("id",),
             expected={"id": "machine-one"},
         )
-        result = raised.exception.values["machines"][0]
-        self.assertNotIn("env", result["config"])
-        self.assertNotIn("raw_value", result["config"]["files"][0])
+        self.assertEqual(raised.exception.values["machines"], [machine])
 
     def test_missing_machine_fails(self):
         module = FakeModule({"app_name": "example", "id": "missing"})
@@ -63,7 +61,7 @@ class MachinesInfoTests(TestCase):
         ):
             machines_info.list_resources(module, {})
 
-        list_all.assert_called_once_with({}, "/apps/example/machines", ok_statuses=[404], required_fields=("id",))
+        list_all.assert_called_once_with({}, "/apps/example/machines", ok_statuses=[404])
         self.assertEqual(raised.exception.values["machines"], [machine])
 
     def test_rejects_malformed_documented_fields(self):
@@ -80,3 +78,17 @@ class MachinesInfoTests(TestCase):
             machines_info.list_resources(module, {})
 
         self.assertIn("malformed Machine data", raised.exception.values["msg"])
+
+    def test_listing_without_ids_reports_app_specific_failure(self):
+        module = FakeModule({"app_name": "example"})
+
+        with (
+            patch(
+                "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.api_request",
+                return_value=[{"state": "started"}],
+            ),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines_info.list_resources(module, {})
+
+        self.assertEqual(raised.exception.values["msg"], "Fly.io API returned malformed Machine data for app 'example'")

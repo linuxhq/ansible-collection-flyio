@@ -12,12 +12,9 @@ description:
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -34,6 +31,9 @@ options:
       - IP address type.
       - Required when O(state=present).
       - When O(state=absent), either O(address) or O(type) is required.
+      - When O(state=absent), O(type) and O(region) select the address to
+        release; the task fails if more than one address matches, so use
+        O(address) instead.
       - Mutually exclusive with O(address).
   region:
     type: str
@@ -111,7 +111,9 @@ ip_address:
   type: dict
   contains:
     id:
-      description: IP address identifier.
+      description:
+        - IP address identifier.
+        - Null when Fly.io reports none. Absent for the shared IPv4 address.
       returned: when available
       type: str
     address:
@@ -123,11 +125,15 @@ ip_address:
       returned: always
       type: str
     region:
-      description: Region code, or an empty string for a global address.
+      description:
+        - Region code as Fly.io reports it, such as C(global), or null.
+        - Empty for the shared IPv4 address.
       returned: when available
       type: str
     created_at:
-      description: Allocation timestamp.
+      description:
+        - Allocation timestamp.
+        - Null when Fly.io reports none. Absent for the shared IPv4 address.
       returned: when available
       type: str
 message:
@@ -143,11 +149,12 @@ import ipaddress
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_token_option,
     flyio_client,
     get_ip_addresses,
     graphql_request,
     ip_version,
-    normalize_ip_address,
+    require_nonempty,
     valid_ip_address,
 )
 
@@ -234,11 +241,9 @@ def ensure_present(module, client):
         {"input": mutation_input},
         operation=f"Allocate an IP address for app '{app_name}'",
     )
+    # A malformed result yields no valid address, which the check below reports.
     result = data.get("allocateIpAddress")
-    if not isinstance(result, dict):
-        module.fail_json(
-            msg=f"Fly.io API returned malformed data while allocating a '{ip_type}' address for app '{app_name}'"
-        )
+    result = result if isinstance(result, dict) else {}
 
     ip_address = result.get("ipAddress")
     if ip_address is None and ip_type == "shared_v4":
@@ -255,8 +260,6 @@ def ensure_present(module, client):
         module.fail_json(
             msg=f"Fly.io API returned malformed data while allocating a '{ip_type}' address for app '{app_name}'"
         )
-
-    ip_address = normalize_ip_address(ip_address)
 
     module.exit_json(changed=True, message="IP address allocated", ip_address=ip_address)
 
@@ -284,7 +287,7 @@ def ensure_absent(module, client):
         if len(matches) > 1:
             module.fail_json(
                 msg=(
-                    f"Multiple '{ip_type}' addresses in region '{region}' match "
+                    f"Multiple '{ip_type}' addresses in region '{region or 'global'}' match "
                     f"for app '{app_name}'; specify address"
                 ),
                 ip_addresses=matches,
@@ -343,7 +346,7 @@ def ensure_absent(module, client):
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
             "type": {
                 "type": "str",
@@ -368,6 +371,8 @@ def main():
         ],
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name", "address")
 
     with flyio_client(module) as client:
         if module.params["state"] == "present":

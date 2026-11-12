@@ -21,7 +21,7 @@ class SecretsTests(TestCase):
             "/apps/example%2Fapp/secrets/APP%20SECRET",
         )
 
-    def test_sets_new_secret_without_returning_value(self):
+    def test_sets_new_secret(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
         response = {
             "name": "APP_SECRET",
@@ -39,7 +39,7 @@ class SecretsTests(TestCase):
 
         post.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET", {"value": "secret"})
         self.assertTrue(raised.exception.values["changed"])
-        self.assertNotIn("value", raised.exception.values["secret"])
+        self.assertEqual(raised.exception.values["secret"], response)
         self.assertEqual(raised.exception.values["version"], 2)
 
     def test_identical_secret_is_unchanged(self):
@@ -161,6 +161,7 @@ class SecretsTests(TestCase):
 
         with (
             patch.object(secrets, "get_resource", return_value=None),
+            patch.object(secrets, "get_app", return_value={"name": "example"}),
             patch.object(secrets, "post_result") as post,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -195,7 +196,7 @@ class SecretsTests(TestCase):
 
         delete.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET", ok_statuses=[404])
         self.assertTrue(raised.exception.values["changed"])
-        self.assertNotIn("value", raised.exception.values["secret"])
+        self.assertEqual(raised.exception.values["secret"], current)
         self.assertEqual(raised.exception.values["version"], 3)
 
     def test_rejects_malformed_remove_response(self):
@@ -234,3 +235,53 @@ class SecretsTests(TestCase):
             secrets.ensure_absent(module, {})
 
         delete.assert_not_called()
+
+    def test_diff_mode_reports_digests_without_values(self):
+        module = FakeModule(
+            {"app_name": "example", "name": "APP_SECRET", "value": "secret"},
+            diff=True,
+        )
+        response = {"name": "APP_SECRET", "digest": "new", "version": 2}
+
+        with (
+            patch.object(secrets, "get_resource", return_value={"name": "APP_SECRET", "digest": "old"}),
+            patch.object(secrets, "post_result", return_value=response),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets.ensure_present(module, {})
+
+        self.assertEqual(
+            raised.exception.values["diff"],
+            {"before": {"name": "APP_SECRET", "digest": "old"}, "after": {"name": "APP_SECRET", "digest": "new"}},
+        )
+
+    def test_diff_mode_reports_removed_secret(self):
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET"}, check_mode=True, diff=True)
+
+        with (
+            patch.object(secrets, "get_resource", return_value={"name": "APP_SECRET", "digest": "old"}),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets.ensure_absent(module, {})
+
+        self.assertEqual(
+            raised.exception.values["diff"],
+            {"before": {"name": "APP_SECRET", "digest": "old"}, "after": {}},
+        )
+
+    def test_check_mode_fails_for_missing_app(self):
+        module = FakeModule(
+            {"app_name": "missing", "name": "APP_SECRET", "value": "secret"},
+            check_mode=True,
+        )
+
+        with (
+            patch.object(secrets, "get_resource", return_value=None),
+            patch.object(secrets, "get_app", return_value=None),
+            patch.object(secrets, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            secrets.ensure_present(module, {})
+
+        post.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "App 'missing' not found")

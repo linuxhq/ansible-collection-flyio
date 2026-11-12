@@ -1,11 +1,11 @@
 ansible>=14.4.0,<15
-ansible-lint==26.10.1
-antsibull-changelog==0.36.0
-black==26.5.1
+ansible-lint==26.11.0
+antsibull-changelog==0.37.0
+black==26.10.1
 blank-line-after-blocks==0.1.4
 isort==9.0.2
 molecule==25.1.0
-pre-commit==4.6.2
+pre-commit==4.7.0
 pytest==9.2.0
-ruff==0.17.3
+ruff==0.17.5
 yamllint==1.38.0

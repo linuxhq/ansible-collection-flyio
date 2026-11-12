@@ -10,19 +10,16 @@ short_description: Manage Fly.io volumes
 description:
   - Create, extend, and delete Fly.io volumes.
   - Volumes are identified by O(id) or by O(name) with O(app_name) and O(region).
-  - If multiple volumes have the same name and region, use O(id) to select one.
+  - If multiple live volumes have the same name and region, use O(id) to select one.
   - When O(state=present) and a volume with the given O(name) already exists
     in O(region), it will be extended if O(size_gb) exceeds the current size.
   - Volumes cannot be shrunk.
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -33,6 +30,8 @@ options:
     description:
       - Volume identifier.
       - Either O(id) or O(name) is required.
+      - A destroyed volume is treated as missing, and so is a volume being
+        deleted unless O(state=absent).
       - Mutually exclusive with O(name).
   name:
     type: str
@@ -40,6 +39,9 @@ options:
       - Volume name.
       - Either O(id) or O(name) is required.
       - Requires O(region).
+      - Destroyed volumes are ignored, and so are volumes being deleted, except
+        that O(state=absent) considers those when no live volume has this name.
+      - The task fails when more than one live volume has this name.
       - Mutually exclusive with O(id).
   region:
     type: str
@@ -70,6 +72,8 @@ options:
     default: true
     description:
       - Wait for the volume to reach the target state.
+      - With O(wait=false) and O(state=present), the task fails if an existing
+        volume is transitioning and needs a change.
   wait_timeout:
     type: int
     default: 60
@@ -92,7 +96,7 @@ attributes:
     support: full
   diff_mode:
     description: Determines whether the module returns change details in diff format.
-    support: none
+    support: full
 
 """
 
@@ -147,7 +151,7 @@ volume:
       type: str
 needs_restart:
   description: Whether an attached Machine must restart to use an extended volume.
-  returned: after extending a volume
+  returned: when a volume is extended, except in check mode
   type: bool
 message:
   returned: always
@@ -160,17 +164,21 @@ message:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_request,
+    api_token_option,
     delete_result,
+    diff_result,
     flyio_client,
     flyio_path,
     get_resource,
     list_all,
     positive_int,
     post_result,
-    put_result,
+    require_nonempty,
     require_positive,
     require_region_code,
     seconds_left,
+    select_fields,
     valid_volume,
     wait_deadline,
     wait_for_volume,
@@ -192,7 +200,7 @@ TRANSITIONAL_STATES = {
 def validate_volume_data(module, volume):
     if volume is not None and not valid_volume(volume):
         volume_id = volume.get("id") if isinstance(volume, dict) else None
-        detail = f" for volume '{volume_id}'" if volume_id else " volume"
+        detail = f" for volume '{volume_id}'" if volume_id else ""
         module.fail_json(
             msg=f"Fly.io API returned malformed data{detail} in app '{module.params['app_name']}'",
             volume=volume,
@@ -223,9 +231,6 @@ def validate_volume_data(module, volume):
 
 def validate_created_volume(module, volume):
     volume = validate_volume_data(module, volume)
-    if volume is None:
-        return None
-
     for field in ("size_gb", "encrypted"):
         expected = module.params.get(field)
         if expected is not None and volume.get(field) != expected:
@@ -276,20 +281,17 @@ def find_volume(
     named = [
         volume
         for volume in volumes
-        if volume.get("state") not in DEAD_STATES
-        and volume.get("name") == name
-        and (region is None or volume.get("region") == region)
+        if volume.get("state") not in DEAD_STATES and volume.get("name") == name and volume.get("region") == region
     ]
-    # Prefer live volumes; fall back to one being deleted only when asked.
+    # Prefer live volumes; fall back to one being deleted only when asked. Only live matches are ambiguous.
     live = [volume for volume in named if is_live(volume)]
-    matches = live or (named if include_deleting else [])
-
-    if len(matches) > 1:
+    if len(live) > 1:
         module.fail_json(
             msg=f"Multiple volumes named '{name}' in region '{region}' match in app '{app_name}'; specify id",
-            volume_ids=[volume.get("id") for volume in matches],
+            volume_ids=[volume.get("id") for volume in live],
         )
 
+    matches = live or (named if include_deleting else [])
     return matches[0] if matches else None
 
 
@@ -322,7 +324,7 @@ def settle_volume(module, client, current, deadline):
         )
 
     current = wait_volume(module, client, volume_id, deadline)
-    if current is None or current.get("state") != "created":
+    if current.get("state") != "created":
         module.fail_json(
             msg=f"Transition of volume '{volume_id}' in app '{app_name}' timed out",
             volume=current,
@@ -354,6 +356,18 @@ def validate_volume_update(module, current):
     return current_size
 
 
+def reject_shrink(module, current, current_size):
+    desired_size = module.params["size_gb"]
+    if desired_size is not None and desired_size < current_size:
+        module.fail_json(
+            msg=(
+                f"Volume '{current['id']}' in app '{module.params['app_name']}' cannot be shrunk "
+                f"from {current_size} GB to {desired_size} GB"
+            ),
+            volume=current,
+        )
+
+
 def update_volume(module, client, current, deadline):
     params = module.params
     app_name = params["app_name"]
@@ -362,36 +376,32 @@ def update_volume(module, client, current, deadline):
     if not params["wait"] and current.get("state") in TRANSITIONAL_STATES:
         # Without wait, a volume that needs no change is reported unchanged instead of failing.
         current_size = validate_volume_update(module, current)
+        reject_shrink(module, current, current_size)
         if desired_size is None or desired_size == current_size:
             module.exit_json(changed=False, message="Volume already present", volume=current)
 
     current = settle_volume(module, client, current, deadline)
     current_size = validate_volume_update(module, current)
-
-    if desired_size is not None and desired_size < current_size:
-        module.fail_json(
-            msg=(
-                f"Volume '{volume_id}' in app '{app_name}' cannot be shrunk "
-                f"from {current_size} GB to {desired_size} GB"
-            ),
-            volume=current,
-        )
+    reject_shrink(module, current, current_size)
 
     if desired_size is None or desired_size == current_size:
         module.exit_json(changed=False, message="Volume already present", volume=current)
 
+    original_size = current_size
     if module.check_mode:
         module.exit_json(
             changed=True,
             message="Volume would be extended",
             volume=current,
+            **diff_result(module, {"size_gb": original_size}, {"size_gb": desired_size}),
         )
 
     extension_error = f"Fly.io API returned malformed data while extending volume '{volume_id}' in app '{app_name}'"
-    result = put_result(
+    result = api_request(
         client,
+        "put",
         flyio_path("apps", app_name, "volumes", volume_id, "extend"),
-        {"size_gb": desired_size},
+        body={"size_gb": desired_size},
     )
     needs_restart = result.get("needs_restart") if isinstance(result, dict) else None
     response_volume = result.get("volume") if isinstance(result, dict) else None
@@ -408,13 +418,8 @@ def update_volume(module, client, current, deadline):
 
     if params["wait"]:
         current = wait_volume(module, client, volume_id, deadline, size_gb=desired_size)
-        current_size = current.get("size_gb") if isinstance(current, dict) else None
-        if (
-            current is None
-            or current.get("state") != "created"
-            or not positive_int(current_size)
-            or current_size < desired_size
-        ):
+        current_size = current.get("size_gb")
+        if current.get("state") != "created" or not positive_int(current_size) or current_size < desired_size:
             module.fail_json(
                 msg=f"Extension of volume '{volume_id}' in app '{app_name}' timed out",
                 volume=current,
@@ -427,6 +432,8 @@ def update_volume(module, client, current, deadline):
         message="Volume extended",
         volume=current,
         needs_restart=needs_restart,
+        # Fly.io may extend beyond the request, so report the size it applied.
+        **diff_result(module, {"size_gb": original_size}, {"size_gb": current["size_gb"]}),
     )
 
 
@@ -440,9 +447,6 @@ def create_volume(module, client, deadline):
     if params["size_gb"] is None:
         module.fail_json(msg="size_gb is required when creating a volume")
 
-    if module.check_mode:
-        module.exit_json(changed=True, message="Volume would be created")
-
     body = {
         "name": params["name"],
         "region": params["region"],
@@ -450,6 +454,10 @@ def create_volume(module, client, deadline):
     for field in ("size_gb", "encrypted"):
         if params[field] is not None:
             body[field] = params[field]
+
+    diff = diff_result(module, {}, body)
+    if module.check_mode:
+        module.exit_json(changed=True, message="Volume would be created", **diff)
 
     current = post_result(client, flyio_path("apps", app_name, "volumes"), body)
     if not valid_volume(current):
@@ -467,13 +475,13 @@ def create_volume(module, client, deadline):
             wait_volume(module, client, volume_id, deadline),
         )
 
-        if current is None or current.get("state") != "created":
+        if current.get("state") != "created":
             module.fail_json(
                 msg=f"Creation of volume '{volume_id}' in app '{app_name}' timed out",
                 volume=current,
             )
 
-    module.exit_json(changed=True, message="Volume created", volume=current)
+    module.exit_json(changed=True, message="Volume created", volume=current, **diff)
 
 
 def ensure_present(module, client):
@@ -541,17 +549,17 @@ def ensure_absent(module, client):
 
     volume_id = current["id"]
     if current.get("state") in DELETING_STATES:
+        deleting = current
         if params["wait"] and not module.check_mode:
             current = wait_until_volume_deleted(module, client, current, deadline)
 
-        values = {"changed": False, "message": "Volume already being deleted"}
-        if current is not None:
-            values["volume"] = current
+        # Keep the last-known volume so callers still get its id once it is gone.
+        module.exit_json(changed=False, message="Volume already being deleted", volume=current or deleting)
 
-        module.exit_json(**values)
-
+    # Report the volume's identity and create fields rather than the full API object.
+    diff = diff_result(module, select_fields(current, ("id", "name", "region", "size_gb", "encrypted")), {})
     if module.check_mode:
-        module.exit_json(changed=True, message="Volume would be deleted", volume=current)
+        module.exit_json(changed=True, message="Volume would be deleted", volume=current, **diff)
 
     result = delete_result(
         client,
@@ -559,8 +567,7 @@ def ensure_absent(module, client):
         ok_statuses=[404],
     )
     if result is not None and (
-        not isinstance(result, dict)
-        or not valid_volume(result)
+        not valid_volume(result)
         or result.get("id") != volume_id
         or result.get("state") not in (DEAD_STATES | DELETING_STATES)
     ):
@@ -580,13 +587,14 @@ def ensure_absent(module, client):
         changed=True,
         message="Volume deleted" if deleted else "Volume deletion requested",
         volume=current if current is not None else requested,
+        **diff,
     )
 
 
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
             "id": {"type": "str"},
             "name": {"type": "str"},
@@ -612,6 +620,8 @@ def main():
         },
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name", "id", "name")
 
     with flyio_client(module) as client:
         if module.params["state"] == "present":

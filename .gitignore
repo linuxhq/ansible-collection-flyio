@@ -9,3 +9,4 @@ changelogs/.plugin-cache.yaml
 __pycache__/
 *.py[co]
 venv/
+tests/integration/integration_config.yml

@@ -13,12 +13,9 @@ description:
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -91,10 +88,12 @@ volumes:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_token_option,
     flyio_client,
     flyio_path,
     get_resource,
     list_all,
+    require_nonempty,
     valid_volume,
 )
 
@@ -110,7 +109,6 @@ def list_resources(module, client):
         client,
         flyio_path("apps", app_name, "volumes"),
         ok_statuses=[404],
-        required_fields=("id",),
     )
     validate_volumes(module, volumes)
 
@@ -137,12 +135,14 @@ def info(module, client):
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
             "id": {"type": "str"},
         },
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name", "id")
 
     with flyio_client(module) as client:
         if module.params["id"] is not None:

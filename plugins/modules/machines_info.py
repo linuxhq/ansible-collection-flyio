@@ -13,12 +13,9 @@ description:
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -58,8 +55,9 @@ RETURN = r"""
 machines:
   description:
     - List of Fly.io Machines.
-    - C(env), C(headers), and C(raw_value) fields are removed from the returned
-      data because they can contain secrets.
+    - Returned as Fly.io reports them, including C(env), HTTP headers, and
+      file contents, which can contain secrets. Use task-level C(no_log) to
+      keep them out of output.
   returned: always
   type: list
   elements: dict
@@ -86,11 +84,12 @@ machines:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_token_option,
     flyio_client,
     flyio_path,
     get_resource,
     list_all,
-    sanitize_machine,
+    require_nonempty,
     valid_machine,
 )
 
@@ -106,13 +105,12 @@ def list_resources(module, client):
         client,
         flyio_path("apps", app_name, "machines"),
         ok_statuses=[404],
-        required_fields=("id",),
     )
     validate_machines(module, machines)
 
     module.exit_json(
         changed=False,
-        machines=[sanitize_machine(machine) for machine in machines],
+        machines=machines,
     )
 
 
@@ -130,18 +128,20 @@ def info(module, client):
 
     validate_machines(module, [machine])
 
-    module.exit_json(changed=False, machines=[sanitize_machine(machine)])
+    module.exit_json(changed=False, machines=[machine])
 
 
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
             "id": {"type": "str"},
         },
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name", "id")
 
     with flyio_client(module) as client:
         if module.params["id"] is not None:
