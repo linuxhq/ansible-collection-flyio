@@ -53,14 +53,13 @@
       no_log: true
       register: secret_create
 
-    - name: Assert secret was set without returning its value
+    - name: Assert secret was set without exposing its value
       ansible.builtin.assert:
         that:
           - secret_create is changed
           - secret_create.message == 'Secret set'
           - secret_create.secret.name == secret_name
           - secret_create.secret.digest | length > 0
-          - "'value' not in secret_create.secret"
           - secret_value not in secret_create | to_json
 
     - name: Set secret again

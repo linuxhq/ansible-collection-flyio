@@ -9,8 +9,10 @@ module: secrets
 short_description: Manage Fly.io app secrets
 description:
   - Set and remove encrypted Fly.io app secrets.
-  - Fly.io does not expose secret values, so results contain only the secret
-    metadata Fly.io returns.
+  - Fly.io does not expose stored secret values, so existing secrets are
+    compared by digest.
+  - When a secret is set, Fly.io may return its value in RV(secret.value).
+    The value is masked because O(value) is C(no_log).
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
@@ -92,6 +94,15 @@ secret:
       description: Opaque digest of the secret value.
       type: str
       returned: always
+    value:
+      description:
+        - Secret value, masked because O(value) is C(no_log).
+      type: str
+      returned: when Fly.io returns it after setting a secret
+    version:
+      description: App secret version after setting the secret.
+      type: int
+      returned: when Fly.io returns it after setting a secret
     created_at:
       description: Secret creation timestamp.
       type: str

@@ -21,6 +21,7 @@ options:
     type: str
     description:
       - App name.
+      - Fails when the app does not exist.
       - Either O(name) or O(org_slug) is required.
       - Mutually exclusive with O(org_slug).
   org_slug:

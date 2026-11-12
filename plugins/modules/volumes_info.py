@@ -25,6 +25,7 @@ options:
     type: str
     description:
       - Volume identifier.
+      - Fails when the volume does not exist in the app.
 requirements:
   - python >= 3.9
 attributes:
