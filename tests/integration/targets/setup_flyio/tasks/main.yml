@@ -1,0 +1,19 @@
+---
+- name: Ensure Fly.io credentials are loaded
+  ansible.builtin.set_fact:
+    flyio_api_token: "{{ flyio_api_token | d(lookup('ansible.builtin.env', 'FLY_API_TOKEN'), true) }}"
+    flyio_org_slug: "{{ flyio_org_slug | d(lookup('ansible.builtin.env', 'FLY_ORG_SLUG'), true) }}"
+  no_log: true
+
+- name: Ensure Fly.io credentials are set
+  ansible.builtin.assert:
+    that:
+      - flyio_api_token | length > 0
+      - flyio_org_slug | length > 0
+    fail_msg: FLY_API_TOKEN and FLY_ORG_SLUG must be set in the environment
+    quiet: true
+
+- name: Ensure a unique resource prefix is set
+  ansible.builtin.set_fact:
+    flyio_resource_prefix: "ansible-test-{{ '%08x' | format(4294967295 | random) }}"
+...

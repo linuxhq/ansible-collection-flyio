@@ -1,0 +1,178 @@
+---
+- name: Ensure Fly.io test settings are loaded
+  ansible.builtin.import_role:
+    name: setup_flyio
+
+- name: Ensure volume resources are tested
+  module_defaults:
+    linuxhq.flyio.apps:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.volumes:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.volumes_info:
+      api_token: "{{ flyio_api_token }}"
+  vars:
+    app_name: "{{ flyio_resource_prefix }}-volumes"
+    volume_name: ansible_test_data
+    volume_region: ord
+  block:
+    - name: Create app fixture
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        org_slug: "{{ flyio_org_slug }}"
+        state: present
+
+    - name: Create volume in check mode
+      linuxhq.flyio.volumes:
+        app_name: "{{ app_name }}"
+        name: "{{ volume_name }}"
+        region: "{{ volume_region }}"
+        size_gb: 1
+        state: present
+      check_mode: true
+      register: volume_check_create
+
+    - name: List volumes after check mode create
+      linuxhq.flyio.volumes_info:
+        app_name: "{{ app_name }}"
+      register: volumes_check_create
+
+    - name: Assert check mode create predicted a change without creating the volume
+      ansible.builtin.assert:
+        that:
+          - volume_check_create is changed
+          - volume_check_create.message == 'Volume would be created'
+          - volumes_check_create.volumes | length == 0
+
+    - name: Create volume
+      linuxhq.flyio.volumes:
+        app_name: "{{ app_name }}"
+        name: "{{ volume_name }}"
+        region: "{{ volume_region }}"
+        size_gb: 1
+        state: present
+      register: volume_create
+
+    - name: Assert volume was created
+      ansible.builtin.assert:
+        that:
+          - volume_create is changed
+          - volume_create.message == 'Volume created'
+          - volume_create.volume.id | length > 0
+          - volume_create.volume.name == volume_name
+          - volume_create.volume.region == volume_region
+          - volume_create.volume.size_gb == 1
+
+    - name: Create volume again
+      linuxhq.flyio.volumes:
+        app_name: "{{ app_name }}"
+        name: "{{ volume_name }}"
+        region: "{{ volume_region }}"
+        size_gb: 1
+        state: present
+      register: volume_create_again
+
+    - name: Assert volume create is idempotent
+      ansible.builtin.assert:
+        that:
+          - volume_create_again is not changed
+          - volume_create_again.message == 'Volume already present'
+          - volume_create_again.volume.id == volume_create.volume.id
+
+    - name: Extend volume
+      linuxhq.flyio.volumes:
+        app_name: "{{ app_name }}"
+        name: "{{ volume_name }}"
+        region: "{{ volume_region }}"
+        size_gb: 2
+        state: present
+      register: volume_extend
+
+    - name: Assert volume was extended
+      ansible.builtin.assert:
+        that:
+          - volume_extend is changed
+          - volume_extend.message == 'Volume extended'
+          - volume_extend.volume.id == volume_create.volume.id
+          - volume_extend.volume.size_gb == 2
+          - volume_extend.needs_restart is boolean
+
+    - name: List volumes
+      linuxhq.flyio.volumes_info:
+        app_name: "{{ app_name }}"
+      register: volumes_info
+
+    - name: Gather volume info by identifier
+      linuxhq.flyio.volumes_info:
+        app_name: "{{ app_name }}"
+        id: "{{ volume_create.volume.id }}"
+      register: volume_info
+
+    - name: Assert volume info includes the volume
+      ansible.builtin.assert:
+        that:
+          - volumes_info is not changed
+          - volume_create.volume.id in volumes_info.volumes | map(attribute='id') | list
+          - volume_info is not changed
+          - volume_info.volumes | length == 1
+          - volume_info.volumes[0].id == volume_create.volume.id
+          - volume_info.volumes[0].name == volume_name
+          - volume_info.volumes[0].size_gb == 2
+
+    - name: Delete volume in check mode
+      linuxhq.flyio.volumes:
+        app_name: "{{ app_name }}"
+        id: "{{ volume_create.volume.id }}"
+        state: absent
+      check_mode: true
+      register: volume_check_delete
+
+    - name: Gather volume info after check mode delete
+      linuxhq.flyio.volumes_info:
+        app_name: "{{ app_name }}"
+        id: "{{ volume_create.volume.id }}"
+      register: volume_check_delete_info
+
+    - name: Assert check mode delete predicted a change without deleting the volume
+      ansible.builtin.assert:
+        that:
+          - volume_check_delete is changed
+          - volume_check_delete.message == 'Volume would be deleted'
+          - volume_check_delete.volume.id == volume_create.volume.id
+          - volume_check_delete_info.volumes[0].state == volume_info.volumes[0].state
+
+    - name: Delete volume
+      linuxhq.flyio.volumes:
+        app_name: "{{ app_name }}"
+        id: "{{ volume_create.volume.id }}"
+        state: absent
+      register: volume_delete
+
+    - name: Assert volume was deleted
+      ansible.builtin.assert:
+        that:
+          - volume_delete is changed
+          - volume_delete.message == 'Volume deleted'
+          - volume_delete.volume.id == volume_create.volume.id
+
+    - name: Delete volume again by name
+      linuxhq.flyio.volumes:
+        app_name: "{{ app_name }}"
+        name: "{{ volume_name }}"
+        region: "{{ volume_region }}"
+        state: absent
+      register: volume_delete_again
+
+    - name: Assert volume delete is idempotent
+      ansible.builtin.assert:
+        that:
+          - volume_delete_again is not changed
+          - volume_delete_again.message in ['Volume already absent', 'Volume already being deleted']
+
+  always:
+    - name: Ensure app fixture is absent
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        delete_timeout: 120
+        state: absent
+...

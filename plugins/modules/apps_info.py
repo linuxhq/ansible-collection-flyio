@@ -14,12 +14,9 @@ description:
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   name:
     type: str
     description:
@@ -76,16 +73,18 @@ from urllib.parse import urlencode
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_request,
+    api_token_option,
     flyio_client,
     get_app,
-    get_result,
     nonempty_string,
+    require_nonempty,
 )
 
 
 def list_resources(module, client):
     org_slug = module.params["org_slug"]
-    result = get_result(client, f"/apps?{urlencode({'org_slug': org_slug})}")
+    result = api_request(client, "get", f"/apps?{urlencode({'org_slug': org_slug})}")
 
     apps = result.get("apps") if isinstance(result, dict) else None
     if not isinstance(apps, list) or not all(
@@ -108,7 +107,7 @@ def info(module, client):
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "name": {"type": "str"},
             "org_slug": {"type": "str"},
         },
@@ -120,6 +119,8 @@ def main():
         ],
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "name", "org_slug")
 
     with flyio_client(module) as client:
         if module.params["name"] is not None:

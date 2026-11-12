@@ -1,0 +1,138 @@
+---
+- name: Ensure Fly.io test settings are loaded
+  ansible.builtin.import_role:
+    name: setup_flyio
+
+- name: Ensure IP address resources are tested
+  module_defaults:
+    linuxhq.flyio.apps:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.ip_addresses:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.ip_addresses_info:
+      api_token: "{{ flyio_api_token }}"
+  vars:
+    app_name: "{{ flyio_resource_prefix }}-ips"
+  block:
+    - name: Create app fixture
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        org_slug: "{{ flyio_org_slug }}"
+        state: present
+
+    - name: Allocate IPv6 address in check mode
+      linuxhq.flyio.ip_addresses:
+        app_name: "{{ app_name }}"
+        type: v6
+        state: present
+      check_mode: true
+      register: ip_check_create
+
+    - name: List IP addresses after check mode allocation
+      linuxhq.flyio.ip_addresses_info:
+        app_name: "{{ app_name }}"
+      register: ips_check_create
+
+    - name: Assert check mode allocation predicted a change without allocating
+      ansible.builtin.assert:
+        that:
+          - ip_check_create is changed
+          - ip_check_create.message == 'IP address would be allocated'
+          - ips_check_create.ip_addresses | selectattr('type', 'equalto', 'v6') | list | length == 0
+
+    - name: Allocate IPv6 address
+      linuxhq.flyio.ip_addresses:
+        app_name: "{{ app_name }}"
+        type: v6
+        state: present
+      register: ip_create
+
+    - name: Assert IPv6 address was allocated
+      ansible.builtin.assert:
+        that:
+          - ip_create is changed
+          - ip_create.message == 'IP address allocated'
+          - ip_create.ip_address.type == 'v6'
+          - "':' in ip_create.ip_address.address"
+          - ip_create.ip_address.region | d('') == ''
+
+    - name: Allocate IPv6 address again
+      linuxhq.flyio.ip_addresses:
+        app_name: "{{ app_name }}"
+        type: v6
+        state: present
+      register: ip_create_again
+
+    - name: Assert IPv6 allocation is idempotent
+      ansible.builtin.assert:
+        that:
+          - ip_create_again is not changed
+          - ip_create_again.message == 'IP address already allocated'
+          - ip_create_again.ip_address.address == ip_create.ip_address.address
+
+    - name: List IP addresses
+      linuxhq.flyio.ip_addresses_info:
+        app_name: "{{ app_name }}"
+      register: ips_info
+
+    - name: Assert IP address info includes the allocated address
+      ansible.builtin.assert:
+        that:
+          - ips_info is not changed
+          - ip_create.ip_address.address in ips_info.ip_addresses | map(attribute='address') | list
+
+    - name: Release IPv6 address in check mode
+      linuxhq.flyio.ip_addresses:
+        app_name: "{{ app_name }}"
+        type: v6
+        state: absent
+      check_mode: true
+      register: ip_check_delete
+
+    - name: List IP addresses after check mode release
+      linuxhq.flyio.ip_addresses_info:
+        app_name: "{{ app_name }}"
+      register: ips_check_delete
+
+    - name: Assert check mode release predicted a change without releasing
+      ansible.builtin.assert:
+        that:
+          - ip_check_delete is changed
+          - ip_check_delete.message == 'IP address would be released'
+          - ip_check_delete.ip_address.address == ip_create.ip_address.address
+          - ip_create.ip_address.address in ips_check_delete.ip_addresses | map(attribute='address') | list
+
+    - name: Release IPv6 address by address
+      linuxhq.flyio.ip_addresses:
+        app_name: "{{ app_name }}"
+        address: "{{ ip_create.ip_address.address }}"
+        state: absent
+      register: ip_delete
+
+    - name: Assert IPv6 address was released
+      ansible.builtin.assert:
+        that:
+          - ip_delete is changed
+          - ip_delete.message == 'IP address released'
+          - ip_delete.ip_address.address == ip_create.ip_address.address
+
+    - name: Release IPv6 address again
+      linuxhq.flyio.ip_addresses:
+        app_name: "{{ app_name }}"
+        type: v6
+        state: absent
+      register: ip_delete_again
+
+    - name: Assert IPv6 release is idempotent
+      ansible.builtin.assert:
+        that:
+          - ip_delete_again is not changed
+          - ip_delete_again.message == 'IP address already released'
+
+  always:
+    - name: Ensure app fixture is absent
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        delete_timeout: 120
+        state: absent
+...

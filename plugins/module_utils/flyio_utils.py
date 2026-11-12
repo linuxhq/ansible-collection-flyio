@@ -11,13 +11,13 @@ import urllib.error
 import urllib.parse
 from contextlib import contextmanager
 
+from ansible.module_utils.common.parameters import env_fallback
 from ansible.module_utils.urls import ConnectionError as AnsibleConnectionError
 from ansible.module_utils.urls import open_url
 
 GRAPHQL_API_URL = "https://api.fly.io/graphql"
 MACHINES_API_URL = "https://api.machines.dev/v1"
 _MISSING = object()
-SECRET_FIELDS = ("name", "digest", "created_at", "updated_at")
 # Region groups accepted by Fly.io create requests; Fly.io picks the actual region.
 REGION_GROUPS = {
     "africa",
@@ -32,6 +32,11 @@ REGION_GROUPS = {
     "south_america",
     "us",
 }
+
+
+def api_token_option():
+    """Argument spec for O(api_token), documented by the linuxhq.flyio.api fragment."""
+    return {"type": "str", "no_log": True, "fallback": (env_fallback, ["FLY_API_TOKEN"])}
 
 
 def authorization_header(token):
@@ -53,7 +58,7 @@ def flyio_path(*parts):
 def flyio_client(module):
     token = module.params.get("api_token")
     if not isinstance(token, str) or not token.strip():
-        module.fail_json(msg="api_token is required")
+        module.fail_json(msg="api_token is required; set api_token or FLY_API_TOKEN")
 
     # Strip first so surrounding whitespace, such as a trailing newline from a file, is tolerated.
     token = token.strip()
@@ -62,11 +67,6 @@ def flyio_client(module):
 
     if token in ("Bearer", "FlyV1"):
         module.fail_json(msg="api_token credential must not be empty")
-
-    for name in ("address", "app_name", "id", "name", "network", "org_slug"):
-        value = module.params.get(name)
-        if isinstance(value, str) and not value.strip():
-            module.fail_json(msg=f"{name} must not be empty")
 
     client = {
         "headers": {
@@ -233,14 +233,6 @@ def valid_ip_address(address):
     )
 
 
-def normalize_ip_address(address):
-    return {
-        field: "" if field == "region" and value == "global" else value
-        for field, value in address.items()
-        if value is not None
-    }
-
-
 def get_ip_addresses(client, app_name, missing_ok=False):
     operation = f"List IP addresses for app '{app_name}'"
     query = """
@@ -289,8 +281,6 @@ def get_ip_addresses(client, app_name, missing_ok=False):
     addresses = ip_addresses.get("nodes")
     if not isinstance(addresses, list) or not all(valid_ip_address(address) for address in addresses):
         raise FlyioApiError(f"{operation} returned malformed data: expected a list")
-
-    addresses = [normalize_ip_address(address) for address in addresses]
 
     shared = app.get("sharedIpAddress")
     if shared is not None:
@@ -345,14 +335,6 @@ def graphql_request(client, query, variables=None, timeout=30, operation="GraphQ
     return data
 
 
-def get_result(client, path, default=None, ok_statuses=None, timeout=30):
-    result = api_request(client, "get", path, ok_statuses=ok_statuses, timeout=timeout)
-    if result is _MISSING:
-        return default
-
-    return result
-
-
 def _valid_resource(value, required_fields):
     return isinstance(value, dict) and all(nonempty_string(value.get(field)) for field in required_fields)
 
@@ -363,10 +345,12 @@ def get_resource(client, path, ok_statuses=None, timeout=30, required_fields=(),
     if result is _MISSING:
         return None
 
-    if not _valid_resource(result, required_fields) or any(
-        result.get(field) != value for field, value in (expected or {}).items()
-    ):
+    if not _valid_resource(result, required_fields):
         raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
+
+    for field, value in (expected or {}).items():
+        if result.get(field) != value:
+            raise FlyioApiError(f"GET {path} returned a different resource: expected {field}={value!r}")
 
     return result
 
@@ -386,50 +370,13 @@ def post_result(client, path, body=None, timeout=30):
     return api_request(client, "post", path, body=body, timeout=timeout)
 
 
-def put_result(client, path, body):
-    return api_request(client, "put", path, body=body)
+def diff_result(module, before, after):
+    """Return the diff entry for a changed result when diff mode is enabled."""
+    return {"diff": {"before": before, "after": after}} if module._diff else {}
 
 
 def select_fields(value, fields):
     return {field: value.get(field) for field in fields if field in value}
-
-
-def sanitize_machine(machine):
-    if machine is None:
-        return None
-
-    if not isinstance(machine, dict):
-        return {}
-
-    def sanitize_config(value):
-        if isinstance(value, list):
-            return [sanitize_config(item) for item in value]
-
-        if not isinstance(value, dict):
-            return value
-
-        result = {}
-        for key, item in value.items():
-            if key in ("env", "headers", "raw_value"):
-                continue
-
-            if key == "metadata":
-                # Metadata keys are caller-chosen names, not configuration fields.
-                result[key] = item
-            elif key == "checks" and isinstance(item, dict):
-                # Check names are caller-chosen; sanitize each check, not the names.
-                result[key] = {name: sanitize_config(check) for name, check in item.items()}
-            else:
-                result[key] = sanitize_config(item)
-
-        return result
-
-    result = sanitize_config(machine)
-    for field in ("config", "incomplete_config"):
-        if field in result and not isinstance(result[field], dict):
-            del result[field]
-
-    return result
 
 
 def require_region_code(module):
@@ -448,6 +395,14 @@ def require_region_code(module):
     module.params["region"] = region
 
 
+def require_nonempty(module, *names):
+    """Fail when any named string option is set but blank; unset options are left to the argument spec."""
+    for name in names:
+        value = module.params.get(name)
+        if isinstance(value, str) and not value.strip():
+            module.fail_json(msg=f"{name} must not be empty")
+
+
 def require_positive(module, *names):
     for name in names:
         if not positive_int(module.params[name]):
@@ -463,7 +418,7 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, 
         raise FlyioApiError(f"{operation} requires a version")
 
     ok_statuses = [404] if state == "destroyed" else None
-    deadline = time.monotonic() + timeout
+    deadline = wait_deadline(timeout)
     remaining = timeout
     while True:
         # Always ask at least once, even when the time budget is already spent.
@@ -486,7 +441,7 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, 
             if exc.status_code != 408:
                 raise
 
-            remaining = deadline - time.monotonic()
+            remaining = seconds_left(deadline)
             if remaining <= 0:
                 raise FlyioApiError(f"{operation} timed out", status_code=408) from exc
 
@@ -507,13 +462,13 @@ def seconds_left(deadline):
 
 def poll_until(fetch, done, timeout):
     """Fetch at least once, then poll until done or timeout; return the last value."""
-    deadline = time.monotonic() + timeout
+    deadline = wait_deadline(timeout)
     while True:
-        value = fetch(max(1, deadline - time.monotonic()))
+        value = fetch(max(1, seconds_left(deadline)))
         if done(value) or time.monotonic() >= deadline:
             return value
 
-        time.sleep(min(2, max(0, deadline - time.monotonic())))
+        time.sleep(min(2, seconds_left(deadline)))
 
 
 def get_app(client, app_name, timeout=30):

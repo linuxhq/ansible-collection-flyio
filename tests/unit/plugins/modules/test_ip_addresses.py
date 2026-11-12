@@ -129,7 +129,7 @@ class IpAddressesTests(TestCase):
             query.call_args.args[2],
             {"input": {"appId": "example", "type": "v6"}},
         )
-        self.assertEqual(raised.exception.values["ip_address"]["region"], "")
+        self.assertEqual(raised.exception.values["ip_address"], response["allocateIpAddress"]["ipAddress"])
 
     def test_rejects_regional_shared_address_before_lookup(self):
         module = FakeModule({"app_name": "example", "region": "iad", "type": "shared_v4"})
@@ -428,3 +428,53 @@ class IpAddressesTests(TestCase):
             ip_addresses.ensure_present(module, {})
 
         self.assertFalse(raised.exception.values["changed"])
+
+    def test_check_mode_does_not_allocate(self):
+        module = FakeModule({"app_name": "example", "region": "", "type": "v6"}, check_mode=True)
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
+            patch.object(ip_addresses, "graphql_request") as mutate,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_present(module, {})
+
+        mutate.assert_not_called()
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["message"], "IP address would be allocated")
+
+    def test_check_mode_does_not_release(self):
+        current = {"id": "ip_one", "address": "2001:db8::1", "region": "", "type": "v6"}
+        module = FakeModule(
+            {"app_name": "example", "address": "2001:db8::1", "region": "", "type": None},
+            check_mode=True,
+        )
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+            patch.object(ip_addresses, "graphql_request") as mutate,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_absent(module, {})
+
+        mutate.assert_not_called()
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["ip_address"], current)
+
+    def test_ambiguous_global_release_names_global_region(self):
+        addresses = [
+            {"address": "2001:db8::1", "region": "global", "type": "v6"},
+            {"address": "2001:db8::2", "region": "global", "type": "v6"},
+        ]
+        module = FakeModule({"app_name": "example", "address": None, "region": "", "type": "v6"})
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=addresses),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            ip_addresses.ensure_absent(module, {})
+
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Multiple 'v6' addresses in region 'global' match for app 'example'; specify address",
+        )

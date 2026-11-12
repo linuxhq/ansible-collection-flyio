@@ -55,7 +55,7 @@ class VolumesInfoTests(TestCase):
         ):
             volumes_info.list_resources(module, {})
 
-        list_all.assert_called_once_with({}, "/apps/example/volumes", ok_statuses=[404], required_fields=("id",))
+        list_all.assert_called_once_with({}, "/apps/example/volumes", ok_statuses=[404])
         self.assertEqual(raised.exception.values["volumes"], volumes)
 
     def test_rejects_malformed_documented_fields(self):
@@ -72,3 +72,17 @@ class VolumesInfoTests(TestCase):
             volumes_info.list_resources(module, {})
 
         self.assertIn("malformed volume data", raised.exception.values["msg"])
+
+    def test_listing_without_ids_reports_app_specific_failure(self):
+        module = FakeModule({"app_name": "example"})
+
+        with (
+            patch(
+                "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.api_request",
+                return_value=[{"state": "started"}],
+            ),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes_info.list_resources(module, {})
+
+        self.assertEqual(raised.exception.values["msg"], "Fly.io API returned malformed volume data for app 'example'")

@@ -12,12 +12,9 @@ description:
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -51,7 +48,9 @@ ip_addresses:
   elements: dict
   contains:
     id:
-      description: IP address identifier.
+      description:
+        - IP address identifier.
+        - Null when Fly.io reports none. Absent for the shared IPv4 address.
       returned: when available
       type: str
     address:
@@ -63,11 +62,15 @@ ip_addresses:
       returned: always
       type: str
     region:
-      description: Region code, or an empty string for a global address.
+      description:
+        - Region code as Fly.io reports it, such as C(global), or null.
+        - Empty for the shared IPv4 address.
       returned: when available
       type: str
     created_at:
-      description: Allocation timestamp.
+      description:
+        - Allocation timestamp.
+        - Null when Fly.io reports none. Absent for the shared IPv4 address.
       returned: when available
       type: str
 
@@ -76,8 +79,10 @@ ip_addresses:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_token_option,
     flyio_client,
     get_ip_addresses,
+    require_nonempty,
 )
 
 
@@ -89,11 +94,13 @@ def list_resources(module, client):
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
         },
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name")
 
     with flyio_client(module) as client:
         list_resources(module, client)

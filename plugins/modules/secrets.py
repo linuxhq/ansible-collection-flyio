@@ -9,16 +9,14 @@ module: secrets
 short_description: Manage Fly.io app secrets
 description:
   - Set and remove encrypted Fly.io app secrets.
-  - Secret values are never returned by the module.
+  - Fly.io does not expose secret values, so results contain only the secret
+    metadata Fly.io returns.
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   app_name:
     required: true
     type: str
@@ -57,7 +55,8 @@ attributes:
     details: Present secrets report changed because Fly.io does not expose their values.
   diff_mode:
     description: Determines whether the module returns change details in diff format.
-    support: none
+    support: partial
+    details: Diffs show secret names and digests, never values. Check mode cannot predict the new digest.
 
 """
 
@@ -81,7 +80,7 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 secret:
-  description: Fly.io secret metadata. The value is never returned.
+  description: Fly.io secret metadata, as Fly.io returns it.
   returned: when available
   type: dict
   contains:
@@ -92,7 +91,7 @@ secret:
     digest:
       description: Opaque digest of the secret value.
       type: str
-      returned: when available
+      returned: always
     created_at:
       description: Secret creation timestamp.
       type: str
@@ -116,16 +115,22 @@ message:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
-    SECRET_FIELDS,
     FlyioApiError,
+    api_token_option,
     delete_result,
+    diff_result,
     flyio_client,
     flyio_path,
+    get_app,
     get_resource,
     post_result,
+    require_nonempty,
     select_fields,
     valid_secret_metadata,
 )
+
+# Secret values are never readable, so diffs compare names and digests.
+DIFF_FIELDS = ("name", "digest")
 
 
 def secret_path(app_name, name):
@@ -154,10 +159,19 @@ def ensure_present(module, client):
     path = secret_path(module.params["app_name"], module.params["name"])
     current = get_secret(client, path, module.params["name"])
 
+    before = select_fields(current, DIFF_FIELDS) if current is not None else {}
     if module.check_mode:
-        values = {"changed": True, "message": "Secret would be set"}
+        # A missing secret may mean a missing app; predict the real run's failure instead of a change.
+        if current is None and get_app(client, module.params["app_name"]) is None:
+            module.fail_json(msg=f"App '{module.params['app_name']}' not found")
+
+        values = {
+            "changed": True,
+            "message": "Secret would be set",
+            **diff_result(module, before, {"name": module.params["name"]}),
+        }
         if current is not None:
-            values["secret"] = select_fields(current, SECRET_FIELDS)
+            values["secret"] = current
 
         module.exit_json(**values)
 
@@ -174,13 +188,16 @@ def ensure_present(module, client):
             )
         )
 
-    secret = select_fields(result, SECRET_FIELDS)
+    secret = result
     changed = current is None or current["digest"] != result["digest"]
     values = {
         "changed": changed,
         "message": "Secret set" if changed else "Secret value unchanged",
         "secret": secret,
     }
+    if changed:
+        values.update(diff_result(module, before, select_fields(result, DIFF_FIELDS)))
+
     if result.get("version") is not None:
         values["version"] = result["version"]
 
@@ -194,12 +211,14 @@ def ensure_absent(module, client):
     if current is None:
         module.exit_json(changed=False, message="Secret already absent")
 
-    secret = select_fields(current, SECRET_FIELDS)
+    secret = current
+    diff = diff_result(module, select_fields(current, DIFF_FIELDS), {})
     if module.check_mode:
         module.exit_json(
             changed=True,
             message="Secret would be removed",
             secret=secret,
+            **diff,
         )
 
     result = delete_result(client, path, ok_statuses=[404])
@@ -213,7 +232,7 @@ def ensure_absent(module, client):
             )
         )
 
-    values = {"changed": True, "message": "Secret removed", "secret": secret}
+    values = {"changed": True, "message": "Secret removed", "secret": secret, **diff}
     if result.get("version") is not None:
         values["version"] = result["version"]
 
@@ -223,7 +242,7 @@ def ensure_absent(module, client):
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "app_name": {"required": True, "type": "str"},
             "name": {"required": True, "type": "str"},
             "value": {"type": "str", "no_log": True},
@@ -236,6 +255,8 @@ def main():
         required_if=[("state", "present", ("value",))],
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "app_name", "name")
 
     with flyio_client(module) as client:
         if module.params["state"] == "present":

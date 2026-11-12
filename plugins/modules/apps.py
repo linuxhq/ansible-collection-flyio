@@ -12,12 +12,9 @@ description:
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
+extends_documentation_fragment:
+  - linuxhq.flyio.api
 options:
-  api_token:
-    required: true
-    type: str
-    description:
-      - Fly.io API token.
   name:
     required: true
     type: str
@@ -114,11 +111,13 @@ message:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    api_token_option,
     delete_result,
     flyio_client,
     flyio_path,
     get_app,
     post_result,
+    require_nonempty,
     require_positive,
     seconds_left,
     wait_deadline,
@@ -194,7 +193,7 @@ def ensure_absent(module, client):
 def main():
     module = AnsibleModule(
         argument_spec={
-            "api_token": {"required": True, "type": "str", "no_log": True},
+            "api_token": api_token_option(),
             "name": {"required": True, "type": "str"},
             "org_slug": {"type": "str"},
             "network": {"type": "str"},
@@ -212,6 +211,8 @@ def main():
         },
         supports_check_mode=True,
     )
+
+    require_nonempty(module, "name", "org_slug", "network")
 
     with flyio_client(module) as client:
         if module.params["state"] == "present":

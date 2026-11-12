@@ -1,0 +1,154 @@
+---
+- name: Ensure Fly.io test settings are loaded
+  ansible.builtin.import_role:
+    name: setup_flyio
+
+- name: Ensure secret resources are tested
+  module_defaults:
+    linuxhq.flyio.apps:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.secrets:
+      api_token: "{{ flyio_api_token }}"
+    linuxhq.flyio.secrets_info:
+      api_token: "{{ flyio_api_token }}"
+  vars:
+    app_name: "{{ flyio_resource_prefix }}-secrets"
+    secret_name: ANSIBLE_TEST_SECRET
+    secret_value: "{{ flyio_resource_prefix | hash('sha256') }}"
+  block:
+    - name: Create app fixture
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        org_slug: "{{ flyio_org_slug }}"
+        state: present
+
+    - name: Set secret in check mode
+      linuxhq.flyio.secrets:
+        app_name: "{{ app_name }}"
+        name: "{{ secret_name }}"
+        value: "{{ secret_value }}"
+        state: present
+      check_mode: true
+      no_log: true
+      register: secret_check_create
+
+    - name: List secrets after check mode set
+      linuxhq.flyio.secrets_info:
+        app_name: "{{ app_name }}"
+      register: secrets_check_create
+
+    - name: Assert check mode set predicted a change without setting the secret
+      ansible.builtin.assert:
+        that:
+          - secret_check_create is changed
+          - secret_check_create.message == 'Secret would be set'
+          - secret_name not in secrets_check_create.secrets | map(attribute='name') | list
+
+    - name: Set secret
+      linuxhq.flyio.secrets:
+        app_name: "{{ app_name }}"
+        name: "{{ secret_name }}"
+        value: "{{ secret_value }}"
+        state: present
+      no_log: true
+      register: secret_create
+
+    - name: Assert secret was set without returning its value
+      ansible.builtin.assert:
+        that:
+          - secret_create is changed
+          - secret_create.message == 'Secret set'
+          - secret_create.secret.name == secret_name
+          - secret_create.secret.digest | length > 0
+          - "'value' not in secret_create.secret"
+          - secret_value not in secret_create | to_json
+
+    - name: Set secret again
+      linuxhq.flyio.secrets:
+        app_name: "{{ app_name }}"
+        name: "{{ secret_name }}"
+        value: "{{ secret_value }}"
+        state: present
+      no_log: true
+      register: secret_create_again
+
+    - name: Assert secret set is idempotent
+      ansible.builtin.assert:
+        that:
+          - secret_create_again is not changed
+          - secret_create_again.message == 'Secret value unchanged'
+          - secret_create_again.secret.digest == secret_create.secret.digest
+
+    - name: List secrets
+      linuxhq.flyio.secrets_info:
+        app_name: "{{ app_name }}"
+      register: secrets_info
+
+    - name: Assert secret info includes the secret without its value
+      ansible.builtin.assert:
+        that:
+          - secrets_info is not changed
+          - secrets_info.secrets | selectattr('name', 'equalto', secret_name) | map(attribute='digest') | list == [secret_create.secret.digest]
+          - secret_value not in secrets_info | to_json
+
+    - name: Remove secret in check mode
+      linuxhq.flyio.secrets:
+        app_name: "{{ app_name }}"
+        name: "{{ secret_name }}"
+        state: absent
+      check_mode: true
+      register: secret_check_delete
+
+    - name: List secrets after check mode removal
+      linuxhq.flyio.secrets_info:
+        app_name: "{{ app_name }}"
+      register: secrets_check_delete
+
+    - name: Assert check mode removal predicted a change without removing the secret
+      ansible.builtin.assert:
+        that:
+          - secret_check_delete is changed
+          - secret_check_delete.message == 'Secret would be removed'
+          - secret_check_delete.secret.name == secret_name
+          - secret_name in secrets_check_delete.secrets | map(attribute='name') | list
+
+    - name: Remove secret
+      linuxhq.flyio.secrets:
+        app_name: "{{ app_name }}"
+        name: "{{ secret_name }}"
+        state: absent
+      register: secret_delete
+
+    - name: List secrets after removal
+      linuxhq.flyio.secrets_info:
+        app_name: "{{ app_name }}"
+      register: secrets_delete
+
+    - name: Assert secret was removed
+      ansible.builtin.assert:
+        that:
+          - secret_delete is changed
+          - secret_delete.message == 'Secret removed'
+          - secret_delete.secret.name == secret_name
+          - secret_name not in secrets_delete.secrets | map(attribute='name') | list
+
+    - name: Remove secret again
+      linuxhq.flyio.secrets:
+        app_name: "{{ app_name }}"
+        name: "{{ secret_name }}"
+        state: absent
+      register: secret_delete_again
+
+    - name: Assert secret removal is idempotent
+      ansible.builtin.assert:
+        that:
+          - secret_delete_again is not changed
+          - secret_delete_again.message == 'Secret already absent'
+
+  always:
+    - name: Ensure app fixture is absent
+      linuxhq.flyio.apps:
+        name: "{{ app_name }}"
+        delete_timeout: 120
+        state: absent
+...

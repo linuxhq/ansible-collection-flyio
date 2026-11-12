@@ -29,10 +29,11 @@ class MachinesExecTests(TestCase):
         for name in ("command", "container"):
             with (
                 self.subTest(name=name),
+                patch.object(machines_exec, "AnsibleModule", return_value=module(**{name: " "})),
                 patch.object(machines_exec, "post_result") as request,
                 self.assertRaises(ModuleFail) as raised,
             ):
-                machines_exec.exec_command(module(**{name: " "}), {})
+                machines_exec.main()
 
             request.assert_not_called()
             self.assertEqual(raised.exception.values["msg"], f"{name} must not be empty")
@@ -49,6 +50,7 @@ class MachinesExecTests(TestCase):
 
     def test_check_mode_does_not_execute(self):
         with (
+            patch.object(machines_exec, "get_resource", return_value={"id": "machine-one"}),
             patch.object(machines_exec, "post_result") as request,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -56,6 +58,17 @@ class MachinesExecTests(TestCase):
 
         request.assert_not_called()
         self.assertTrue(raised.exception.values["changed"])
+
+    def test_check_mode_fails_for_missing_machine(self):
+        with (
+            patch.object(machines_exec, "get_resource", return_value=None),
+            patch.object(machines_exec, "post_result") as request,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines_exec.exec_command(module(check_mode=True), {})
+
+        request.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "Machine 'machine-one' not found in app 'example'")
 
     def test_executes_command(self):
         result = {"exit_code": 0, "stderr": "", "stdout": "ready"}
@@ -155,3 +168,16 @@ class MachinesExecTests(TestCase):
             machines_exec.exec_command(module(), {})
 
         self.assertIn("malformed data", raised.exception.values["msg"])
+
+    def test_returns_additional_response_fields(self):
+        response = {"exit_code": 0, "stdout": "ok", "duration_ms": 12}
+
+        with (
+            patch.object(machines_exec, "post_result", return_value=response),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines_exec.exec_command(module(), {})
+
+        self.assertEqual(raised.exception.values["duration_ms"], 12)
+        self.assertEqual(raised.exception.values["exit_signal"], 0)
+        self.assertEqual(raised.exception.values["stderr"], "")
