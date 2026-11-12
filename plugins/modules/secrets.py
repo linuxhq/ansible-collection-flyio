@@ -44,8 +44,10 @@ options:
     description:
       - Desired state of the secret.
 notes:
-  - Setting a secret does not restart existing Machines. Deploy or restart
-    them to load an updated value.
+  - Running Machines do not pick up a changed secret on their own. Create or
+    update them, for example with a deploy, to load the new value. Fly.io
+    guarantees the change is visible when Machines are created or updated with
+    C(min_secrets_version) set to the returned RV(version).
 requirements:
   - python >= 3.9
 attributes:
@@ -114,6 +116,7 @@ message:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    SECRET_FIELDS,
     FlyioApiError,
     delete_result,
     flyio_client,
@@ -123,8 +126,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     select_fields,
     valid_secret_metadata,
 )
-
-SECRET_FIELDS = ("name", "digest", "created_at", "updated_at")
 
 
 def secret_path(app_name, name):
@@ -140,9 +141,8 @@ def get_secret(client, path, name):
         client,
         path,
         ok_statuses=[404],
-        required_field="name",
-        expected_value=name,
-        required_fields=("digest",),
+        required_fields=("name",),
+        expected={"name": name},
     )
     if secret is not None and not valid_secret_metadata(secret):
         raise FlyioApiError(f"GET {path} returned malformed data: expected a secret")

@@ -73,14 +73,13 @@ secrets:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    SECRET_FIELDS,
     flyio_client,
     flyio_path,
     get_result,
     select_fields,
     valid_secret_metadata,
 )
-
-SECRET_FIELDS = ("name", "digest", "created_at", "updated_at")
 
 
 def list_resources(module, client):
@@ -96,7 +95,7 @@ def list_resources(module, client):
         or not all(valid_secret_metadata(secret) for secret in result["secrets"])
     ):
         module.fail_json(
-            msg=("Fly.io API returned malformed data while listing secrets for app " f"'{module.params['app_name']}'")
+            msg=f"Fly.io API returned malformed data while listing secrets for app '{module.params['app_name']}'"
         )
 
     secrets = [select_fields(secret, SECRET_FIELDS) for secret in result["secrets"]]

@@ -41,9 +41,11 @@ options:
     description:
       - Region code.
       - Use an empty string or C(global) for global addresses.
+      - Surrounding whitespace is removed and the code is lowercased.
       - Must not contain only whitespace.
       - Must identify a global address when O(type=shared_v4).
       - Used only when O(type) is specified.
+      - Must be empty when O(address) is specified.
   address:
     type: str
     description:
@@ -151,10 +153,8 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 
 def normalize_region(value):
-    if not value or value == "global":
-        return ""
-
-    return value
+    value = (value or "").strip().lower()
+    return "" if value == "global" else value
 
 
 def validate_region(module, ip_type, region):
@@ -187,7 +187,7 @@ def ensure_present(module, client):
     params = module.params
     app_name = params["app_name"]
     ip_type = params["type"]
-    requested_region = params.get("region") or ""
+    requested_region = params["region"]
     validate_region(module, ip_type, requested_region)
     region = normalize_region(requested_region)
 
@@ -237,7 +237,7 @@ def ensure_present(module, client):
     result = data.get("allocateIpAddress")
     if not isinstance(result, dict):
         module.fail_json(
-            msg=(f"Fly.io API returned malformed data while allocating a '{ip_type}' " f"address for app '{app_name}'")
+            msg=f"Fly.io API returned malformed data while allocating a '{ip_type}' address for app '{app_name}'"
         )
 
     ip_address = result.get("ipAddress")
@@ -253,7 +253,7 @@ def ensure_present(module, client):
         or (ip_type != "shared_v4" and normalize_region(ip_address.get("region")) != normalize_region(region))
     ):
         module.fail_json(
-            msg=(f"Fly.io API returned malformed data while allocating a '{ip_type}' " f"address for app '{app_name}'")
+            msg=f"Fly.io API returned malformed data while allocating a '{ip_type}' address for app '{app_name}'"
         )
 
     ip_address = normalize_ip_address(ip_address)
@@ -266,7 +266,7 @@ def ensure_absent(module, client):
     app_name = params["app_name"]
     address = params.get("address")
     ip_type = params.get("type")
-    requested_region = params.get("region") or ""
+    requested_region = params["region"]
     if address is not None and ip_version(address) is None:
         module.fail_json(msg="address must be a valid IPv4 or IPv6 address")
 

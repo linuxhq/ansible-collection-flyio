@@ -16,7 +16,7 @@ class AppsTests(TestCase):
         module = FakeModule({"delete_timeout": 0, "force": True, "name": "example"})
 
         with (
-            patch.object(apps, "get_resource") as get,
+            patch.object(apps, "get_app") as get,
             self.assertRaises(ModuleFail) as raised,
         ):
             apps.ensure_absent(module, {})
@@ -32,7 +32,7 @@ class AppsTests(TestCase):
         module = FakeModule({"name": "example", "org_slug": "linuxhq"})
 
         with (
-            patch.object(apps, "get_resource", return_value=current),
+            patch.object(apps, "get_app", return_value=current),
             self.assertRaises(ModuleExit) as raised,
         ):
             apps.ensure_present(module, {})
@@ -44,7 +44,7 @@ class AppsTests(TestCase):
         created = {"name": "example"}
 
         with (
-            patch.object(apps, "get_resource", side_effect=[None, created]),
+            patch.object(apps, "get_app", side_effect=[None, created]),
             patch.object(apps, "post_result") as post,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -53,7 +53,7 @@ class AppsTests(TestCase):
         post.assert_called_once_with(
             {},
             "/apps",
-            {"app_name": "example", "network": "private", "org_slug": "linuxhq"},
+            {"name": "example", "network": "private", "org_slug": "linuxhq"},
         )
         self.assertEqual(raised.exception.values["app"], created)
 
@@ -62,28 +62,30 @@ class AppsTests(TestCase):
         module = FakeModule({"delete_timeout": 120, "force": True, "name": "example"})
 
         with (
-            patch.object(apps, "get_resource", return_value=current),
+            patch.object(apps, "get_app", return_value=current),
             patch.object(apps, "delete_result", return_value=None) as delete,
             patch.object(apps, "wait_for_app_absent", return_value=None) as wait,
-            patch.object(apps.time, "monotonic", side_effect=[10, 30]),
+            patch.object(apps, "wait_deadline", return_value=130),
+            patch.object(apps, "seconds_left", return_value=100),
             self.assertRaises(ModuleExit) as raised,
         ):
             apps.ensure_absent(module, {})
 
-        delete.assert_called_once_with({}, "/apps/example?force=true", timeout=120, ok_statuses=[404])
+        delete.assert_called_once_with({}, "/apps/example", timeout=120, ok_statuses=[404])
         wait.assert_called_once_with({}, "example", 100)
         self.assertTrue(raised.exception.values["changed"])
-        self.assertNotIn("app", raised.exception.values)
+        self.assertEqual(raised.exception.values["app"], current)
 
     def test_fails_when_app_deletion_times_out(self):
         current = {"name": "example"}
         module = FakeModule({"delete_timeout": 60, "force": True, "name": "example"})
 
         with (
-            patch.object(apps, "get_resource", return_value=current),
+            patch.object(apps, "get_app", return_value=current),
             patch.object(apps, "delete_result", return_value=None),
             patch.object(apps, "wait_for_app_absent", return_value=current),
-            patch.object(apps.time, "monotonic", side_effect=[10, 20]),
+            patch.object(apps, "wait_deadline", return_value=70),
+            patch.object(apps, "seconds_left", return_value=50),
             self.assertRaises(ModuleFail) as raised,
         ):
             apps.ensure_absent(module, {})
@@ -97,7 +99,7 @@ class AppsTests(TestCase):
         module = FakeModule({"name": "example", "org_slug": "linuxhq"}, check_mode=True)
 
         with (
-            patch.object(apps, "get_resource", return_value=None),
+            patch.object(apps, "get_app", return_value=None),
             patch.object(apps, "post_result") as post,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -105,3 +107,18 @@ class AppsTests(TestCase):
 
         post.assert_not_called()
         self.assertTrue(raised.exception.values["changed"])
+
+    def test_create_tolerates_read_after_write_lag(self):
+        module = FakeModule({"name": "example", "network": None, "org_slug": "linuxhq"})
+
+        with (
+            patch.object(apps, "get_app", return_value=None) as get,
+            patch.object(apps, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            apps.ensure_present(module, {})
+
+        post.assert_called_once_with({}, "/apps", {"name": "example", "org_slug": "linuxhq"})
+        self.assertEqual(get.call_count, 2)
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["app"], {"name": "example"})

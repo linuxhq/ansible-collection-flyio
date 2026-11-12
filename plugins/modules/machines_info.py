@@ -56,7 +56,10 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 machines:
-  description: List of Fly.io Machines.
+  description:
+    - List of Fly.io Machines.
+    - C(env), C(headers), and C(raw_value) fields are removed from the returned
+      data because they can contain secrets.
   returned: always
   type: list
   elements: dict
@@ -94,7 +97,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 def validate_machines(module, machines):
     if not all(valid_machine(machine) for machine in machines):
-        module.fail_json(msg=("Fly.io API returned malformed Machine data for app " f"'{module.params['app_name']}'"))
+        module.fail_json(msg=f"Fly.io API returned malformed Machine data for app '{module.params['app_name']}'")
 
 
 def list_resources(module, client):
@@ -103,7 +106,7 @@ def list_resources(module, client):
         client,
         flyio_path("apps", app_name, "machines"),
         ok_statuses=[404],
-        required_field="id",
+        required_fields=("id",),
     )
     validate_machines(module, machines)
 
@@ -118,12 +121,12 @@ def info(module, client):
         client,
         flyio_path("apps", module.params["app_name"], "machines", module.params["id"]),
         ok_statuses=[404],
-        required_field="id",
-        expected_value=module.params["id"],
+        required_fields=("id",),
+        expected={"id": module.params["id"]},
     )
 
     if machine is None:
-        module.fail_json(msg=(f"Machine '{module.params['id']}' not found in app " f"'{module.params['app_name']}'"))
+        module.fail_json(msg=f"Machine '{module.params['id']}' not found in app '{module.params['app_name']}'")
 
     validate_machines(module, [machine])
 

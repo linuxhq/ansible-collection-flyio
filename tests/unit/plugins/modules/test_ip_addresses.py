@@ -398,3 +398,33 @@ class IpAddressesTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while releasing address '1.2.3.4' from app 'example'",
             )
+
+    def test_region_case_and_whitespace_match_existing_address(self):
+        current = {"address": "1.2.3.4", "region": "iad", "type": "v4"}
+        for region in ("IAD", " iad "):
+            module = FakeModule({"app_name": "example", "region": region, "type": "v4"})
+            with (
+                self.subTest(region=region),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+                patch.object(ip_addresses, "graphql_request") as query,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                ip_addresses.ensure_present(module, {})
+
+            query.assert_not_called()
+            self.assertFalse(raised.exception.values["changed"])
+
+    def test_uppercase_global_region_is_global_for_shared_address(self):
+        module = FakeModule({"app_name": "example", "region": "GLOBAL", "type": "shared_v4"})
+
+        with (
+            patch.object(
+                ip_addresses,
+                "get_ip_addresses",
+                return_value=[{"address": "1.2.3.4", "type": "shared_v4", "region": ""}],
+            ),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_present(module, {})
+
+        self.assertFalse(raised.exception.values["changed"])

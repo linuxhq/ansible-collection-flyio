@@ -26,8 +26,8 @@ class VolumesInfoTests(TestCase):
             {},
             "/apps/example/volumes/vol_one",
             ok_statuses=[404],
-            required_field="id",
-            expected_value="vol_one",
+            required_fields=("id",),
+            expected={"id": "vol_one"},
         )
         self.assertEqual(raised.exception.values["volumes"], [volume])
 
@@ -55,7 +55,7 @@ class VolumesInfoTests(TestCase):
         ):
             volumes_info.list_resources(module, {})
 
-        list_all.assert_called_once_with({}, "/apps/example/volumes", ok_statuses=[404], required_field="id")
+        list_all.assert_called_once_with({}, "/apps/example/volumes", ok_statuses=[404], required_fields=("id",))
         self.assertEqual(raised.exception.values["volumes"], volumes)
 
     def test_rejects_malformed_documented_fields(self):

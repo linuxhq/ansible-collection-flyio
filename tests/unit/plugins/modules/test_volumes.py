@@ -12,6 +12,14 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
 
 
 class FindVolumeTests(TestCase):
+    def setUp(self):
+        clock = patch.object(volumes, "wait_deadline", return_value=60)
+        clock.start()
+        self.addCleanup(clock.stop)
+        left = patch.object(volumes, "seconds_left", side_effect=lambda deadline: deadline)
+        left.start()
+        self.addCleanup(left.stop)
+
     def test_rejects_empty_region_for_id_lookup(self):
         module = FakeModule(
             {
@@ -20,6 +28,7 @@ class FindVolumeTests(TestCase):
                 "name": None,
                 "region": " ",
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -97,6 +106,7 @@ class FindVolumeTests(TestCase):
                 "region": " ",
                 "size_gb": None,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -109,7 +119,7 @@ class FindVolumeTests(TestCase):
         find.assert_not_called()
         self.assertEqual(
             raised.exception.values["msg"],
-            "region must not be empty when name is specified",
+            "region must not be empty",
         )
 
     def test_missing_parent_is_tolerated_only_when_requested(self):
@@ -119,8 +129,7 @@ class FindVolumeTests(TestCase):
                 {},
                 "/apps/example/volumes",
                 ok_statuses=None,
-                required_field="id",
-                required_fields=("name", "region", "state"),
+                required_fields=("id", "name", "region", "state"),
             )
 
             list_all.reset_mock()
@@ -129,8 +138,7 @@ class FindVolumeTests(TestCase):
                 {},
                 "/apps/example/volumes",
                 ok_statuses=[404],
-                required_field="id",
-                required_fields=("name", "region", "state"),
+                required_fields=("id", "name", "region", "state"),
             )
 
     def test_rejects_nonpositive_size(self):
@@ -139,6 +147,7 @@ class FindVolumeTests(TestCase):
                 "app_name": "example",
                 "size_gb": 0,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -151,23 +160,29 @@ class FindVolumeTests(TestCase):
         find.assert_not_called()
         self.assertEqual(raised.exception.values["msg"], "size_gb must be greater than zero")
 
-    def test_rejects_size_above_provider_limit(self):
+    def test_requires_size_when_creating(self):
         module = FakeModule(
             {
                 "app_name": "example",
-                "size_gb": 501,
+                "encrypted": None,
+                "id": None,
+                "name": "data",
+                "region": "ord",
+                "size_gb": None,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
         with (
-            patch.object(volumes, "find_volume") as find,
+            patch.object(volumes, "find_volume", return_value=None),
+            patch.object(volumes, "post_result") as post,
             self.assertRaises(ModuleFail) as raised,
         ):
             volumes.ensure_present(module, {})
 
-        find.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "size_gb must not exceed 500")
+        post.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "size_gb is required when creating a volume")
 
     def test_skips_pending_destroy(self):
         pending = {
@@ -280,6 +295,7 @@ class FindVolumeTests(TestCase):
             "id": "vol_new",
             "name": "data",
             "region": "ord",
+            "size_gb": 1,
             "state": "created",
         }
         module = FakeModule(
@@ -289,8 +305,9 @@ class FindVolumeTests(TestCase):
                 "id": None,
                 "name": "data",
                 "region": "ord",
-                "size_gb": None,
+                "size_gb": 1,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -304,7 +321,7 @@ class FindVolumeTests(TestCase):
         post.assert_called_once_with(
             {},
             "/apps/example/volumes",
-            {"name": "data", "region": "ord"},
+            {"name": "data", "region": "ord", "size_gb": 1},
         )
 
     def test_rejects_malformed_create_response(self):
@@ -317,6 +334,7 @@ class FindVolumeTests(TestCase):
                 "region": "ord",
                 "size_gb": 1,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -342,6 +360,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 1,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -394,7 +413,7 @@ class FindVolumeTests(TestCase):
             ok_statuses=[404],
         )
         self.assertTrue(raised.exception.values["changed"])
-        self.assertNotIn("volume", raised.exception.values)
+        self.assertEqual(raised.exception.values["volume"], current)
 
     def test_rejects_malformed_volume_deletion_response(self):
         current = {"id": "vol_one", "state": "created"}
@@ -470,7 +489,7 @@ class FindVolumeTests(TestCase):
         ):
             volumes.ensure_absent(module, {})
 
-        wait.assert_called_once_with(module, {}, current)
+        wait.assert_called_once_with(module, {}, current, 60)
 
     def test_empty_delete_response_without_wait_is_only_requested(self):
         current = {"id": "vol_one", "state": "created"}
@@ -493,7 +512,7 @@ class FindVolumeTests(TestCase):
             volumes.ensure_absent(module, {})
 
         self.assertEqual(raised.exception.values["message"], "Volume deletion requested")
-        self.assertNotIn("volume", raised.exception.values)
+        self.assertEqual(raised.exception.values["volume"], current)
 
     def test_deleting_volume_does_not_wait_in_check_mode(self):
         current = {"id": "vol_one", "state": "scheduling_destroy"}
@@ -615,6 +634,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 2,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -646,6 +666,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 2,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -692,6 +713,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 2,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -756,6 +778,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 2,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -786,6 +809,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 1,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -815,6 +839,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 1,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -841,6 +866,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": None,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -868,6 +894,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 5,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -892,6 +919,7 @@ class FindVolumeTests(TestCase):
                 "region": None,
                 "size_gb": 1,
                 "wait": False,
+                "wait_timeout": 60,
             }
         )
 
@@ -942,3 +970,69 @@ class FindVolumeTests(TestCase):
             raised.exception.values["msg"],
             "Deletion of volume 'vol_one' in app 'example' timed out",
         )
+
+    def test_destroying_volume_is_not_live(self):
+        self.assertFalse(volumes.is_live({"id": "vol_one", "state": "destroying"}))
+
+    def test_failed_volume_is_rejected(self):
+        module = FakeModule({"app_name": "example", "wait": True, "wait_timeout": 60})
+
+        with self.assertRaises(ModuleFail) as raised:
+            volumes.settle_volume(module, {}, {"id": "vol_one", "state": "failed"}, 60)
+
+        self.assertEqual(raised.exception.values["msg"], "Volume 'vol_one' in app 'example' is in failed state")
+
+    def test_wait_reports_volume_that_fails_while_waiting(self):
+        module = FakeModule({"app_name": "example", "wait": True, "wait_timeout": 60})
+        failed = {"id": "vol_one", "state": "failed"}
+
+        with (
+            patch.object(volumes, "wait_for_volume", return_value=failed),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.settle_volume(module, {}, {"id": "vol_one", "state": "creating"}, 60)
+
+        self.assertEqual(raised.exception.values["msg"], "Volume 'vol_one' in app 'example' is in failed state")
+
+    def test_rejects_region_groups(self):
+        module = FakeModule(
+            {"app_name": "example", "name": "data", "region": "us", "size_gb": 1, "wait": False, "wait_timeout": 60}
+        )
+
+        with (
+            patch.object(volumes, "find_volume") as find,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.ensure_present(module, {})
+
+        find.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "region must be a single region code; region lists and groups are not supported",
+        )
+
+    def test_unchanged_transitioning_volume_without_wait_is_unchanged(self):
+        module = FakeModule({"app_name": "example", "encrypted": None, "size_gb": 1, "wait": False, "wait_timeout": 60})
+        current = {"id": "vol_one", "size_gb": 1, "state": "creating"}
+
+        with self.assertRaises(ModuleExit) as raised:
+            volumes.update_volume(module, {}, current, 60)
+
+        self.assertFalse(raised.exception.values["changed"])
+
+    def test_absent_name_lookup_prefers_live_volume(self):
+        deleting = {"id": "vol_old", "name": "data", "region": "ord", "state": "destroying"}
+        live = {"id": "vol_new", "name": "data", "region": "ord", "state": "created"}
+        module = FakeModule({"app_name": "example"})
+
+        with patch.object(volumes, "list_all", return_value=[deleting, live]):
+            self.assertEqual(
+                volumes.find_volume(module, {}, "example", name="data", region="ord", include_deleting=True),
+                live,
+            )
+
+        with patch.object(volumes, "list_all", return_value=[deleting]):
+            self.assertEqual(
+                volumes.find_volume(module, {}, "example", name="data", region="ord", include_deleting=True),
+                deleting,
+            )

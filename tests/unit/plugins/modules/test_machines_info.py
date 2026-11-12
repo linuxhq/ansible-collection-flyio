@@ -32,8 +32,8 @@ class MachinesInfoTests(TestCase):
             {},
             "/apps/example/machines/machine-one",
             ok_statuses=[404],
-            required_field="id",
-            expected_value="machine-one",
+            required_fields=("id",),
+            expected={"id": "machine-one"},
         )
         result = raised.exception.values["machines"][0]
         self.assertNotIn("env", result["config"])
@@ -63,7 +63,7 @@ class MachinesInfoTests(TestCase):
         ):
             machines_info.list_resources(module, {})
 
-        list_all.assert_called_once_with({}, "/apps/example/machines", ok_statuses=[404], required_field="id")
+        list_all.assert_called_once_with({}, "/apps/example/machines", ok_statuses=[404], required_fields=("id",))
         self.assertEqual(raised.exception.values["machines"], [machine])
 
     def test_rejects_malformed_documented_fields(self):

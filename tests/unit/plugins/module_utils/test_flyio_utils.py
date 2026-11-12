@@ -1,5 +1,6 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+import http.client
 import json
 from io import BytesIO
 from unittest import TestCase
@@ -15,16 +16,17 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     authorization_header,
     flyio_client,
     flyio_path,
+    get_app,
     get_ip_addresses,
     get_resource,
     get_result,
+    graphql_not_found,
     graphql_request,
     list_all,
     require_positive,
     sanitize_machine,
     wait_for_app_absent,
     wait_for_machine,
-    wait_for_machine_settled,
     wait_for_volume,
 )
 
@@ -63,14 +65,14 @@ class FlyioUtilsTests(TestCase):
 
             module.fail_json.assert_called_once_with(msg=f"{name} must not be empty")
 
-    def test_client_rejects_token_line_breaks(self):
+    def test_client_rejects_token_line_breaks_as_control_characters(self):
         module = Mock(params={"api_token": "token\r\nInjected: value"})
         module.fail_json.side_effect = RuntimeError
 
         with self.assertRaises(RuntimeError), flyio_client(module):
             pass
 
-        module.fail_json.assert_called_once_with(msg="api_token must not contain line breaks")
+        module.fail_json.assert_called_once_with(msg="api_token must not contain control characters")
 
     def test_client_rejects_invalid_tokens(self):
         for token, message in (
@@ -421,13 +423,13 @@ class FlyioUtilsTests(TestCase):
                 "machine-one",
                 "stopped",
                 60,
-                instance_id="instance-one",
+                version="instance-one",
             )
 
         request.assert_called_once_with(
             {},
             "get",
-            ("/apps/example/machines/machine-one/wait?state=stopped&timeout=60&instance_id=instance-one"),
+            ("/apps/example/machines/machine-one/wait?state=stopped&timeout=60&version=instance-one"),
             ok_statuses=None,
             timeout=70,
         )
@@ -435,10 +437,10 @@ class FlyioUtilsTests(TestCase):
     def test_machine_wait_rejects_malformed_instance_id(self):
         for instance_id in ([], " "):
             with (
-                self.subTest(instance_id=instance_id),
+                self.subTest(version=instance_id),
                 self.assertRaises(FlyioApiError) as raised,
             ):
-                wait_for_machine({}, "example", "machine-one", instance_id=instance_id)
+                wait_for_machine({}, "example", "machine-one", version=instance_id)
 
             self.assertIn("Machine 'machine-one' in app 'example'", str(raised.exception))
 
@@ -454,11 +456,11 @@ class FlyioUtilsTests(TestCase):
                 ],
             ) as request,
         ):
-            wait_for_machine({}, "example", "machine-one", "stopped", 150, instance_id="instance-one")
+            wait_for_machine({}, "example", "machine-one", "stopped", 150, version="instance-one")
 
         self.assertEqual(request.call_count, 3)
         for call, seconds in zip(request.call_args_list, [60, 60, 30]):
-            self.assertIn(f"state=stopped&timeout={seconds}&instance_id=instance-one", call.args[2])
+            self.assertIn(f"state=stopped&timeout={seconds}&version=instance-one", call.args[2])
             self.assertEqual(call.kwargs["timeout"], seconds + 10)
 
     def test_machine_wait_stops_at_deadline(self):
@@ -490,7 +492,7 @@ class FlyioUtilsTests(TestCase):
         with self.assertRaises(FlyioApiError) as raised:
             wait_for_machine({}, "example", "machine-one", state="stopped")
 
-        self.assertIn("requires an instance ID", str(raised.exception))
+        self.assertIn("requires a version", str(raised.exception))
 
     def test_machine_wait_rejects_unsuccessful_response(self):
         for result in (None, {}, {"ok": False}):
@@ -505,31 +507,6 @@ class FlyioUtilsTests(TestCase):
                 wait_for_machine({}, "example", "machine-one")
 
             self.assertIn("Machine 'machine-one' in app 'example'", str(raised.exception))
-
-    def test_machine_settle_waits_for_stable_state(self):
-        updating = {"id": "machine-one", "state": "updating"}
-        started = {"id": "machine-one", "state": "started"}
-        with (
-            patch(
-                f"{FLYIO_UTILS}.time.monotonic",
-                side_effect=[0, 0, 0, 0],
-            ),
-            patch(
-                f"{FLYIO_UTILS}.get_resource",
-                side_effect=[updating, started],
-            ) as get,
-            patch(f"{FLYIO_UTILS}.time.sleep"),
-        ):
-            result = wait_for_machine_settled(
-                {},
-                "example",
-                "machine-one",
-                {"creating", "starting", "updating"},
-                timeout=5,
-            )
-
-        self.assertEqual(get.call_count, 2)
-        self.assertEqual(result, started)
 
     def test_get_result_passes_timeout(self):
         with patch(
@@ -559,7 +536,7 @@ class FlyioUtilsTests(TestCase):
                 ),
                 self.assertRaises(FlyioApiError),
             ):
-                get_resource({}, "/apps/example", required_field="name")
+                get_resource({}, "/apps/example", required_fields=("name",))
 
     def test_get_resource_accepts_tolerated_missing_resource(self):
         with patch(
@@ -589,22 +566,8 @@ class FlyioUtilsTests(TestCase):
             get_resource(
                 {},
                 "/apps/example/machines/machine-one",
-                required_field="id",
-                expected_value="machine-one",
-            )
-
-    def test_get_resource_requires_identity_field_for_expected_value(self):
-        with (
-            patch(
-                f"{FLYIO_UTILS}.api_request",
-                return_value={"id": "machine-one"},
-            ),
-            self.assertRaises(FlyioApiError),
-        ):
-            get_resource(
-                {},
-                "/apps/example/machines/machine-one",
-                expected_value="machine-one",
+                required_fields=("id",),
+                expected={"id": "machine-one"},
             )
 
     def test_get_resource_rejects_malformed_required_fields(self):
@@ -618,8 +581,7 @@ class FlyioUtilsTests(TestCase):
             get_resource(
                 {},
                 "/apps/example/machines/machine-one",
-                required_field="id",
-                required_fields=("state",),
+                required_fields=("id", "state"),
             )
 
     def test_list_all_accepts_missing_parent(self):
@@ -664,7 +626,7 @@ class FlyioUtilsTests(TestCase):
                 ),
                 self.assertRaises(FlyioApiError),
             ):
-                list_all({}, "/apps/example/machines", required_field="id")
+                list_all({}, "/apps/example/machines", required_fields=("id",))
 
     def test_list_all_rejects_malformed_required_fields(self):
         with (
@@ -677,8 +639,7 @@ class FlyioUtilsTests(TestCase):
             list_all(
                 {},
                 "/apps/example/machines",
-                required_field="id",
-                required_fields=("name", "state"),
+                required_fields=("id", "name", "state"),
             )
 
     def test_app_wait_does_not_poll_past_deadline(self):
@@ -701,8 +662,8 @@ class FlyioUtilsTests(TestCase):
             "/apps/example",
             ok_statuses=[404],
             timeout=4,
-            required_field="name",
-            expected_value="example",
+            required_fields=("name",),
+            expected={"name": "example"},
         )
         self.assertEqual(result, app)
 
@@ -726,9 +687,8 @@ class FlyioUtilsTests(TestCase):
             "/apps/example/volumes/volume-one",
             ok_statuses=None,
             timeout=4,
-            required_field="id",
-            expected_value="volume-one",
-            required_fields=("state",),
+            required_fields=("id", "state"),
+            expected={"id": "volume-one"},
         )
         self.assertEqual(result, volume)
 
@@ -751,10 +711,7 @@ class FlyioUtilsTests(TestCase):
         old = {"id": "volume-one", "size_gb": 1, "state": "created"}
         extended = {"id": "volume-one", "size_gb": 2, "state": "created"}
         with (
-            patch(
-                f"{FLYIO_UTILS}.time.monotonic",
-                side_effect=[0, 0, 0, 0],
-            ),
+            patch(f"{FLYIO_UTILS}.time.monotonic", return_value=0),
             patch(
                 f"{FLYIO_UTILS}.get_resource",
                 side_effect=[old, extended],
@@ -782,3 +739,115 @@ class FlyioUtilsTests(TestCase):
             wait_for_volume({}, "example", "volume-one", timeout=5, size_gb=2)
 
         self.assertIn("volume 'volume-one' in app 'example'", str(raised.exception))
+
+    def test_wait_polls_at_least_once_when_timeout_is_exhausted(self):
+        app = {"name": "example"}
+        with (
+            patch(f"{FLYIO_UTILS}.time.monotonic", side_effect=[10, 10, 10]),
+            patch(f"{FLYIO_UTILS}.get_resource", return_value=app) as get,
+            patch(f"{FLYIO_UTILS}.time.sleep") as sleep,
+        ):
+            result = wait_for_app_absent({}, "example", timeout=0)
+
+        get.assert_called_once()
+        self.assertEqual(get.call_args.kwargs["timeout"], 1)
+        sleep.assert_not_called()
+        self.assertEqual(result, app)
+
+    def test_client_accepts_token_with_trailing_newline(self):
+        module = Mock(params={"api_token": "abc123\n"})
+
+        with flyio_client(module) as client:
+            pass
+
+        module.fail_json.assert_not_called()
+        self.assertEqual(client["headers"]["Authorization"], "Bearer abc123")
+
+    def test_graphql_not_found_uses_error_code(self):
+        exc = FlyioApiError("failed", response_body=[{"message": "nope", "extensions": {"code": "NOT_FOUND"}}])
+        self.assertTrue(graphql_not_found(exc))
+        self.assertFalse(graphql_not_found(FlyioApiError("failed", response_body=[{"message": "denied"}])))
+
+    def test_incomplete_response_raises_api_error(self):
+        response = Mock()
+        response.read.side_effect = http.client.IncompleteRead(b"")
+        with (
+            patch(f"{FLYIO_UTILS}.open_url", return_value=response),
+            self.assertRaises(FlyioApiError),
+        ):
+            api_request({"headers": {}}, "get", "/apps/example")
+
+    def test_volume_wait_stops_on_failed_state(self):
+        failed = {"id": "volume-one", "state": "failed"}
+        with (
+            patch(f"{FLYIO_UTILS}.time.monotonic", return_value=0),
+            patch(f"{FLYIO_UTILS}.get_resource", return_value=failed) as get,
+            patch(f"{FLYIO_UTILS}.time.sleep") as sleep,
+        ):
+            result = wait_for_volume({}, "example", "volume-one", timeout=60)
+
+        get.assert_called_once()
+        sleep.assert_not_called()
+        self.assertEqual(result, failed)
+
+    def test_machine_wait_asks_once_when_budget_is_spent(self):
+        with patch(f"{FLYIO_UTILS}.api_request", return_value={"ok": True}) as request:
+            wait_for_machine({}, "example", "machine-one", "started", 0)
+
+        request.assert_called_once()
+        self.assertIn("timeout=1", request.call_args.args[2])
+
+    def test_sanitize_machine_keeps_caller_named_metadata_and_checks(self):
+        machine = {
+            "id": "m1",
+            "config": {
+                "env": {"SECRET": "x"},
+                "metadata": {"env": "production", "headers": "kept"},
+                "checks": {"env": {"type": "http", "port": 80, "headers": [{"name": "A", "values": ["b"]}]}},
+                "files": [{"guest_path": "/f", "raw_value": "c2VjcmV0"}],
+            },
+        }
+
+        self.assertEqual(
+            sanitize_machine(machine),
+            {
+                "id": "m1",
+                "config": {
+                    "metadata": {"env": "production", "headers": "kept"},
+                    "checks": {"env": {"type": "http", "port": 80}},
+                    "files": [{"guest_path": "/f"}],
+                },
+            },
+        )
+
+    def test_get_app_tolerates_missing_app(self):
+        with patch(f"{FLYIO_UTILS}.get_resource", return_value=None) as get:
+            self.assertIsNone(get_app({}, "example", timeout=5))
+
+        get.assert_called_once_with(
+            {},
+            "/apps/example",
+            ok_statuses=[404],
+            timeout=5,
+            required_fields=("name",),
+            expected={"name": "example"},
+        )
+
+    def test_truncated_error_body_keeps_api_error_and_status(self):
+        error = HTTPError("https://api.machines.dev/v1/apps/example", 503, "Service Unavailable", {}, None)
+        error.read = Mock(side_effect=http.client.IncompleteRead(b""))
+        with (
+            patch(f"{FLYIO_UTILS}.open_url", side_effect=error),
+            self.assertRaises(FlyioApiError) as raised,
+        ):
+            api_request({"headers": {}}, "get", "/apps/example")
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertIsNone(raised.exception.response_body)
+
+    def test_authorization_header_recognises_all_macaroon_prefixes(self):
+        for token in ("fm1a_abc", "fm1r_abc", "fm2_abc", "fo1_x, fm2_abc"):
+            with self.subTest(token=token):
+                self.assertEqual(authorization_header(token), f"FlyV1 {token}")
+
+        self.assertEqual(authorization_header("fo1_abc"), "Bearer fo1_abc")
