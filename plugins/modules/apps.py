@@ -138,7 +138,7 @@ def ensure_present(module, client):
         module.fail_json(msg="org_slug is required when creating an app")
 
     if module.check_mode:
-        module.exit_json(changed=True, message="App would be created")
+        module.exit_json(changed=True, message="App would be created", app={"name": params["name"]})
 
     body = {
         "name": params["name"],

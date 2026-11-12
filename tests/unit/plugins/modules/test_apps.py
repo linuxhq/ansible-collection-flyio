@@ -123,6 +123,7 @@ class AppsTests(TestCase):
 
         post.assert_not_called()
         self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["app"], {"name": "example"})
 
     def test_create_tolerates_read_after_write_lag(self):
         module = FakeModule({"name": "example", "network": None, "org_slug": "linuxhq"})
