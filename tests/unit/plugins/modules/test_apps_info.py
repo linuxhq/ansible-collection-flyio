@@ -17,25 +17,19 @@ class AppsInfoTests(TestCase):
         module = FakeModule({"name": "example"})
 
         with (
-            patch.object(apps_info, "get_resource", return_value=app) as get,
+            patch.object(apps_info, "get_app", return_value=app) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             apps_info.info(module, {})
 
-        get.assert_called_once_with(
-            {},
-            "/apps/example",
-            ok_statuses=[404],
-            required_field="name",
-            expected_value="example",
-        )
+        get.assert_called_once_with({}, "example")
         self.assertEqual(raised.exception.values["apps"], [app])
 
     def test_missing_app_fails(self):
         module = FakeModule({"name": "missing"})
 
         with (
-            patch.object(apps_info, "get_resource", return_value=None),
+            patch.object(apps_info, "get_app", return_value=None),
             self.assertRaises(ModuleFail) as raised,
         ):
             apps_info.info(module, {})

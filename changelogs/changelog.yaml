@@ -399,3 +399,142 @@ releases:
     fragments:
     - 1.1.3.yml
     release_date: '2026-09-20'
+  1.1.4:
+    changes:
+      breaking_changes:
+      - machines - removed the ``guest.gpu_kind`` and ``guest.gpus`` options; the
+        Fly.io Machines API rejects requests that set them.
+      bugfixes:
+      - apps - document that ``org_slug`` and ``network`` are used only when creating
+        an app and are not checked against an existing app.
+      - apps - send ``name`` instead of ``app_name`` when creating an app, report
+        a created app even when the follow-up read briefly returns 404, and return
+        the deleted app.
+      - machines - accept a Machine that completes and destroys itself during the
+        wait when ``auto_destroy`` is set, instead of failing.
+      - machines - accept a Machine that destroys itself after a start, stop, or update
+        when ``auto_destroy`` is set on the Machine, instead of failing with a 404
+        or state error.
+      - machines - accept a created or updated Machine that has already moved on to
+        a transitional state, such as a job exiting, after its settled wait succeeds.
+      - machines - accept a start or stop that worked when the Machine has already
+        moved on afterwards, such as an ``auto_destroy`` Machine that is ``destroying``
+        after stopping or a job that is ``stopping`` after starting.
+      - machines - after a successful start, stop, or transition wait, accept a Machine
+        that has already reached its next stable state instead of failing depending
+        on timing.
+      - machines - allow lowering ``services[].concurrency.hard_limit`` below the
+        Machine's current soft limit, which Fly.io lowers to match, and reject a requested
+        ``soft_limit`` above the hard limit that applies before updating the Machine.
+      - machines - apply ``wait_timeout`` once across all waits in a task instead
+        of to each wait separately.
+      - machines - check the Machine state at least once when the ``wait_timeout``
+        budget is already spent, instead of reporting a timeout without asking.
+      - machines - document how a service without ``protocol`` pairs with current
+        services, and that a lookup by ``name`` fails when several Machines share
+        it.
+      - machines - document that Fly.io currently ignores ``init.tty``.
+      - machines - document that ``env`` and ``metadata`` values must be strings,
+        that ``state=absent`` forcibly stops a running Machine, and that ``env``,
+        ``headers``, and ``raw_value`` fields are removed from returned Machine data.
+      - machines - document that fields omitted from a listed service, port, check,
+        or static keep their current values.
+      - machines - document that header names not listed in ``http_options.response.headers``
+        keep their current values, and that setting a header to ``false`` removes
+        it.
+      - machines - document which options replace the Machine's current values (``env``,
+        ``metadata``, ``checks``, ``services``, ``files``, ``statics``) and which
+        are merged (``guest``, ``init``, ``restart``), including that ``metadata``
+        must list any ``fly_*`` keys to keep.
+      - machines - drop a percentage-based volume extension when ``mounts[].add_size_gb``
+        is set, since Fly.io treats the two as mutually exclusive, and document that
+        omitted mount fields keep their current values.
+      - machines - fail clearly before updating a stopped spot Machine, which Fly.io
+        cannot update without starting it.
+      - machines - fail when multiple Machines share the requested ``name`` instead
+        of silently selecting the first one.
+      - machines - handle every Machine state from both the Fly.io Machines API specification
+        and the Machine states documentation, including ``migrating`` and ``pending``,
+        and fail clearly for ``archived`` Machines except with ``state=absent``.
+      - machines - keep the attached volume ID when updating a Machine whose mount
+        was requested by volume name, so the update cannot select a different volume.
+      - machines - pair listed services and ports that share identity keys, such as
+        the same ``internal_port`` and ``protocol``, with current entries in order,
+        consistently when checking for changes and when merging.
+      - machines - reject ``restart.max_retries`` with a policy other than ``on-failure``
+        consistently, without modifying the requested options, and reject Machines
+        that become ``archived`` while being waited on.
+      - machines - reject empty ``guest.cpu_kind``, ``guest.host_dedication_id``,
+        ``statics[].tigris_bucket``, ``statics[].index_document``, and ``services[].ports[].proxy_proto_options.version``
+        values, which Fly.io omits from the returned configuration.
+      - machines - replace a check when its ``type`` changes instead of merging fields
+        from the old check type.
+      - machines - report an unreachable Machine host (``host_status`` other than
+        ``ok``) clearly instead of as malformed data or an unapplied update.
+      - machines - require ``services[].concurrency.soft_limit`` to be at least 1,
+        because Fly.io replaces 0 with its default of 20 and the task could never
+        converge.
+      - machines - return the Machine as it was before deletion when it is destroyed.
+      - machines - stop marking ``checks``, ``env``, and ``services[].ports[].http_options.response.headers``
+        as ``no_log``, which masked matching values (such as ports, handlers, and
+        image tags) throughout the returned Machine data.
+      - machines - tolerate wait errors from a Machine that destroys itself when ``auto_destroy``
+        is set, and confirm its removal by reading it again.
+      - machines - treat an empty requested ``services[].concurrency`` or ``services[].ports[].proxy_proto_options``
+        as matching a Machine that omits it.
+      - machines - validate ``mounts[].extend_threshold_percent`` (0 or 50-99) and
+        ``mounts[].add_size_gb`` (0-100) against the API limits.
+      - machines - wait for ``migrating`` and ``pending`` Machines to settle, and
+        report the current state when a wait ends in an unexpected state such as ``failed``.
+      - machines - wait for created and updated Machines with the ``settled`` wait
+        state filtered to the new Machine ``version``, and use ``version`` instead
+        of the deprecated ``instance_id`` for waits and ``current_version``.
+      - machines - with ``state=started`` or ``state=stopped``, decide whether a vanished
+        Machine destroyed itself from its own configuration, not from the ``auto_destroy``
+        option.
+      - machines, machines_info - keep caller-named ``metadata`` keys and check names
+        such as ``env`` in returned Machine data; only secret-bearing fields are removed.
+      - machines, volumes - ignore resources that are being destroyed when looking
+        up by ``id`` or ``name``, and with ``state=absent`` prefer a live resource
+        over one being destroyed when both share a name.
+      - machines, volumes - reject region lists and region groups such as ``us`` for
+        ``region``; Fly.io would pick a different region, so the module could never
+        match it and re-created volumes on every run.
+      - machines, volumes - report ``changed=false`` for a resource that is still
+        transitioning when ``wait=false`` and no change is needed, instead of failing.
+      - machines, volumes, ip_addresses - normalize ``region`` to the stripped lowercase
+        region code before using it.
+      - machines_exec - mark ``stdin`` as ``no_log``, limit ``timeout`` to 600 seconds,
+        and document that a non-zero exit code fails the task.
+      - machines_exec - return ``exit_signal`` and fail when the command is terminated
+        by a signal.
+      - machines_exec - treat a missing ``exit_code`` in the API response as a successful
+        exit.
+      - module_utils - report truncated HTTP responses as API errors, detect missing
+        GraphQL apps by error code, and always poll at least once in wait helpers.
+      - module_utils - send ``fm1a_`` macaroon tokens, and comma-separated tokens
+        with spaces, with the ``FlyV1`` authorization scheme, as Fly.io's own client
+        does.
+      - module_utils - strip the API token before checking for control characters
+        so a trailing newline is accepted.
+      - secrets - correct the note on applying a changed secret; running Machines
+        must be created or updated, not restarted, to load the new value.
+      - volumes - require ``size_gb`` when creating a volume, as the Fly.io API does,
+        and stop capping ``size_gb`` at 500 so organizations with a higher maximum
+        can use it.
+      - volumes - stop waiting and fail clearly when a volume enters the ``failed``
+        state during a wait, instead of reporting a timeout.
+      - volumes - treat ``destroying`` volumes as being deleted, fail clearly for
+        ``failed`` volumes, apply ``wait_timeout`` once per task, and return the volume
+        after deletion.
+      deprecated_features:
+      - apps - the ``force`` option is ignored because the Fly.io Machines API does
+        not support it, and will be removed in version 2.0.0.
+      - machines - the ``mounts[].name`` and ``mounts[].encrypted`` options are ignored
+        because Fly.io sets them, and will be removed in version 2.0.0.
+      release_summary: Bug fix release from a full audit of the collection's plugins
+        against the Fly.io Machines API specification, covering Machine, volume, app,
+        secret, and IP address idempotence, waits, validation, and secret handling.
+    fragments:
+    - plugins-audit-fixes.yml
+    release_date: '2026-11-11'

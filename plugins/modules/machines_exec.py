@@ -10,6 +10,8 @@ short_description: Execute a command on a Fly.io Machine
 description:
   - Execute a command on a Fly.io Machine.
   - Command execution is inherently non-idempotent and reports a change when run.
+  - The task fails when the command exits with a non-zero status or is
+    terminated by a signal.
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
@@ -45,12 +47,13 @@ options:
     type: str
     description:
       - Data supplied to the command on standard input.
+      - Treated as sensitive and masked in module output.
   timeout:
     default: 30
     type: int
     description:
       - Command timeout in seconds.
-      - Must be greater than zero.
+      - Must be between C(1) and C(600).
 requirements:
   - python >= 3.9
 attributes:
@@ -76,13 +79,17 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 exit_code:
-  description: Command exit code.
+  description: Command exit code. A non-zero exit code fails the task.
   returned: except in check mode
   type: int
 stderr:
   description: Command standard error.
   returned: except in check mode
   type: str
+exit_signal:
+  description: Signal that terminated the command, or C(0) if it exited normally.
+  returned: except in check mode
+  type: int
 stdout:
   description: Command standard output.
   returned: except in check mode
@@ -93,9 +100,9 @@ stdout:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
-    api_request,
     flyio_client,
     flyio_path,
+    post_result,
     require_positive,
 )
 
@@ -107,6 +114,8 @@ def exec_command(module, client):
             module.fail_json(msg=f"{name} must not be empty")
 
     require_positive(module, "timeout")
+    if module.params["timeout"] > 600:
+        module.fail_json(msg="timeout must not exceed 600")
 
     if module.check_mode:
         module.exit_json(changed=True)
@@ -119,17 +128,18 @@ def exec_command(module, client):
         if module.params[option] is not None:
             body[option] = module.params[option]
 
-    result = api_request(
+    result = post_result(
         client,
-        "post",
         flyio_path("apps", module.params["app_name"], "machines", module.params["id"], "exec"),
-        body=body,
+        body,
         timeout=module.params["timeout"] + 10,
     )
     if (
         not isinstance(result, dict)
-        or not isinstance(result.get("exit_code"), int)
-        or isinstance(result["exit_code"], bool)
+        or not all(
+            isinstance(result.get(field, 0), int) and not isinstance(result.get(field), bool)
+            for field in ("exit_code", "exit_signal")
+        )
         or not all(isinstance(result.get(field, ""), str) for field in ("stderr", "stdout"))
     ):
         module.fail_json(
@@ -142,14 +152,16 @@ def exec_command(module, client):
 
     values = {
         "changed": True,
-        "exit_code": result.get("exit_code"),
+        # The API marks no response field as required; a missing exit code means success.
+        "exit_code": result.get("exit_code", 0),
+        "exit_signal": result.get("exit_signal", 0),
         "stderr": result.get("stderr", ""),
         "stdout": result.get("stdout", ""),
     }
 
-    if values["exit_code"] != 0:
+    if values["exit_code"] != 0 or values["exit_signal"] != 0:
         module.fail_json(
-            msg=(f"Command failed on Machine '{module.params['id']}' " f"for app '{module.params['app_name']}'"),
+            msg=f"Command failed on Machine '{module.params['id']}' for app '{module.params['app_name']}'",
             **values,
         )
 
@@ -164,7 +176,7 @@ def main():
             "command": {"required": True, "type": "str"},
             "container": {"type": "str"},
             "id": {"required": True, "type": "str"},
-            "stdin": {"type": "str"},
+            "stdin": {"type": "str", "no_log": True},
             "timeout": {"default": 30, "type": "int"},
         },
         supports_check_mode=True,

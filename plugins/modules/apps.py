@@ -28,6 +28,8 @@ options:
     description:
       - Organization slug.
       - Required when creating an app.
+      - Used only when creating an app. An existing app is not checked against
+        O(org_slug) or O(network).
   network:
     type: str
     description:
@@ -36,10 +38,9 @@ options:
       - Used only when creating an app.
   force:
     type: bool
-    default: true
     description:
-      - Stop and destroy the app's Machines when deleting the app.
-      - Used only when O(state=absent).
+      - Ignored. The Fly.io Machines API does not support a force option when deleting an app.
+      - This option will be removed in version 2.0.0 of linuxhq.flyio.
   delete_timeout:
     type: int
     default: 60
@@ -88,14 +89,13 @@ EXAMPLES = r"""
     api_token: "{{ flyio_api_token }}"
     name: my-app
     delete_timeout: 120
-    force: true
     state: absent
 """
 
 RETURN = r"""
 ---
 app:
-  description: Fly.io app.
+  description: Fly.io app. After deletion, the app as it was before deletion.
   returned: when available
   type: dict
   contains:
@@ -111,17 +111,17 @@ message:
 
 """
 
-import time
-
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     delete_result,
     flyio_client,
     flyio_path,
-    get_resource,
+    get_app,
     post_result,
     require_positive,
+    seconds_left,
+    wait_deadline,
     wait_for_app_absent,
 )
 
@@ -129,13 +129,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 def ensure_present(module, client):
     params = module.params
 
-    current = get_resource(
-        client,
-        flyio_path("apps", params["name"]),
-        ok_statuses=[404],
-        required_field="name",
-        expected_value=params["name"],
-    )
+    current = get_app(client, params["name"])
 
     if current is not None:
         module.exit_json(changed=False, message="App already present", app=current)
@@ -147,7 +141,7 @@ def ensure_present(module, client):
         module.exit_json(changed=True, message="App would be created")
 
     body = {
-        "app_name": params["name"],
+        "name": params["name"],
         "org_slug": params["org_slug"],
     }
 
@@ -156,12 +150,8 @@ def ensure_present(module, client):
 
     post_result(client, "/apps", body)
 
-    current = get_resource(
-        client,
-        flyio_path("apps", params["name"]),
-        required_field="name",
-        expected_value=params["name"],
-    )
+    # The create succeeded; tolerate read-after-write lag instead of failing.
+    current = get_app(client, params["name"]) or {"name": params["name"]}
 
     module.exit_json(changed=True, message="App created", app=current)
 
@@ -170,13 +160,7 @@ def ensure_absent(module, client):
     params = module.params
     require_positive(module, "delete_timeout")
 
-    current = get_resource(
-        client,
-        flyio_path("apps", params["name"]),
-        ok_statuses=[404],
-        required_field="name",
-        expected_value=params["name"],
-    )
+    current = get_app(client, params["name"])
 
     if current is None:
         module.exit_json(changed=False, message="App already absent")
@@ -185,10 +169,7 @@ def ensure_absent(module, client):
         module.exit_json(changed=True, message="App would be deleted", app=current)
 
     path = flyio_path("apps", params["name"])
-    if params["force"]:
-        path += "?force=true"
-
-    deadline = time.monotonic() + params["delete_timeout"]
+    deadline = wait_deadline(params["delete_timeout"])
     delete_result(
         client,
         path,
@@ -196,18 +177,18 @@ def ensure_absent(module, client):
         ok_statuses=[404],
     )
 
-    current = wait_for_app_absent(
+    remaining = wait_for_app_absent(
         client,
         params["name"],
-        max(0, deadline - time.monotonic()),
+        seconds_left(deadline),
     )
-    if current is not None:
+    if remaining is not None:
         module.fail_json(
             msg=f"Deletion of app '{params['name']}' timed out",
-            app=current,
+            app=remaining,
         )
 
-    module.exit_json(changed=True, message="App deleted")
+    module.exit_json(changed=True, message="App deleted", app=current)
 
 
 def main():
@@ -217,7 +198,11 @@ def main():
             "name": {"required": True, "type": "str"},
             "org_slug": {"type": "str"},
             "network": {"type": "str"},
-            "force": {"type": "bool", "default": True},
+            "force": {
+                "type": "bool",
+                "removed_in_version": "2.0.0",
+                "removed_from_collection": "linuxhq.flyio",
+            },
             "delete_timeout": {"type": "int", "default": 60},
             "state": {
                 "type": "str",

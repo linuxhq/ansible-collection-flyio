@@ -77,38 +77,30 @@ from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
-    flyio_path,
-    get_resource,
+    get_app,
     get_result,
+    nonempty_string,
 )
 
 
 def list_resources(module, client):
     org_slug = module.params["org_slug"]
-    result = get_result(client, "/apps?{}".format(urlencode({"org_slug": org_slug})))
+    result = get_result(client, f"/apps?{urlencode({'org_slug': org_slug})}")
 
     apps = result.get("apps") if isinstance(result, dict) else None
     if not isinstance(apps, list) or not all(
-        isinstance(app, dict) and isinstance(app.get("name"), str) and app["name"].strip() for app in apps
+        isinstance(app, dict) and nonempty_string(app.get("name")) for app in apps
     ):
-        module.fail_json(
-            msg=("Fly.io API returned malformed data while listing apps " f"for organization '{org_slug}'")
-        )
+        module.fail_json(msg=f"Fly.io API returned malformed data while listing apps for organization '{org_slug}'")
 
     module.exit_json(changed=False, apps=apps)
 
 
 def info(module, client):
-    app = get_resource(
-        client,
-        flyio_path("apps", module.params["name"]),
-        ok_statuses=[404],
-        required_field="name",
-        expected_value=module.params["name"],
-    )
+    app = get_app(client, module.params["name"])
 
     if app is None:
-        module.fail_json(msg="App '{}' not found".format(module.params["name"]))
+        module.fail_json(msg=f"App '{module.params['name']}' not found")
 
     module.exit_json(changed=False, apps=[app])
 

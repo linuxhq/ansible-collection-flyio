@@ -101,7 +101,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 def validate_volumes(module, volumes):
     if not all(valid_volume(volume) for volume in volumes):
-        module.fail_json(msg=("Fly.io API returned malformed volume data for app " f"'{module.params['app_name']}'"))
+        module.fail_json(msg=f"Fly.io API returned malformed volume data for app '{module.params['app_name']}'")
 
 
 def list_resources(module, client):
@@ -110,7 +110,7 @@ def list_resources(module, client):
         client,
         flyio_path("apps", app_name, "volumes"),
         ok_statuses=[404],
-        required_field="id",
+        required_fields=("id",),
     )
     validate_volumes(module, volumes)
 
@@ -122,12 +122,12 @@ def info(module, client):
         client,
         flyio_path("apps", module.params["app_name"], "volumes", module.params["id"]),
         ok_statuses=[404],
-        required_field="id",
-        expected_value=module.params["id"],
+        required_fields=("id",),
+        expected={"id": module.params["id"]},
     )
 
     if volume is None:
-        module.fail_json(msg=(f"Volume '{module.params['id']}' not found in app " f"'{module.params['app_name']}'"))
+        module.fail_json(msg=f"Volume '{module.params['id']}' not found in app '{module.params['app_name']}'")
 
     validate_volumes(module, [volume])
 

@@ -3,6 +3,9 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible.module_utils.common.parameters import _list_no_log_values, remove_values
+
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import machines
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -18,6 +21,7 @@ def params(**updates):
         "image": "example:latest",
         "name": "worker",
         "region": "ord",
+        "state": "present",
         "wait": True,
         "wait_timeout": 60,
     }
@@ -26,6 +30,15 @@ def params(**updates):
 
 
 class MachinesTests(TestCase):
+    def setUp(self):
+        for name, kwargs in (
+            ("wait_deadline", {"return_value": 60}),
+            ("seconds_left", {"side_effect": lambda deadline: deadline}),
+        ):
+            patcher = patch.object(machines, name, **kwargs)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_accepts_normalized_machine_responses(self):
         cases = [
             ({"env": {}}, {}),
@@ -113,7 +126,6 @@ class MachinesTests(TestCase):
         for values in (
             {"extend_threshold_percent": 0, "add_size_gb": 0},
             {"size_gb_limit": 0},
-            {"encrypted": False},
         ):
             mount = {"volume": "vol-one", "path": "/data"}
             cases.append(({"mounts": [{**mount, **values}]}, {"mounts": [mount]}))
@@ -281,6 +293,7 @@ class MachinesTests(TestCase):
             "config": {"restart": {"policy": "on-failure"}},
             "id": "machine-one",
             "name": "worker",
+            "state": "started",
         }
 
         with patch.object(machines, "list_all", return_value=[listed]):
@@ -295,8 +308,7 @@ class MachinesTests(TestCase):
                 {},
                 "/apps/example/machines",
                 ok_statuses=None,
-                required_field="id",
-                required_fields=("name", "state"),
+                required_fields=("id", "name", "state"),
             )
 
             list_all.reset_mock()
@@ -305,8 +317,7 @@ class MachinesTests(TestCase):
                 {},
                 "/apps/example/machines",
                 ok_statuses=[404],
-                required_field="id",
-                required_fields=("name", "state"),
+                required_fields=("id", "name", "state"),
             )
 
     def test_builds_config_without_none_values(self):
@@ -471,7 +482,33 @@ class MachinesTests(TestCase):
                         }
                     ]
                 },
-                "mounts[].extend_threshold_percent must be between 0 and 100",
+                "mounts[].extend_threshold_percent must be between 50 and 99",
+            ),
+            (
+                {
+                    "mounts": [
+                        {
+                            "add_size_gb": 1,
+                            "extend_threshold_percent": 10,
+                            "path": "/data",
+                            "volume": "vol-data",
+                        }
+                    ]
+                },
+                "mounts[].extend_threshold_percent must be between 50 and 99",
+            ),
+            (
+                {
+                    "mounts": [
+                        {
+                            "add_size_gb": 101,
+                            "extend_threshold_percent": 80,
+                            "path": "/data",
+                            "volume": "vol-data",
+                        }
+                    ]
+                },
+                "mounts[].add_size_gb must be between 0 and 100",
             ),
             (
                 {
@@ -951,7 +988,7 @@ class MachinesTests(TestCase):
         current = {
             "config": {"image": "example:latest"},
             "id": "machine-one",
-            "instance_id": "instance-one",
+            "version": "instance-one",
             "region": "ord",
             "state": "stopping",
         }
@@ -967,14 +1004,7 @@ class MachinesTests(TestCase):
         ):
             machines.ensure_present(module, {})
 
-        wait.assert_called_once_with(
-            {},
-            "example",
-            "machine-one",
-            "settled",
-            60,
-            instance_id=None,
-        )
+        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version=None)
         post.assert_not_called()
         self.assertFalse(raised.exception.values["changed"])
 
@@ -986,13 +1016,13 @@ class MachinesTests(TestCase):
                 "services": [{"internal_port": 8080}],
             },
             "id": "machine-one",
-            "instance_id": "version-one",
+            "version": "version-one",
             "region": "ord",
             "state": "started",
         }
         updated = {
             "id": "machine-one",
-            "instance_id": "version-two",
+            "version": "version-two",
             "state": "starting",
         }
         started = {
@@ -1006,7 +1036,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result", return_value=updated) as post,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=started) as get,
+            patch.object(machines, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(module, {})
@@ -1023,20 +1053,7 @@ class MachinesTests(TestCase):
                 "current_version": "version-one",
             },
         )
-        wait.assert_called_once_with(
-            {},
-            "example",
-            "machine-one",
-            "settled",
-            60,
-        )
-        get.assert_called_once_with(
-            {},
-            "/apps/example/machines/machine-one",
-            required_field="id",
-            expected_value="machine-one",
-            required_fields=("state",),
-        )
+        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version="version-two")
         self.assertEqual(raised.exception.values["machine"], started)
 
     def test_removes_concurrency_hard_limit(self):
@@ -1098,7 +1115,7 @@ class MachinesTests(TestCase):
         current = {
             "config": {"image": "example:old"},
             "id": "machine-one",
-            "instance_id": "instance-one",
+            "version": "instance-one",
             "region": "ord",
             "state": "started",
         }
@@ -1124,20 +1141,20 @@ class MachinesTests(TestCase):
         ):
             machines.ensure_present(FakeModule(params()), {})
 
-        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60)
+        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version=None)
 
     def test_update_rejects_malformed_current_version_before_mutation(self):
         for instance_id in ([], " "):
             current = {
                 "config": {"image": "example:old"},
                 "id": "machine-one",
-                "instance_id": instance_id,
+                "version": instance_id,
                 "region": "ord",
                 "state": "started",
             }
 
             with (
-                self.subTest(instance_id=instance_id),
+                self.subTest(version=instance_id),
                 patch.object(machines, "find_machine", return_value=current),
                 patch.object(machines, "post_result") as post,
                 self.assertRaises(ModuleFail) as raised,
@@ -1145,13 +1162,13 @@ class MachinesTests(TestCase):
                 machines.ensure_present(FakeModule(params(wait=False)), {})
 
             post.assert_not_called()
-            self.assertIn("expected an instance ID", raised.exception.values["msg"])
+            self.assertIn("expected a version", raised.exception.values["msg"])
 
     def test_rejects_malformed_update_response(self):
         current = {
             "config": {"image": "example:old"},
             "id": "machine-one",
-            "instance_id": "instance-one",
+            "version": "instance-one",
             "region": "ord",
             "state": "started",
         }
@@ -1561,7 +1578,11 @@ class MachinesTests(TestCase):
                 module = FakeModule(params(mounts=[requested], wait=False))
                 applied = {
                     **current,
-                    "config": {"image": "example:latest", "mounts": [{**mount, **requested}]},
+                    # The attached volume ID is kept even when the mount is requested by name.
+                    "config": {
+                        "image": "example:latest",
+                        "mounts": [{**mount, **requested, "volume": mount["volume"]}],
+                    },
                 }
                 with (
                     patch.object(machines, "find_machine", return_value=current),
@@ -1654,7 +1675,7 @@ class MachinesTests(TestCase):
         current = {
             "config": {"image": "example:old"},
             "id": "machine-one",
-            "instance_id": "version-one",
+            "version": "version-one",
             "region": "ord",
             "state": "stopped",
         }
@@ -1676,7 +1697,7 @@ class MachinesTests(TestCase):
 
         self.assertTrue(post.call_args.args[2]["skip_launch"])
         self.assertEqual(post.call_args.args[2]["current_version"], "version-one")
-        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60)
+        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version=None)
 
     def test_removes_unspecified_environment_keys(self):
         current = {
@@ -1780,7 +1801,7 @@ class MachinesTests(TestCase):
     def test_create_wait_returns_refreshed_machine(self):
         created = {
             "id": "machine-one",
-            "instance_id": "instance-one",
+            "version": "instance-one",
             "state": "starting",
         }
         started = {
@@ -1801,13 +1822,13 @@ class MachinesTests(TestCase):
         ):
             machines.ensure_present(module, {})
 
-        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60)
+        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version="instance-one")
         get.assert_called_once_with(
             {},
             "/apps/example/machines/machine-one",
-            required_field="id",
-            expected_value="machine-one",
-            required_fields=("state",),
+            ok_statuses=[404],
+            required_fields=("id", "state"),
+            expected={"id": "machine-one"},
         )
         self.assertEqual(raised.exception.values["machine"], started)
 
@@ -1850,7 +1871,7 @@ class MachinesTests(TestCase):
     def test_destroy_waits_for_destroyed_state(self):
         current = {
             "id": "machine-one",
-            "instance_id": "instance-one",
+            "version": "instance-one",
             "state": "started",
         }
         module = FakeModule(params(image=None))
@@ -1874,12 +1895,11 @@ class MachinesTests(TestCase):
             {},
             "/apps/example/machines/machine-one",
             ok_statuses=[404],
-            required_field="id",
-            expected_value="machine-one",
-            required_fields=("state",),
+            required_fields=("id", "state"),
+            expected={"id": "machine-one"},
         )
         self.assertTrue(raised.exception.values["changed"])
-        self.assertNotIn("machine", raised.exception.values)
+        self.assertEqual(raised.exception.values["machine"], current)
 
     def test_destroy_rejects_surviving_machine_after_wait(self):
         current = {"id": "machine-one", "state": "started"}
@@ -1896,7 +1916,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Machine 'machine-one' in app 'example' did not reach state 'destroyed'",
+            "Machine 'machine-one' in app 'example' did not reach state 'destroyed' (current state: started)",
         )
 
     def test_destroy_without_wait_returns_request_status(self):
@@ -1914,7 +1934,7 @@ class MachinesTests(TestCase):
             raised.exception.values["message"],
             "Machine destruction requested",
         )
-        self.assertNotIn("machine", raised.exception.values)
+        self.assertEqual(raised.exception.values["machine"], current)
 
     def test_destroyed_machine_is_unchanged_in_check_mode(self):
         current = {"id": "machine-one", "state": "destroyed"}
@@ -1976,22 +1996,23 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(
                 machines,
-                "api_request",
+                "post_result",
                 return_value=None,
             ) as request,
             patch.object(machines, "wait_for_machine") as wait,
             patch.object(machines, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
-            machines.ensure_started(module, {})
+            machines.ensure_power_state(module, {}, "started")
 
-        request.assert_called_once_with({}, "post", "/apps/example/machines/machine-one/start")
+        request.assert_called_once_with({}, "/apps/example/machines/machine-one/start")
         wait.assert_called_once_with(
             {},
             "example",
             "machine-one",
             "started",
             60,
+            version=None,
         )
         self.assertEqual(raised.exception.values["machine"], started)
 
@@ -2000,13 +2021,13 @@ class MachinesTests(TestCase):
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "api_request") as request,
+            patch.object(machines, "post_result") as request,
             self.assertRaises(ModuleFail) as raised,
         ):
-            machines.ensure_stopped(FakeModule(params(image=None)), {})
+            machines.ensure_power_state(FakeModule(params(image=None)), {}, "stopped")
 
         request.assert_not_called()
-        self.assertIn("expected an instance ID", raised.exception.values["msg"])
+        self.assertIn("expected a version", raised.exception.values["msg"])
 
     def test_starting_machine_waits_without_starting_again(self):
         current = {
@@ -2018,12 +2039,12 @@ class MachinesTests(TestCase):
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "api_request") as request,
+            patch.object(machines, "post_result") as request,
             patch.object(machines, "wait_for_machine") as wait,
             patch.object(machines, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
-            machines.ensure_started(module, {})
+            machines.ensure_power_state(module, {}, "started")
 
         request.assert_not_called()
         wait.assert_called_once_with(
@@ -2032,7 +2053,7 @@ class MachinesTests(TestCase):
             "machine-one",
             "started",
             60,
-            instance_id=None,
+            version=None,
         )
         self.assertFalse(raised.exception.values["changed"])
 
@@ -2050,7 +2071,7 @@ class MachinesTests(TestCase):
                 patch.object(machines, "get_resource") as get,
                 self.assertRaises(ModuleExit) as raised,
             ):
-                machines.settle_machine(module, {}, current, desired_state)
+                machines.settle_machine(module, {}, current, desired_state, 60)
 
             wait.assert_not_called()
             get.assert_not_called()
@@ -2071,7 +2092,7 @@ class MachinesTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Machine 'machine-one' in app 'example' did not reach state 'started'",
+            "Machine 'machine-one' in app 'example' did not reach state 'started' (current state: stopping)",
         )
 
     def test_present_wait_accepts_only_stable_usable_states(self):
@@ -2098,48 +2119,50 @@ class MachinesTests(TestCase):
                 )
 
     def test_waits_for_ambiguous_machine_transition_to_settle(self):
-        current = {"id": "machine-one", "state": "updating"}
+        current = {"id": "machine-one", "state": "replacing"}
         started = {"id": "machine-one", "state": "started"}
         module = FakeModule(params(image=None))
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "api_request") as request,
-            patch.object(machines, "wait_for_machine_settled", return_value=started) as wait,
+            patch.object(machines, "post_result") as request,
+            patch.object(machines, "wait_for_machine") as wait,
+            patch.object(machines, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
-            machines.ensure_started(module, {})
+            machines.ensure_power_state(module, {}, "started")
 
         request.assert_not_called()
-        wait.assert_called_once_with({}, "example", "machine-one", machines.TRANSITIONAL_STATES, 60)
+        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version=None)
         self.assertFalse(raised.exception.values["changed"])
 
     def test_rejects_ambiguous_machine_transition_without_wait(self):
-        current = {"id": "machine-one", "state": "updating"}
+        current = {"id": "machine-one", "state": "replacing"}
         module = FakeModule(params(image=None, wait=False))
 
         with (
             patch.object(machines, "find_machine", return_value=current),
             self.assertRaises(ModuleFail) as raised,
         ):
-            machines.ensure_started(module, {})
+            machines.ensure_power_state(module, {}, "started")
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Machine 'machine-one' in app 'example' is currently updating; enable wait or retry",
+            "Machine 'machine-one' in app 'example' is currently replacing; enable wait or retry",
         )
 
     def test_rejects_timed_out_machine_transition(self):
-        current = {"id": "machine-one", "state": "updating"}
+        current = {"id": "machine-one", "state": "replacing"}
         module = FakeModule(params(image=None))
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "wait_for_machine_settled", return_value=current),
-            patch.object(machines, "api_request") as request,
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=current),
+            patch.object(machines, "post_result") as request,
             self.assertRaises(ModuleFail) as raised,
         ):
-            machines.ensure_started(module, {})
+            machines.ensure_power_state(module, {}, "started")
 
         request.assert_not_called()
         self.assertEqual(
@@ -2153,10 +2176,10 @@ class MachinesTests(TestCase):
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "api_request") as request,
+            patch.object(machines, "post_result") as request,
             self.assertRaises(ModuleFail) as raised,
         ):
-            machines.ensure_stopped(module, {})
+            machines.ensure_power_state(module, {}, "stopped")
 
         request.assert_not_called()
         self.assertEqual(
@@ -2167,7 +2190,7 @@ class MachinesTests(TestCase):
     def test_stops_machine(self):
         current = {
             "id": "machine-one",
-            "instance_id": "instance-one",
+            "version": "instance-one",
             "state": "started",
         }
         stopped = {"id": "machine-one", "state": "stopped"}
@@ -2177,23 +2200,23 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(
                 machines,
-                "api_request",
+                "post_result",
                 return_value=None,
             ) as request,
             patch.object(machines, "wait_for_machine") as wait,
             patch.object(machines, "get_resource", return_value=stopped),
             self.assertRaises(ModuleExit) as raised,
         ):
-            machines.ensure_stopped(module, {})
+            machines.ensure_power_state(module, {}, "stopped")
 
-        request.assert_called_once_with({}, "post", "/apps/example/machines/machine-one/stop")
+        request.assert_called_once_with({}, "/apps/example/machines/machine-one/stop")
         wait.assert_called_once_with(
             {},
             "example",
             "machine-one",
             "stopped",
             60,
-            instance_id="instance-one",
+            version="instance-one",
         )
         self.assertEqual(raised.exception.values["machine"], stopped)
 
@@ -2203,10 +2226,10 @@ class MachinesTests(TestCase):
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "api_request") as request,
+            patch.object(machines, "post_result") as request,
             self.assertRaises(ModuleExit) as raised,
         ):
-            machines.ensure_stopped(module, {})
+            machines.ensure_power_state(module, {}, "stopped")
 
         request.assert_not_called()
         self.assertFalse(raised.exception.values["changed"])
@@ -2218,7 +2241,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine") as find,
             self.assertRaises(ModuleFail) as raised,
         ):
-            machines.ensure_started(module, {})
+            machines.ensure_power_state(module, {}, "started")
 
         find.assert_not_called()
         self.assertEqual(
@@ -2229,7 +2252,7 @@ class MachinesTests(TestCase):
     def test_stopping_machine_waits_without_stopping_again(self):
         current = {
             "id": "machine-one",
-            "instance_id": "instance-one",
+            "version": "instance-one",
             "state": "stopping",
         }
         stopped = {"id": "machine-one", "state": "stopped"}
@@ -2237,12 +2260,12 @@ class MachinesTests(TestCase):
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "api_request") as request,
+            patch.object(machines, "post_result") as request,
             patch.object(machines, "wait_for_machine") as wait,
             patch.object(machines, "get_resource", return_value=stopped),
             self.assertRaises(ModuleExit) as raised,
         ):
-            machines.ensure_stopped(module, {})
+            machines.ensure_power_state(module, {}, "stopped")
 
         request.assert_not_called()
         wait.assert_called_once_with(
@@ -2251,6 +2274,864 @@ class MachinesTests(TestCase):
             "machine-one",
             "stopped",
             60,
-            instance_id="instance-one",
+            version="instance-one",
         )
         self.assertFalse(raised.exception.values["changed"])
+
+    def test_rejects_duplicate_machine_names(self):
+        listed = [
+            {"id": "machine-one", "name": "worker", "state": "started"},
+            {"id": "machine-two", "name": "worker", "state": "stopped"},
+        ]
+
+        with (
+            patch.object(machines, "list_all", return_value=listed),
+            self.assertRaises(FlyioApiError) as raised,
+        ):
+            machines.find_machine({}, "example", name="worker")
+
+        self.assertEqual(
+            str(raised.exception),
+            "Multiple Machines named 'worker' match in app 'example'; specify id",
+        )
+
+    def test_returned_configuration_is_not_masked_by_no_log(self):
+        with (
+            patch.object(machines, "AnsibleModule", side_effect=RuntimeError) as module,
+            self.assertRaises(RuntimeError),
+        ):
+            machines.main()
+
+        spec = module.call_args.kwargs["argument_spec"]
+        params = {
+            "checks": {"web": {"type": "http", "port": 8080, "path": "/healthz"}},
+            "env": {"DEBUG": "1"},
+        }
+        self.assertEqual(_list_no_log_values(spec, params), set())
+        machine = {"id": "d1234", "config": {"image": "app:v1", "services": [{"internal_port": 8080}]}}
+        self.assertEqual(remove_values(machine, _list_no_log_values(spec, params)), machine)
+
+    def test_ignores_provider_owned_mount_fields(self):
+        mount = {"volume": "vol-one", "path": "/data"}
+        current = {
+            "config": {"image": "example:latest", "mounts": [{**mount, "encrypted": True, "name": "data"}]},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        module = FakeModule(params(mounts=[{**mount, "encrypted": False, "name": "other"}], wait=False))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        post.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+
+    def test_changing_check_type_replaces_check(self):
+        current = {
+            "config": {
+                "checks": {"web": {"type": "http", "port": 8080, "path": "/healthz", "method": "GET"}},
+                "image": "example:latest",
+            },
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        desired = {"type": "tcp", "port": 8080}
+        updated = {**current, "config": {**current["config"], "checks": {"web": desired}}}
+        module = FakeModule(params(checks={"web": desired}, wait=False))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=updated) as post,
+            self.assertRaises(ModuleExit),
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertEqual(post.call_args.args[2]["config"]["checks"], {"web": desired})
+
+    def test_replaced_check_must_be_complete(self):
+        current = {
+            "config": {"checks": {"web": {"type": "http", "port": 8080}}, "image": "example:latest"},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        module = FakeModule(params(checks={"web": {"type": "tcp"}}, wait=False))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        post.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "check 'web' requires port")
+
+    def test_waits_for_migrating_machine_before_update(self):
+        current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "migrating"}
+        started = {**current, "state": "started"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "wait_for_machine") as wait,
+            patch.object(machines, "get_resource", return_value=started),
+            self.assertRaises(ModuleExit),
+        ):
+            machines.ensure_present(FakeModule(params()), {})
+
+        wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version=None)
+
+    def test_name_lookup_skips_destroying_machines_except_for_absent(self):
+        destroying = {"id": "machine-old", "name": "worker", "state": "destroying"}
+        started = {"id": "machine-new", "name": "worker", "state": "started"}
+
+        with patch.object(machines, "list_all", return_value=[destroying, started]):
+            self.assertEqual(machines.find_machine({}, "example", name="worker"), started)
+
+        with patch.object(machines, "list_all", return_value=[destroying]):
+            self.assertIsNone(machines.find_machine({}, "example", name="worker"))
+            self.assertEqual(
+                machines.find_machine({}, "example", name="worker", include_destroying=True),
+                destroying,
+            )
+
+    def test_create_accepts_auto_destroyed_machine_after_wait(self):
+        created = {"id": "machine-one", "version": "v1", "state": "created"}
+        module = FakeModule(params(auto_destroy=True))
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["machine"], created)
+        self.assertEqual(raised.exception.values["message"], "Machine created; it completed and destroyed itself")
+
+    def test_create_without_auto_destroy_rejects_destroyed_machine(self):
+        created = {"id": "machine-one", "version": "v1", "state": "created"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value={**created, "state": "destroyed"}),
+            self.assertRaises(ModuleFail),
+        ):
+            machines.ensure_present(FakeModule(params()), {})
+
+    def test_rejects_region_lists_and_groups(self):
+        for region in ("us", "any", "ord,iad", "Europe"):
+            with (
+                self.subTest(region=region),
+                patch.object(machines, "find_machine") as find,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines.ensure_present(FakeModule(params(region=region)), {})
+
+            find.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "region must be a single region code; region lists and groups are not supported",
+            )
+
+    def test_unchanged_transitioning_machine_without_wait_is_unchanged(self):
+        current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "starting"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(wait=False)), {})
+
+        post.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+
+    def test_changed_transitioning_machine_without_wait_still_fails(self):
+        current = {"config": {"image": "example:old"}, "id": "machine-one", "region": "ord", "state": "starting"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleFail),
+        ):
+            machines.ensure_present(FakeModule(params(wait=False)), {})
+
+        post.assert_not_called()
+
+    def test_stop_accepts_machine_that_auto_destroys(self):
+        current = {
+            "config": {"auto_destroy": True, "image": "example:latest"},
+            "id": "machine-one",
+            "state": "started",
+            "version": "v1",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result"),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_power_state(FakeModule(params(image=None)), {}, "stopped")
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(
+            raised.exception.values["message"], "Machine stop requested; it completed and destroyed itself"
+        )
+
+    def test_update_accepts_self_destroy_from_existing_config(self):
+        current = {
+            "config": {"auto_destroy": True, "image": "example:old"},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "stopped",
+            "version": "v1",
+        }
+        updated = {**current, "config": {"auto_destroy": True, "image": "example:latest"}, "version": "v2"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=updated),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params()), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_id_lookup_skips_destroying_machine_except_for_absent(self):
+        destroying = {"id": "machine-one", "state": "destroying"}
+
+        with patch.object(machines, "get_resource", return_value=destroying):
+            self.assertIsNone(machines.find_machine({}, "example", machine_id="machine-one"))
+            self.assertEqual(
+                machines.find_machine({}, "example", machine_id="machine-one", include_destroying=True),
+                destroying,
+            )
+
+    def test_absent_name_lookup_prefers_live_machine(self):
+        destroying = {"id": "machine-old", "name": "web", "state": "destroying"}
+        live = {"id": "machine-new", "name": "web", "state": "started"}
+
+        with patch.object(machines, "list_all", return_value=[destroying, live]):
+            self.assertEqual(machines.find_machine({}, "example", name="web", include_destroying=True), live)
+
+    def test_archived_machine_is_not_managed(self):
+        current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "archived"}
+
+        for state in ("present", "started", "stopped"):
+            with (
+                self.subTest(state=state),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result") as post,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                if state == "present":
+                    machines.ensure_present(FakeModule(params()), {})
+                else:
+                    machines.ensure_power_state(FakeModule(params(image=None)), {}, state)
+
+            post.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "Machine 'machine-one' in app 'example' is archived; only state=absent is supported",
+            )
+
+    def test_documented_transient_states_are_waited_on(self):
+        for state in ("creating", "restarting", "launch_failed", "updating"):
+            with self.subTest(state=state):
+                self.assertIn(state, machines.TRANSITIONAL_STATES)
+
+    def test_unreachable_host_is_reported_before_update(self):
+        current = {
+            "config": None,
+            "host_status": "unreachable",
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(FakeModule(params()), {})
+
+        post.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Host for Machine 'machine-one' in app 'example' is not reachable (host_status=unreachable); retry later",
+        )
+
+    def test_unreachable_host_after_update_is_not_reported_as_unapplied(self):
+        current = {"config": {"image": "example:old"}, "id": "machine-one", "region": "ord", "state": "started"}
+        updated = {"config": {"image": "example:latest"}, "id": "machine-one", "state": "started", "version": "v2"}
+        unreachable = {"config": None, "host_status": "unreachable", "id": "machine-one", "state": "started"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=updated),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=unreachable),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(FakeModule(params()), {})
+
+        self.assertIn("is not reachable (host_status=unreachable)", raised.exception.values["msg"])
+
+    def test_self_destroying_machine_tolerates_wait_errors(self):
+        current = {
+            "config": {"auto_destroy": True, "image": "example:latest"},
+            "id": "machine-one",
+            "state": "stopped",
+            "version": "v1",
+        }
+        for status in (404, 408):
+            with (
+                self.subTest(status=status),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result"),
+                patch.object(machines, "wait_for_machine", side_effect=FlyioApiError("gone", status_code=status)),
+                patch.object(machines, "get_resource", return_value=None),
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
+
+            self.assertEqual(
+                raised.exception.values["message"],
+                "Machine start requested; it completed and destroyed itself",
+            )
+
+    def test_wait_errors_still_fail_without_auto_destroy(self):
+        current = {"config": {"image": "example:latest"}, "id": "machine-one", "state": "stopped", "version": "v1"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result"),
+            patch.object(machines, "wait_for_machine", side_effect=FlyioApiError("gone", status_code=404)),
+            self.assertRaises(FlyioApiError),
+        ):
+            machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
+
+    def test_restart_retries_rejected_for_other_policy_without_current_restart(self):
+        current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "started"}
+        module = FakeModule(params(restart={"policy": "always", "max_retries": 3}, wait=False), check_mode=True)
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertEqual(raised.exception.values["msg"], "restart.max_retries is valid only with policy=on-failure")
+        self.assertEqual(module.params["restart"], {"policy": "always", "max_retries": 3})
+
+    def test_machine_archived_after_wait_is_rejected(self):
+        current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "pending"}
+        archived = {**current, "state": "archived"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=archived),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
+
+        post.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Machine 'machine-one' in app 'example' is archived; only state=absent is supported",
+        )
+
+    def test_stopped_spot_machine_update_fails_before_request(self):
+        for spot, check_mode in (
+            ({"max_price_fraction": 0.5}, False),
+            ({"max_price_fraction": 0.5}, True),
+            ({}, False),
+            ({}, True),
+        ):
+            current = {
+                "config": {"image": "example:old", "spot": spot},
+                "id": "machine-one",
+                "region": "ord",
+                "state": "stopped",
+                "version": "v1",
+            }
+            with (
+                self.subTest(spot=spot, check_mode=check_mode),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result") as post,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines.ensure_present(FakeModule(params(), check_mode=check_mode), {})
+
+            post.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "Spot Machine 'machine-one' in app 'example' must be running to be updated; start it first",
+            )
+
+    def test_add_size_gb_replaces_percentage_extension(self):
+        current = {
+            "mounts": [
+                {
+                    "volume": "vol_1",
+                    "name": "data",
+                    "path": "/data",
+                    "extend_threshold_percent": 80,
+                    "add_size_percent": 10,
+                    "min_add_size_gb": 2,
+                }
+            ]
+        }
+        desired = {"mounts": [{"volume": "vol_1", "path": "/data", "extend_threshold_percent": 80, "add_size_gb": 5}]}
+
+        mount = machines.merge_config(current, desired)["mounts"][0]
+
+        self.assertEqual(mount["add_size_gb"], 5)
+        self.assertNotIn("add_size_percent", mount)
+        self.assertNotIn("min_add_size_gb", mount)
+
+    def test_auto_destroy_option_is_ignored_for_power_states(self):
+        current = {
+            "config": {"auto_destroy": False, "image": "example:latest"},
+            "id": "machine-one",
+            "state": "stopped",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result"),
+            patch.object(machines, "wait_for_machine", side_effect=FlyioApiError("gone", status_code=404)),
+            self.assertRaises(FlyioApiError),
+        ):
+            machines.ensure_power_state(
+                FakeModule(params(image=None, state="started", auto_destroy=True)), {}, "started"
+            )
+
+    def test_duplicate_services_compare_equal_with_omitted_defaults(self):
+        requested = {
+            "image": "example:latest",
+            "services": [
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80, "force_https": False}]},
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 443}]},
+            ],
+        }
+        returned = {
+            "image": "example:latest",
+            "services": [
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80}]},
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 443}]},
+            ],
+        }
+
+        self.assertFalse(machines.machine_config_changed(returned, requested))
+
+    def test_machine_moving_on_after_settled_wait_is_accepted(self):
+        created = {"id": "machine-one", "version": "v1", "state": "created"}
+        stopping = {
+            "config": {"image": "example:latest"},
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "stopping",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=stopping),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params()), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["machine"]["state"], "stopping")
+
+    def test_tolerated_wait_timeout_does_not_accept_transitional_machine(self):
+        created = {"id": "machine-one", "version": "v1", "state": "created"}
+        starting = {
+            "config": {"auto_destroy": True, "image": "example:latest"},
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "starting",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            patch.object(machines, "wait_for_machine", side_effect=FlyioApiError("timeout", status_code=408)),
+            patch.object(machines, "get_resource", return_value=starting),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(auto_destroy=True)), {})
+
+        self.assertIn("did not reach state 'settled' (current state: starting)", raised.exception.values["msg"])
+
+    def test_lowering_hard_limit_below_current_soft_limit_is_allowed(self):
+        service = {
+            "internal_port": 8080,
+            "protocol": "tcp",
+            "concurrency": {"type": "connections", "soft_limit": 20, "hard_limit": 25},
+        }
+        current = {
+            "config": {"image": "example:latest", "services": [service]},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        module = FakeModule(
+            params(services=[{"internal_port": 8080, "concurrency": {"hard_limit": 10}}], wait=False), check_mode=True
+        )
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_raising_soft_limit_above_current_hard_limit_fails_before_update(self):
+        service = {
+            "internal_port": 8080,
+            "protocol": "tcp",
+            "concurrency": {"type": "connections", "soft_limit": 20, "hard_limit": 25},
+        }
+        current = {
+            "config": {"image": "example:latest", "services": [service]},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        module = FakeModule(params(services=[{"internal_port": 8080, "concurrency": {"soft_limit": 50}}], wait=False))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        post.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "services[].concurrency.soft_limit must not exceed hard_limit")
+
+    def test_rejects_empty_optional_strings(self):
+        for updates, name in (
+            ({"guest": {"cpu_kind": ""}}, "guest.cpu_kind"),
+            ({"guest": {"host_dedication_id": " "}}, "guest.host_dedication_id"),
+            ({"statics": [{"guest_path": "/a", "url_prefix": "/", "tigris_bucket": ""}]}, "statics[].tigris_bucket"),
+            ({"statics": [{"guest_path": "/a", "url_prefix": "/", "index_document": ""}]}, "statics[].index_document"),
+            (
+                {
+                    "services": [
+                        {
+                            "internal_port": 80,
+                            "protocol": "tcp",
+                            "ports": [{"port": 80, "proxy_proto_options": {"version": ""}}],
+                        }
+                    ]
+                },
+                "services[].ports[].proxy_proto_options.version",
+            ),
+        ):
+            with (
+                self.subTest(name=name),
+                patch.object(machines, "find_machine") as find,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines.ensure_present(FakeModule(params(**updates)), {})
+
+            find.assert_not_called()
+            self.assertEqual(raised.exception.values["msg"], f"{name} must not be empty")
+
+    def test_region_is_normalized_to_lowercase_code(self):
+        module = FakeModule(params(region=" ORD "))
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            self.assertRaises(ModuleExit),
+        ):
+            module.check_mode = True
+            machines.ensure_present(module, {})
+
+        self.assertEqual(module.params["region"], "ord")
+
+    def test_power_state_accepts_auto_destroying_or_moved_on_machine(self):
+        for desired_state, state, reread, message in (
+            ("stopped", "started", "destroying", "Machine stop requested; it completed and destroyed itself"),
+            ("started", "stopped", "stopping", "Machine started"),
+        ):
+            current = {
+                "config": {"auto_destroy": True, "image": "example:latest"},
+                "id": "machine-one",
+                "state": state,
+                "version": "v1",
+            }
+            with (
+                self.subTest(desired_state=desired_state, reread=reread),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result"),
+                patch.object(machines, "wait_for_machine"),
+                patch.object(machines, "get_resource", return_value={**current, "state": reread}),
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                machines.ensure_power_state(FakeModule(params(image=None)), {}, desired_state)
+
+            self.assertTrue(raised.exception.values["changed"])
+            self.assertEqual(raised.exception.values["message"], message)
+
+    def test_destruction_after_successful_wait_fails_without_auto_destroy(self):
+        for state in ("destroying", "launch_failed"):
+            current = {"config": {"image": "example:latest"}, "id": "machine-one", "state": "stopped", "version": "v1"}
+            with (
+                self.subTest(path="start", state=state),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result"),
+                patch.object(machines, "wait_for_machine"),
+                patch.object(machines, "get_resource", return_value={**current, "state": state}),
+                self.assertRaises(ModuleFail),
+            ):
+                machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
+
+            created = {"id": "machine-one", "version": "v1", "state": "created"}
+            reread = {
+                "config": {"image": "example:latest"},
+                "id": "machine-one",
+                "name": "worker",
+                "region": "ord",
+                "state": state,
+            }
+            with (
+                self.subTest(path="create", state=state),
+                patch.object(machines, "find_machine", return_value=None),
+                patch.object(machines, "post_result", return_value=created),
+                patch.object(machines, "wait_for_machine"),
+                patch.object(machines, "get_resource", return_value=reread),
+                self.assertRaises(ModuleFail),
+            ):
+                machines.ensure_present(FakeModule(params()), {})
+
+    def test_create_accepts_auto_destroying_machine_in_destroying_state(self):
+        created = {"id": "machine-one", "version": "v1", "state": "created"}
+        reread = {
+            "config": {"auto_destroy": True, "image": "example:latest"},
+            "id": "machine-one",
+            "state": "destroying",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=reread),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(auto_destroy=True)), {})
+
+        self.assertEqual(raised.exception.values["message"], "Machine created; it completed and destroyed itself")
+
+    def test_empty_concurrency_and_proxy_proto_options_match_omitted_fields(self):
+        current = {
+            "image": "example:latest",
+            "services": [{"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80}]}],
+        }
+        desired = {
+            "image": "example:latest",
+            "services": [
+                {
+                    "internal_port": 8080,
+                    "protocol": "tcp",
+                    "concurrency": {},
+                    "ports": [{"port": 80, "proxy_proto_options": {}}],
+                }
+            ],
+        }
+
+        self.assertFalse(machines.machine_config_changed(current, desired))
+
+    def test_check_named_headers_keeps_merge_comparison(self):
+        current = {"image": "example:latest", "checks": {"headers": {"type": "tcp", "port": 8080, "interval": "15s"}}}
+        desired = {"image": "example:latest", "checks": {"headers": {"type": "tcp", "port": 8080}}}
+
+        self.assertFalse(machines.machine_config_changed(current, desired))
+
+    def test_response_headers_merge_with_current_headers(self):
+        def config(headers):
+            port = {"port": 443, "http_options": {"response": {"headers": headers}}}
+            return {
+                "image": "example:latest",
+                "services": [{"internal_port": 8080, "protocol": "tcp", "ports": [port]}],
+            }
+
+        current = config({"A": "1", "B": "2"})
+        desired = config({"A": "1"})
+
+        self.assertFalse(machines.machine_config_changed(current, desired))
+        merged = machines.merge_config(current, desired)
+        self.assertEqual(merged["services"][0]["ports"][0]["http_options"]["response"]["headers"], {"A": "1", "B": "2"})
+        self.assertTrue(machines.machine_config_changed(current, config({"A": "1", "B": False})))
+
+    def test_power_state_accepts_stable_state_reached_after_successful_wait(self):
+        for desired_state, state, reread, message in (
+            ("started", "stopped", "stopped", "Machine started"),
+            ("stopped", "started", "started", "Machine stopped"),
+        ):
+            current = {"config": {"image": "example:latest"}, "id": "machine-one", "state": state, "version": "v1"}
+            with (
+                self.subTest(desired_state=desired_state),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result"),
+                patch.object(machines, "wait_for_machine"),
+                patch.object(machines, "get_resource", return_value={**current, "state": reread}),
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                machines.ensure_power_state(FakeModule(params(image=None)), {}, desired_state)
+
+            self.assertTrue(raised.exception.values["changed"])
+            self.assertEqual(raised.exception.values["message"], message)
+
+    def test_settle_continues_when_machine_moves_past_wait_target(self):
+        current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "starting"}
+        stopped = {**current, "state": "stopped"}
+
+        with (
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=stopped),
+        ):
+            result = machines.settle_machine(FakeModule(params(image=None)), {}, current, "stopped", 60)
+
+        self.assertEqual(result, stopped)
+
+    def test_merge_pairs_duplicate_services_like_the_change_check(self):
+        current = {
+            "image": "example:old",
+            "services": [
+                {
+                    "internal_port": 8080,
+                    "protocol": "tcp",
+                    "autostart": True,
+                    "min_machines_running": 1,
+                    "ports": [{"port": 80}],
+                },
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80, "force_https": True}]},
+            ],
+        }
+        desired = {
+            "image": "example:new",
+            "services": [
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80, "force_https": False}]},
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80, "force_https": True}]},
+            ],
+        }
+
+        merged = machines.merge_config(current, desired)
+
+        self.assertTrue(merged["services"][0]["autostart"])
+        self.assertEqual(merged["services"][0]["min_machines_running"], 1)
+        self.assertFalse(merged["services"][0]["ports"][0]["force_https"])
+
+    def test_merge_does_not_leak_comparison_defaults_into_other_services(self):
+        current = {
+            "image": "example:old",
+            "services": [
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80}]},
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 443}]},
+            ],
+        }
+        desired = {
+            "image": "example:new",
+            "services": [
+                {"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": 5}, "ports": [{"port": 80}]},
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 443}]},
+            ],
+        }
+
+        merged = machines.merge_config(current, desired)
+
+        self.assertEqual(merged["services"][0]["concurrency"], {"soft_limit": 5})
+        self.assertNotIn("concurrency", merged["services"][1])
+        self.assertEqual(merged["services"][1]["ports"], [{"port": 443}])
+
+    def test_duplicate_services_pair_in_order_for_merge_and_compare(self):
+        current = {
+            "image": "example:latest",
+            "services": [
+                {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80}]},
+                {"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": 5}},
+            ],
+        }
+        desired = {
+            "image": "example:latest",
+            "services": [
+                {"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": 1}},
+                {"internal_port": 8080, "protocol": "tcp", "ports": []},
+            ],
+        }
+
+        merged = machines.merge_config(current, desired)
+
+        self.assertFalse(machines.machine_config_changed(merged, desired))
+        self.assertEqual(merged["services"][0]["ports"], [{"port": 80}])
+        self.assertEqual(merged["services"][1]["concurrency"], {"soft_limit": 5})
+
+    def test_reordering_duplicate_services_is_a_change(self):
+        first = {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 80}]}
+        second = {"internal_port": 8080, "protocol": "tcp", "ports": [{"port": 443}]}
+        current = {"image": "example:latest", "services": [first, second]}
+
+        self.assertFalse(
+            machines.machine_config_changed(current, {"image": "example:latest", "services": [first, second]})
+        )
+        self.assertTrue(
+            machines.machine_config_changed(current, {"image": "example:latest", "services": [second, first]})
+        )
+
+    def test_rejects_zero_soft_limit(self):
+        services = [{"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": 0}}]
+
+        with (
+            patch.object(machines, "find_machine") as find,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(services=services)), {})
+
+        find.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "services[].concurrency.soft_limit must be at least 1")
+
+    def test_current_zero_soft_limit_does_not_block_other_updates(self):
+        service = {"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": 0}}
+        current = {
+            "config": {"image": "example:old", "services": [service]},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        module = FakeModule(params(services=[{"internal_port": 8080, "protocol": "tcp"}], wait=False), check_mode=True)
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertTrue(raised.exception.values["changed"])
