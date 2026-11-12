@@ -1,3 +1,4 @@
 ---
 bugfixes:
   - apps, machines, secrets, volumes - with ``state=absent``, report no change when the resource is deleted elsewhere between the lookup and the delete.
+  - apps, volumes - allow slack on each status check while waiting, so a slow final check reports the timeout instead of a connection error.
