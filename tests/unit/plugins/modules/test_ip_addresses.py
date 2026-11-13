@@ -37,11 +37,11 @@ class IpAddressesTests(TestCase):
         )
         self.assertEqual(
             ip_addresses.ips_by_type_and_region(
-                [{"address": "private", "region": "ord", "type": "private_v6"}],
+                [{"address": "private", "region": "global", "type": "private_v6"}],
                 "private_v6",
-                "iad",
+                "",
             ),
-            [],
+            [{"address": "private", "region": "global", "type": "private_v6"}],
         )
 
     def test_existing_address_is_unchanged(self):
@@ -77,35 +77,68 @@ class IpAddressesTests(TestCase):
             {"address": "1.2.3.4", "region": "", "type": "shared_v4"},
         )
 
-    def test_allocates_private_address_in_requested_region(self):
-        module = FakeModule({"app_name": "example", "region": "iad", "type": "private_v6"})
+    def test_allocates_global_private_address(self):
         response = {
             "allocateIpAddress": {
                 "ipAddress": {
                     "address": "fdaa::1",
-                    "region": "iad",
+                    "region": "global",
                     "type": "private_v6",
                 }
             }
         }
 
+        for region in ("", "global"):
+            module = FakeModule({"app_name": "example", "region": region, "type": "private_v6"})
+
+            with (
+                self.subTest(region=region),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
+                patch.object(ip_addresses, "graphql_request", return_value=response) as query,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                ip_addresses.ensure_present(module, {})
+
+            self.assertEqual(
+                query.call_args.args[2],
+                {"input": {"appId": "example", "type": "private_v6"}},
+            )
+            self.assertTrue(raised.exception.values["changed"])
+            self.assertEqual(raised.exception.values["ip_address"], response["allocateIpAddress"]["ipAddress"])
+
+    def test_existing_global_private_address_is_unchanged(self):
+        current = {"address": "fdaa::1", "region": "global", "type": "private_v6"}
+        module = FakeModule({"app_name": "example", "region": "", "type": "private_v6"})
+
         with (
-            patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
-            patch.object(ip_addresses, "graphql_request", return_value=response) as query,
-            self.assertRaises(ModuleExit),
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+            patch.object(ip_addresses, "graphql_request") as query,
+            self.assertRaises(ModuleExit) as raised,
         ):
             ip_addresses.ensure_present(module, {})
 
-        self.assertEqual(
-            query.call_args.args[2],
-            {
-                "input": {
-                    "appId": "example",
-                    "region": "iad",
-                    "type": "private_v6",
-                }
-            },
-        )
+        query.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["ip_address"], current)
+
+    def test_rejects_regional_private_address_before_lookup(self):
+        for state in ("present", "absent"):
+            module = FakeModule({"app_name": "example", "address": None, "region": "iad", "type": "private_v6"})
+
+            with (
+                self.subTest(state=state),
+                patch.object(ip_addresses, "get_ip_addresses") as get,
+                patch.object(ip_addresses, "graphql_request") as query,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                getattr(ip_addresses, f"ensure_{state}")(module, {})
+
+            get.assert_not_called()
+            query.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "region must be global for type=private_v6",
+            )
 
     def test_normalizes_global_region_before_allocation(self):
         module = FakeModule({"app_name": "example", "region": "global", "type": "v6"})
@@ -203,6 +236,23 @@ class IpAddressesTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while allocating a 'v4' address for app 'example'",
             )
+
+    def test_malformed_allocation_returns_allocated_address(self):
+        module = FakeModule({"app_name": "example", "region": "ord", "type": "v4"})
+        allocated = {"address": "1.2.3.4", "region": "iad", "type": "v4"}
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
+            patch.object(
+                ip_addresses,
+                "graphql_request",
+                return_value={"allocateIpAddress": {"ipAddress": allocated}},
+            ),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            ip_addresses.ensure_present(module, {})
+
+        self.assertEqual(raised.exception.values["ip_address"], allocated)
 
     def test_rejects_malformed_allocation_region(self):
         module = FakeModule({"app_name": "example", "region": "", "type": "private_v6"})

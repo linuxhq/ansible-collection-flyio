@@ -149,6 +149,66 @@ volume:
       description: Current volume state.
       returned: when available
       type: str
+    attached_machine_id:
+      description: Identifier of the Machine the volume is attached to, or null.
+      returned: when available
+      type: str
+    attached_alloc_id:
+      description: Deprecated by Fly.io and always null.
+      returned: when available
+      type: str
+    created_at:
+      description: Creation timestamp.
+      returned: when available
+      type: str
+    fstype:
+      description: Filesystem type, such as C(ext4), or C(raw) for an unformatted block device.
+      returned: when available
+      type: str
+    auto_backup_enabled:
+      description: Whether Fly.io takes daily automatic snapshots.
+      returned: when available
+      type: bool
+    snapshot_retention:
+      description: Number of days snapshots are kept.
+      returned: when available
+      type: int
+    zone:
+      description: Host zone. Volumes in different zones are on different hosts.
+      returned: when available
+      type: str
+    type:
+      description: Volume kind, such as C(local) or C(cache).
+      returned: when available
+      type: str
+    host_status:
+      description: Whether Fly.io could reach the volume's host, such as C(ok), C(unreachable), or C(unknown).
+      returned: when available
+      type: str
+    block_size:
+      description: Filesystem block size in bytes.
+      returned: when available
+      type: int
+    blocks:
+      description: Filesystem size in blocks, as last reported by a Machine that mounted the volume, or 0.
+      returned: when available
+      type: int
+    blocks_free:
+      description: Free filesystem blocks, including blocks reserved for the root user.
+      returned: when available
+      type: int
+    blocks_avail:
+      description: Filesystem blocks available to unprivileged users.
+      returned: when available
+      type: int
+    bytes_total:
+      description: Volume size in bytes, or 0 when the host could not be reached.
+      returned: when available
+      type: int
+    bytes_used:
+      description: Bytes the volume occupies on its host, or 0 when the host could not be reached.
+      returned: when available
+      type: int
 needs_restart:
   description: Whether an attached Machine must restart to use an extended volume.
   returned: when a volume is extended, except in check mode
@@ -207,6 +267,10 @@ def validate_volume_data(module, volume):
             volume=volume,
         )
 
+    return require_matching_volume(module, volume)
+
+
+def require_matching_volume(module, volume):
     name = module.params.get("name")
     if volume is not None and name is not None and volume.get("name") != name:
         module.fail_json(
@@ -231,7 +295,8 @@ def validate_volume_data(module, volume):
 
 
 def validate_created_volume(module, volume):
-    volume = validate_volume_data(module, volume)
+    # Callers pass a volume that already passed valid_volume.
+    volume = require_matching_volume(module, volume)
     for field in ("size_gb", "encrypted"):
         expected = module.params.get(field)
         if expected is not None and volume.get(field) != expected:

@@ -43,7 +43,8 @@ options:
       - Use an empty string or C(global) for global addresses.
       - Surrounding whitespace is removed and the code is lowercased.
       - Must not contain only whitespace.
-      - Must identify a global address when O(type=shared_v4).
+      - Must identify a global address when O(type=shared_v4) or
+        O(type=private_v6), because Fly.io allocates these addresses globally.
       - Used only when O(type) is specified.
       - Must be empty when O(address) is specified.
   address:
@@ -184,6 +185,9 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     valid_ip_address,
 )
 
+# Fly.io allocates these address types globally, never in a region.
+GLOBAL_TYPES = ("shared_v4", "private_v6")
+
 
 def normalize_region(value):
     value = (value or "").strip().lower()
@@ -194,8 +198,8 @@ def validate_region(module, ip_type, region):
     if region and not region.strip():
         module.fail_json(msg="region must not contain only whitespace")
 
-    if ip_type == "shared_v4" and normalize_region(region):
-        module.fail_json(msg="region must be global for type=shared_v4")
+    if ip_type in GLOBAL_TYPES and normalize_region(region):
+        module.fail_json(msg=f"region must be global for type={ip_type}")
 
 
 def ips_by_type_and_region(addresses, ip_type, region):
@@ -203,7 +207,7 @@ def ips_by_type_and_region(addresses, ip_type, region):
         addr
         for addr in addresses
         if addr.get("type") == ip_type
-        and (ip_type == "shared_v4" or normalize_region(addr.get("region")) == normalize_region(region))
+        and (ip_type in GLOBAL_TYPES or normalize_region(addr.get("region")) == normalize_region(region))
     ]
 
 
@@ -258,7 +262,7 @@ def ensure_present(module, client):
         "type": ip_type,
     }
 
-    if region and ip_type != "shared_v4":
+    if region:
         mutation_input["region"] = region
 
     data = graphql_request(
@@ -281,10 +285,11 @@ def ensure_present(module, client):
     if (
         not valid_ip_address(ip_address)
         or ip_address["type"] != ip_type
-        or (ip_type != "shared_v4" and normalize_region(ip_address.get("region")) != normalize_region(region))
+        or (ip_type not in GLOBAL_TYPES and normalize_region(ip_address.get("region")) != region)
     ):
         module.fail_json(
-            msg=f"Fly.io API returned malformed data while allocating a '{ip_type}' address for app '{app_name}'"
+            msg=f"Fly.io API returned malformed data while allocating a '{ip_type}' address for app '{app_name}'",
+            ip_address=ip_address,
         )
 
     module.exit_json(changed=True, message="IP address allocated", ip_address=ip_address)

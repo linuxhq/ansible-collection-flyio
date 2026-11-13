@@ -236,6 +236,8 @@ def ensure_absent(module, client):
     if current is None:
         module.exit_json(changed=False, message="App already absent")
 
+    require_matching_app(module, current)
+
     if module.check_mode:
         module.exit_json(changed=True, message="App would be deleted", app=current)
 
