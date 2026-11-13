@@ -12,6 +12,18 @@
           - _secrets_info_dict.APP_SECRET.digest is defined
           - _secrets_info_dict.APP_SECRET.value is not defined
 
+    - name: Ensure info is gathered without a target
+      ansible.builtin.include_role:
+        name: secrets_info
+      vars:
+        secrets_info_app_name: null
+
+    - name: Ensure empty info is verified
+      ansible.builtin.assert:
+        that:
+          - _secrets_info_list == []
+          - _secrets_info_dict == {}
+
     - name: Ensure inventory lists are formatted
       ansible.builtin.set_fact:
         secrets_list:

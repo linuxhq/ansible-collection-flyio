@@ -10,6 +10,8 @@ short_description: Gather information about Fly.io volumes
 description:
   - Gather information about Fly.io volumes.
   - Use O(id) to look up a single volume, or omit it to list all volumes for an app.
+  - Results can include volumes that are being deleted or were recently
+    destroyed. Check RV(volumes[].state) to select live volumes.
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
@@ -80,7 +82,11 @@ volumes:
       returned: when available
       type: bool
     state:
-      description: Current volume state.
+      description:
+        - Current volume state.
+        - States such as C(scheduling_destroy), C(fork_cleanup),
+          C(waiting_for_detach), C(pending_destroy), C(destroying), and
+          C(destroyed) mean the volume is being deleted or is gone.
       returned: when available
       type: str
 

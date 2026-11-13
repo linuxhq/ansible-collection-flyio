@@ -230,6 +230,24 @@ class FindVolumeTests(TestCase):
                 deleting,
             )
 
+    def test_includes_detaching_and_fork_cleanup_volumes_only_when_requested(self):
+        for state in ("fork_cleanup", "waiting_for_detach"):
+            with self.subTest(state=state):
+                deleting = {"id": "vol_old", "state": state}
+
+                with patch.object(volumes, "get_resource", return_value=deleting):
+                    self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old"))
+                    self.assertEqual(
+                        volumes.find_volume(
+                            FakeModule({}),
+                            {},
+                            "example",
+                            volume_id="vol_old",
+                            include_deleting=True,
+                        ),
+                        deleting,
+                    )
+
     def test_rejects_ambiguous_name_and_region(self):
         matches = [
             {"id": "vol_one", "name": "data", "region": "ord", "state": "created"},
@@ -258,6 +276,51 @@ class FindVolumeTests(TestCase):
             found = volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True)
 
         self.assertEqual(found["id"], "vol_one")
+
+    def test_detaching_and_fork_cleanup_volumes_are_not_ambiguous(self):
+        for state in ("fork_cleanup", "waiting_for_detach"):
+            with self.subTest(state=state):
+                deleting = {"id": "vol_old", "name": "data", "region": "ord", "state": state}
+                created = {"id": "vol_new", "name": "data", "region": "ord", "state": "created"}
+
+                with patch.object(volumes, "list_all", return_value=[deleting, created]):
+                    found = volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord")
+
+                self.assertEqual(found, created)
+
+                with patch.object(volumes, "list_all", return_value=[deleting, {**deleting, "id": "vol_two"}]):
+                    self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord"))
+                    found = volumes.find_volume(
+                        FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True
+                    )
+
+                self.assertEqual(found["id"], "vol_old")
+
+    def test_detaching_and_fork_cleanup_volumes_are_not_deleted_again(self):
+        for state in ("fork_cleanup", "waiting_for_detach"):
+            with self.subTest(state=state):
+                current = {"id": "vol_one", "state": state}
+                module = FakeModule(
+                    {
+                        "app_name": "example",
+                        "id": "vol_one",
+                        "name": None,
+                        "region": None,
+                        "wait": False,
+                        "wait_timeout": 60,
+                    }
+                )
+
+                with (
+                    patch.object(volumes, "get_resource", return_value=current),
+                    patch.object(volumes, "delete_result") as delete,
+                    self.assertRaises(ModuleExit) as raised,
+                ):
+                    volumes.ensure_absent(module, {})
+
+                delete.assert_not_called()
+                self.assertFalse(raised.exception.values["changed"])
+                self.assertEqual(raised.exception.values["message"], "Volume already being deleted")
 
     def test_creates_replacement_for_pending_volume(self):
         pending = {

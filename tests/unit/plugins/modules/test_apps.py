@@ -125,6 +125,21 @@ class AppsTests(TestCase):
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["app"], {"name": "example"})
 
+    def test_create_requires_org_slug(self):
+        for check_mode in (True, False):
+            module = FakeModule({"name": "example", "network": None, "org_slug": None}, check_mode=check_mode)
+
+            with (
+                self.subTest(check_mode=check_mode),
+                patch.object(apps, "get_app", return_value=None),
+                patch.object(apps, "post_result") as post,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                apps.ensure_present(module, {})
+
+            post.assert_not_called()
+            self.assertEqual(raised.exception.values["msg"], "org_slug is required when creating an app")
+
     def test_create_tolerates_read_after_write_lag(self):
         module = FakeModule({"name": "example", "network": None, "org_slug": "linuxhq"})
 
