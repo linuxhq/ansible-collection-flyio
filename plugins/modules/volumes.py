@@ -88,6 +88,8 @@ options:
     default: present
     description:
       - Desired state of the resource.
+      - With O(state=absent), Fly.io refuses to delete a volume attached to a
+        Machine, and check mode fails for such a volume as the real run does.
 requirements:
   - python >= 3.9
 attributes:
@@ -642,6 +644,17 @@ def ensure_absent(module, client):
     # Report the volume's identity and create fields rather than the full API object.
     diff = diff_result(module, select_fields(current, ("id", "name", "region", "size_gb", "encrypted")), {})
     if module.check_mode:
+        # Fly.io rejects deleting an attached volume with HTTP 412; predict that failure.
+        machine_id = current.get("attached_machine_id")
+        if machine_id:
+            module.fail_json(
+                msg=(
+                    f"Volume '{volume_id}' in app '{app_name}' is attached to Machine '{machine_id}'; "
+                    "destroy the Machine before deleting the volume"
+                ),
+                volume=current,
+            )
+
         module.exit_json(changed=True, message="Volume would be deleted", volume=current, **diff)
 
     try:

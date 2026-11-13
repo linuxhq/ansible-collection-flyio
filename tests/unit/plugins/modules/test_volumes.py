@@ -656,6 +656,72 @@ class FindVolumeTests(TestCase):
         self.assertFalse(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["volume"], current)
 
+    def test_attached_volume_fails_in_check_mode(self):
+        current = {"id": "vol_one", "state": "created", "attached_machine_id": "machine_one"}
+        module = FakeModule(
+            {"app_name": "example", "id": "vol_one", "name": None, "region": None, "wait": True, "wait_timeout": 60},
+            check_mode=True,
+        )
+
+        with (
+            patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "delete_result") as delete,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.ensure_absent(module, {})
+
+        delete.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Volume 'vol_one' in app 'example' is attached to Machine 'machine_one'; "
+            "destroy the Machine before deleting the volume",
+        )
+        self.assertEqual(raised.exception.values["volume"], current)
+
+    def test_detached_volume_would_be_deleted_in_check_mode(self):
+        for attached in ({"attached_machine_id": None}, {"attached_machine_id": ""}, {}):
+            with self.subTest(attached=attached):
+                current = {"id": "vol_one", "state": "created", **attached}
+                module = FakeModule(
+                    {
+                        "app_name": "example",
+                        "id": "vol_one",
+                        "name": None,
+                        "region": None,
+                        "wait": True,
+                        "wait_timeout": 60,
+                    },
+                    check_mode=True,
+                )
+
+                with (
+                    patch.object(volumes, "find_volume", return_value=current),
+                    patch.object(volumes, "delete_result") as delete,
+                    self.assertRaises(ModuleExit) as raised,
+                ):
+                    volumes.ensure_absent(module, {})
+
+                delete.assert_not_called()
+                self.assertTrue(raised.exception.values["changed"])
+                self.assertEqual(raised.exception.values["message"], "Volume would be deleted")
+
+    def test_attached_volume_delete_reaches_api(self):
+        current = {"id": "vol_one", "state": "created", "attached_machine_id": "machine_one"}
+        module = FakeModule(
+            {"app_name": "example", "id": "vol_one", "name": None, "region": None, "wait": True, "wait_timeout": 60}
+        )
+        rejected = FlyioApiError("failed_precondition", status_code=412)
+
+        with (
+            patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "delete_result", side_effect=rejected) as delete,
+            self.assertRaises(FlyioApiError) as raised,
+        ):
+            volumes.ensure_absent(module, {})
+
+        delete.assert_called_once_with({}, "/apps/example/volumes/vol_one")
+        self.assertIs(raised.exception, rejected)
+
     def test_extends_volume_and_waits(self):
         current = {
             "encrypted": True,
