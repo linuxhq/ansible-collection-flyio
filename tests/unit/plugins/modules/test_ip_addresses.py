@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import ip_addresses
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -251,6 +252,44 @@ class IpAddressesTests(TestCase):
         self.assertIn("clientMutationId", query.call_args.args[1])
         self.assertNotIn("app {", query.call_args.args[1])
         self.assertTrue(raised.exception.values["changed"])
+
+    def test_address_released_after_lookup_is_unchanged(self):
+        current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
+        module = FakeModule({"address": "1.2.3.4", "app_name": "example", "region": "", "type": None})
+        error = FlyioApiError(
+            "Release IP address '1.2.3.4' from app 'example' failed: Could not find IPAssignment",
+            response_body=[
+                {
+                    "extensions": {"code": "NOT_FOUND"},
+                    "message": "Could not find IPAssignment",
+                    "path": ["releaseIpAddress"],
+                }
+            ],
+        )
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+            patch.object(ip_addresses, "graphql_request", side_effect=error),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_absent(module, {})
+
+        self.assertEqual(
+            raised.exception.values,
+            {"changed": False, "message": "IP address already released"},
+        )
+
+    def test_release_failure_is_raised(self):
+        current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
+        module = FakeModule({"address": "1.2.3.4", "app_name": "example", "region": "", "type": None})
+        error = FlyioApiError("Release failed: forbidden", response_body=[{"message": "forbidden"}])
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+            patch.object(ip_addresses, "graphql_request", side_effect=error),
+            self.assertRaises(FlyioApiError),
+        ):
+            ip_addresses.ensure_absent(module, {})
 
     def test_missing_app_is_already_absent(self):
         module = FakeModule(

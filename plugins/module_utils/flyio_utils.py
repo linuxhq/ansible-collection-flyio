@@ -233,6 +233,11 @@ def valid_ip_address(address):
     )
 
 
+def shared_ip_address(address):
+    """Represent an app's shared IPv4 address like an allocated address."""
+    return {"address": address, "type": "shared_v4", "region": ""}
+
+
 def get_ip_addresses(client, app_name, missing_ok=False):
     operation = f"List IP addresses for app '{app_name}'"
     query = """
@@ -284,7 +289,7 @@ def get_ip_addresses(client, app_name, missing_ok=False):
 
     shared = app.get("sharedIpAddress")
     if shared is not None:
-        shared_address = {"address": shared, "type": "shared_v4", "region": ""}
+        shared_address = shared_ip_address(shared)
         if not valid_ip_address(shared_address):
             raise FlyioApiError(f"{operation} returned malformed data: expected a shared address")
 

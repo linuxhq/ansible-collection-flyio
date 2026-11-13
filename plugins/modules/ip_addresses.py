@@ -95,11 +95,34 @@ EXAMPLES = r"""
     type: v6
     state: present
 
+- name: Allocate a private IPv6 address
+  linuxhq.flyio.ip_addresses:
+    api_token: "{{ flyio_api_token }}"
+    app_name: my-app
+    type: private_v6
+    state: present
+
+- name: Allocate a regional dedicated IPv4 address
+  linuxhq.flyio.ip_addresses:
+    api_token: "{{ flyio_api_token }}"
+    app_name: my-app
+    type: v4
+    region: ord
+    state: present
+
 - name: Release an IP address
   linuxhq.flyio.ip_addresses:
     api_token: "{{ flyio_api_token }}"
     app_name: my-app
     address: "1.2.3.4"
+    state: absent
+
+- name: Release the regional dedicated IPv4 address
+  linuxhq.flyio.ip_addresses:
+    api_token: "{{ flyio_api_token }}"
+    app_name: my-app
+    type: v4
+    region: ord
     state: absent
 """
 
@@ -149,12 +172,15 @@ import ipaddress
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    FlyioApiError,
     api_token_option,
     flyio_client,
     get_ip_addresses,
+    graphql_not_found,
     graphql_request,
     ip_version,
     require_nonempty,
+    shared_ip_address,
     valid_ip_address,
 )
 
@@ -250,7 +276,7 @@ def ensure_present(module, client):
         app = result.get("app")
         shared = app.get("sharedIpAddress") if isinstance(app, dict) else None
         if shared:
-            ip_address = {"address": shared, "type": "shared_v4", "region": ""}
+            ip_address = shared_ip_address(shared)
 
     if (
         not valid_ip_address(ip_address)
@@ -321,12 +347,20 @@ def ensure_absent(module, client):
         }
     }
 
-    data = graphql_request(
-        client,
-        query,
-        variables,
-        operation=f"Release IP address '{release_address}' from app '{app_name}'",
-    )
+    try:
+        data = graphql_request(
+            client,
+            query,
+            variables,
+            operation=f"Release IP address '{release_address}' from app '{app_name}'",
+        )
+    except FlyioApiError as exc:
+        # Released elsewhere between the lookup and the release.
+        if not graphql_not_found(exc):
+            raise
+
+        module.exit_json(changed=False, message="IP address already released")
+
     result = data.get("releaseIpAddress")
     if (
         not isinstance(result, dict)

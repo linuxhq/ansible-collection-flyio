@@ -25,14 +25,19 @@ options:
     description:
       - Organization slug.
       - Required when creating an app.
-      - Used only when creating an app. An existing app is not checked against
-        O(org_slug) or O(network).
+      - When the app already exists, the task fails before making changes if
+        O(org_slug) differs from the organization slug Fly.io reports for the
+        app.
   network:
     type: str
     description:
       - Custom private network name.
       - Must not be empty when specified.
-      - Used only when creating an app.
+      - Fly.io creates the network when it does not exist.
+      - Use C(default) to select the organization's default network.
+      - Sent only when creating an app.
+      - When the app already exists, the task fails before making changes if
+        O(network) differs from the network Fly.io reports for the app.
   force:
     type: bool
     description:
@@ -96,9 +101,58 @@ app:
   returned: when available
   type: dict
   contains:
+    id:
+      description: App identifier.
+      returned: when available
+      type: str
     name:
       description: App name.
       returned: always
+      type: str
+    internal_numeric_id:
+      description: Internal numeric app identifier.
+      returned: when available
+      type: int
+    machine_count:
+      description: Number of Machines in the app.
+      returned: when available
+      type: int
+    volume_count:
+      description: Number of volumes in the app.
+      returned: when available
+      type: int
+    network:
+      description: Private network name, such as C(default).
+      returned: when available
+      type: str
+    network_cidr:
+      description: Private network CIDR.
+      returned: when available
+      type: str
+    organization:
+      description: Organization that owns the app.
+      returned: when available
+      type: dict
+      contains:
+        name:
+          description: Organization name.
+          returned: when available
+          type: str
+        slug:
+          description: Organization slug.
+          returned: when available
+          type: str
+        internal_numeric_id:
+          description: Internal numeric organization identifier.
+          returned: when available
+          type: int
+    status:
+      description: App status, such as C(pending), C(deployed), or C(suspended).
+      returned: when available
+      type: str
+    cname_target:
+      description: CNAME target for custom domains.
+      returned: when available
       type: str
 message:
   returned: always
@@ -126,12 +180,29 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 )
 
 
+def require_matching_app(module, current):
+    params = module.params
+    organization = current.get("organization")
+    actual_values = {
+        "org_slug": organization.get("slug") if isinstance(organization, dict) else None,
+        "network": current.get("network"),
+    }
+    for option, actual in actual_values.items():
+        requested = params.get(option)
+        # A value Fly.io does not report cannot be compared.
+        if requested is not None and isinstance(actual, str) and actual != requested:
+            module.fail_json(
+                msg=f"App '{params['name']}' has {option} '{actual}', not the requested {option} '{requested}'"
+            )
+
+
 def ensure_present(module, client):
     params = module.params
 
     current = get_app(client, params["name"])
 
     if current is not None:
+        require_matching_app(module, current)
         module.exit_json(changed=False, message="App already present", app=current)
 
     if params.get("org_slug") is None:

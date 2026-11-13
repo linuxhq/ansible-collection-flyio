@@ -20,7 +20,8 @@
     - apps_api_token is not none
     - _app.name is defined
   changed_when:
-    - ansible_check_mode | bool
+    - ansible_check_mode | bool or
+      apps_poll | int > 0
     - __apps_result.changed | bool
 
 - name: Ensure managed flyio app jobs are complete
@@ -34,6 +35,7 @@
     label: "{{ _jid._app.name | d(none) }}"
     loop_var: _jid
   when:
+    - apps_poll | int == 0
     - _jid.ansible_job_id is defined
   until:
     - __apps_status.finished | bool
