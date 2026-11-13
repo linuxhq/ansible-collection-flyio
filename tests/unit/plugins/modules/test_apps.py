@@ -240,3 +240,41 @@ class AppsTests(TestCase):
         delete.assert_not_called()
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["app"], current)
+
+    def test_delete_with_different_org_slug_or_network_fails(self):
+        current = {"name": "example", "network": "default", "organization": {"name": "linuxhq", "slug": "linuxhq"}}
+
+        for option, requested, actual in (("org_slug", "other", "linuxhq"), ("network", "other", "default")):
+            for check_mode in (True, False):
+                params = {"delete_timeout": 60, "name": "example", "network": None, "org_slug": None}
+                params[option] = requested
+                module = FakeModule(params, check_mode=check_mode)
+
+                with (
+                    self.subTest(option=option, check_mode=check_mode),
+                    patch.object(apps, "get_app", return_value=current),
+                    patch.object(apps, "delete_result") as delete,
+                    self.assertRaises(ModuleFail) as raised,
+                ):
+                    apps.ensure_absent(module, {})
+
+                delete.assert_not_called()
+                self.assertEqual(
+                    raised.exception.values["msg"],
+                    f"App 'example' has {option} '{actual}', not the requested {option} '{requested}'",
+                )
+
+    def test_deletes_app_with_matching_org_slug_and_network(self):
+        current = {"name": "example", "network": "default", "organization": {"name": "linuxhq", "slug": "linuxhq"}}
+        module = FakeModule({"delete_timeout": 60, "name": "example", "network": "default", "org_slug": "linuxhq"})
+
+        with (
+            patch.object(apps, "get_app", return_value=current),
+            patch.object(apps, "delete_result", return_value=None) as delete,
+            patch.object(apps, "wait_for_app_absent", return_value=None),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            apps.ensure_absent(module, {})
+
+        delete.assert_called_once_with({}, "/apps/example", timeout=60)
+        self.assertTrue(raised.exception.values["changed"])

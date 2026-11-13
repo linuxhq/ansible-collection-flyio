@@ -45,9 +45,9 @@ options:
       - Desired state of the secret.
 notes:
   - Running Machines do not pick up a changed secret on their own. Create or
-    update them, for example with a deploy, to load the new value. Fly.io
-    guarantees the change is visible when Machines are created or updated with
-    C(min_secrets_version) set to the returned RV(version).
+    update them, for example with a deploy, to load the new value. Creating or
+    updating a Machine after the change, for example with
+    M(linuxhq.flyio.machines), uses the app's current secrets version.
 requirements:
   - python >= 3.9
 attributes:

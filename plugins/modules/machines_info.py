@@ -79,6 +79,56 @@ machines:
       description: Current Machine state.
       returned: when available
       type: str
+    config:
+      description: Machine configuration. Null when the host could not be reached.
+      returned: when available
+      type: dict
+    incomplete_config:
+      description: Last known configuration, returned in place of RV(machines[].config) when the host could not be reached.
+      returned: when available
+      type: dict
+    version:
+      description: Identifier of this Machine version. Every update creates a new version.
+      returned: when available
+      type: str
+    instance_id:
+      description: Deprecated by Fly.io. Same value as the Machine version.
+      returned: when available
+      type: str
+    private_ip:
+      description: Private IPv6 address on the organization's network.
+      returned: when available
+      type: str
+    host_status:
+      description: Whether Fly.io could reach the Machine's host, such as C(ok), C(unreachable), or C(unknown).
+      returned: when available
+      type: str
+    created_at:
+      description: Creation timestamp.
+      returned: when available
+      type: str
+    updated_at:
+      description: Timestamp of the Machine's most recent event.
+      returned: when available
+      type: str
+    image_ref:
+      description: Image the Machine runs, as resolved when it was last created or updated.
+      returned: when available
+      type: dict
+    events:
+      description: Up to five of the most recent events of the current Machine version, newest first.
+      returned: when available
+      type: list
+      elements: dict
+    checks:
+      description: Status of each health check.
+      returned: when available
+      type: list
+      elements: dict
+    cordoned:
+      description: Whether Fly Proxy does not route requests to the Machine.
+      returned: when available
+      type: bool
 
 """
 
