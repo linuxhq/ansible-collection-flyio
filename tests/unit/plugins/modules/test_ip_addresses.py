@@ -236,6 +236,7 @@ class IpAddressesTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while allocating a 'v4' address for app 'example'",
             )
+            self.assertTrue(raised.exception.values["changed"])
 
     def test_malformed_allocation_returns_allocated_address(self):
         module = FakeModule({"app_name": "example", "region": "ord", "type": "v4"})
@@ -487,6 +488,50 @@ class IpAddressesTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while releasing address '1.2.3.4' from app 'example'",
             )
+            self.assertTrue(raised.exception.values["changed"])
+
+    def test_allocation_sends_normalized_region(self):
+        module = FakeModule({"app_name": "example", "region": " ORD ", "type": "v4"})
+        allocated = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[]),
+            patch.object(
+                ip_addresses,
+                "graphql_request",
+                return_value={"allocateIpAddress": {"ipAddress": allocated}},
+            ) as query,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_present(module, {})
+
+        self.assertEqual(
+            query.call_args.args[2],
+            {"input": {"appId": "example", "type": "v4", "region": "ord"}},
+        )
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["ip_address"], allocated)
+
+    def test_releases_shared_address(self):
+        shared = {"address": "1.2.3.4", "region": "", "type": "shared_v4"}
+        for requested in ({"address": "1.2.3.4", "type": None}, {"address": None, "type": "shared_v4"}):
+            module = FakeModule({"app_name": "example", "region": "", **requested})
+            with (
+                self.subTest(requested=requested),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[shared]),
+                patch.object(
+                    ip_addresses,
+                    "graphql_request",
+                    return_value={"releaseIpAddress": {"clientMutationId": None}},
+                ) as query,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                ip_addresses.ensure_absent(module, {})
+
+            self.assertIn("releaseIpAddress", query.call_args.args[1])
+            self.assertEqual(query.call_args.args[2], {"input": {"appId": "example", "ip": "1.2.3.4"}})
+            self.assertTrue(raised.exception.values["changed"])
+            self.assertEqual(raised.exception.values["ip_address"], shared)
 
     def test_region_case_and_whitespace_match_existing_address(self):
         current = {"address": "1.2.3.4", "region": "iad", "type": "v4"}

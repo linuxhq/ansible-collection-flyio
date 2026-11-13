@@ -96,6 +96,7 @@ class SecretsTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while setting secret 'APP_SECRET' for app 'example'",
             )
+            self.assertTrue(raised.exception.values["changed"])
 
     def test_rejects_malformed_current_secret_timestamps(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
@@ -242,6 +243,7 @@ class SecretsTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while removing secret 'APP_SECRET' from app 'example'",
             )
+            self.assertTrue(raised.exception.values["changed"])
 
     def test_rejects_malformed_read_before_removing(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET"})

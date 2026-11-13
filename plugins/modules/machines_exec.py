@@ -52,7 +52,9 @@ options:
     type: str
     description:
       - Data supplied to the command on standard input.
-      - Treated as sensitive and masked in module output.
+      - Sent only when specified.
+      - Not treated as sensitive. Use task-level C(no_log) when passing
+        sensitive input.
   timeout:
     default: 30
     type: int
@@ -111,6 +113,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_path,
     get_resource,
     post_result,
+    report_changed_on_failure,
     require_nonempty,
     require_positive,
 )
@@ -182,6 +185,7 @@ def exec_command(module, client):
             response=response,
         )
 
+    report_changed_on_failure(module)
     if (
         not isinstance(result, dict)
         or not all(
@@ -219,7 +223,7 @@ def main():
             "command": {"required": True, "type": "str"},
             "container": {"type": "str"},
             "id": {"required": True, "type": "str"},
-            "stdin": {"type": "str", "no_log": True},
+            "stdin": {"type": "str"},
             "timeout": {"default": 30, "type": "int"},
         },
         supports_check_mode=True,

@@ -55,7 +55,7 @@ options:
   size_gb:
     type: int
     description:
-      - Volume size in gigabytes.
+      - Volume size in GiB.
       - Required when creating a volume.
       - Must be greater than zero and at most the organization's maximum
         volume size (C(500) by default).
@@ -138,7 +138,7 @@ volume:
       returned: when available
       type: str
     size_gb:
-      description: Volume size in gigabytes.
+      description: Volume size in GiB.
       returned: when available
       type: int
     encrypted:
@@ -240,6 +240,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     list_all,
     positive_int,
     post_result,
+    report_changed_on_failure,
     require_nonempty,
     require_positive,
     require_region_code,
@@ -380,6 +381,18 @@ def wait_volume(module, client, volume_id, deadline, **kwargs):
     return current
 
 
+def wait_volume_created(module, client, volume_id, deadline, **kwargs):
+    gone_states = DEAD_STATES | DELETING_STATES
+    current = wait_volume(module, client, volume_id, deadline, stop_states=gone_states, **kwargs)
+    if current["state"] in gone_states:
+        module.fail_json(
+            msg=f"Volume '{volume_id}' in app '{module.params['app_name']}' was deleted while waiting",
+            volume=current,
+        )
+
+    return current
+
+
 def settle_volume(module, client, current, deadline):
     params = module.params
     app_name = params["app_name"]
@@ -394,7 +407,7 @@ def settle_volume(module, client, current, deadline):
             volume=current,
         )
 
-    current = wait_volume(module, client, volume_id, deadline)
+    current = wait_volume_created(module, client, volume_id, deadline)
     if current.get("state") != "created":
         module.fail_json(
             msg=f"Transition of volume '{volume_id}' in app '{app_name}' timed out",
@@ -433,7 +446,7 @@ def reject_shrink(module, current, current_size):
         module.fail_json(
             msg=(
                 f"Volume '{current['id']}' in app '{module.params['app_name']}' cannot be shrunk "
-                f"from {current_size} GB to {desired_size} GB"
+                f"from {current_size} GiB to {desired_size} GiB"
             ),
             volume=current,
         )
@@ -474,6 +487,7 @@ def update_volume(module, client, current, deadline):
         flyio_path("apps", app_name, "volumes", volume_id, "extend"),
         body={"size_gb": desired_size},
     )
+    report_changed_on_failure(module)
     needs_restart = result.get("needs_restart") if isinstance(result, dict) else None
     response_volume = result.get("volume") if isinstance(result, dict) else None
     response_size = response_volume.get("size_gb") if isinstance(response_volume, dict) else None
@@ -488,7 +502,7 @@ def update_volume(module, client, current, deadline):
         module.fail_json(msg=extension_error, volume=response_volume)
 
     if params["wait"]:
-        current = wait_volume(module, client, volume_id, deadline, size_gb=desired_size)
+        current = wait_volume_created(module, client, volume_id, deadline, size_gb=desired_size)
         current_size = current.get("size_gb")
         if current.get("state") != "created" or not positive_int(current_size) or current_size < desired_size:
             module.fail_json(
@@ -531,6 +545,7 @@ def create_volume(module, client, deadline):
         module.exit_json(changed=True, message="Volume would be created", **diff)
 
     current = post_result(client, flyio_path("apps", app_name, "volumes"), body)
+    report_changed_on_failure(module)
     if not valid_volume(current):
         module.fail_json(
             msg=(f"Fly.io API returned malformed data while creating volume '{params['name']}' in app '{app_name}'"),
@@ -543,7 +558,7 @@ def create_volume(module, client, deadline):
     if params["wait"]:
         current = validate_created_volume(
             module,
-            wait_volume(module, client, volume_id, deadline),
+            wait_volume_created(module, client, volume_id, deadline),
         )
 
         if current.get("state") != "created":
@@ -640,6 +655,7 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="Volume already absent")
 
+    report_changed_on_failure(module)
     if result is not None and (
         not valid_volume(result)
         or result.get("id") != volume_id

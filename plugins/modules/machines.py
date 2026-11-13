@@ -483,13 +483,13 @@ options:
         type: str
         description:
           - Tigris bucket containing the static files.
-          - Must not be empty when specified.
+          - An empty string clears the bucket.
       index_document:
         type: str
         description:
           - Index document served for directory requests.
           - Takes effect only with O(statics[].tigris_bucket).
-          - Must not be empty when specified.
+          - An empty string clears the index document.
   wait:
     type: bool
     default: true
@@ -742,6 +742,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     list_all,
     nonempty_string,
     post_result,
+    report_changed_on_failure,
     require_nonempty,
     require_positive,
     require_region_code,
@@ -1053,11 +1054,6 @@ def validate_requested_strings(module, params):
     """Reject empty optional strings; Fly.io omits them from returned config, so they could never match."""
     guest = params.get("guest") or {}
     values = [(f"guest.{field}", guest.get(field)) for field in ("cpu_kind", "host_dedication_id")]
-    values += [
-        (f"statics[].{field}", static.get(field))
-        for static in params.get("statics") or []
-        for field in ("tigris_bucket", "index_document")
-    ]
     values += [
         ("services[].ports[].proxy_proto_options.version", (port.get("proxy_proto_options") or {}).get("version"))
         for service in params.get("services") or []
@@ -1495,6 +1491,7 @@ def update_machine(module, client, current, desired_config, deadline):
         flyio_path("apps", app_name, "machines", current["id"]),
         body,
     )
+    report_changed_on_failure(module)
     if not valid_machine(result) or result["id"] != current["id"]:
         module.fail_json(
             msg=(f"Fly.io API returned malformed data while updating Machine '{current['id']}' in app '{app_name}'"),
@@ -1535,6 +1532,7 @@ def create_machine(module, client, desired_config, deadline):
         module.exit_json(changed=True, message="Machine would be created", **diff)
 
     result = post_result(client, flyio_path("apps", app_name, "machines"), body)
+    report_changed_on_failure(module)
     if not valid_machine(result):
         module.fail_json(
             msg=(f"Fly.io API returned malformed data while creating Machine '{params['name']}' in app '{app_name}'"),
@@ -1664,6 +1662,7 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="Machine already absent")
 
+    report_changed_on_failure(module)
     requested = current
     if params["wait"]:
         current = wait_until_machine_destroyed(module, client, current, deadline)
@@ -1726,6 +1725,7 @@ def ensure_power_state(module, client, desired_state):
     # Stopping waits on the current Machine version, so capture it first.
     version = machine_version(module, current) if params["wait"] and desired_state == "stopped" else None
     post_result(client, flyio_path("apps", app_name, "machines", current["id"], action))
+    report_changed_on_failure(module)
 
     waited = params["wait"] and wait_tolerating_self_destroy(
         module, client, current, desired_state, deadline, version=version

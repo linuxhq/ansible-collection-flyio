@@ -2,6 +2,7 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 
+import functools
 import http.client
 import ipaddress
 import json
@@ -84,6 +85,12 @@ def flyio_client(module):
             status_code=exc.status_code,
             response=exc.response_body,
         )
+
+
+def report_changed_on_failure(module):
+    """Make every later failure report changed=True; call once Fly.io has accepted a write."""
+    # Covers module failures and API errors raised to flyio_client, which both end in fail_json.
+    module.fail_json = functools.partial(module.fail_json, changed=True)
 
 
 class FlyioApiError(Exception):
@@ -505,7 +512,9 @@ def wait_for_volume(
     states=("created",),
     ok_statuses=None,
     size_gb=None,
+    stop_states=(),
 ):
+    """Poll until the volume reaches one of states, fails, or enters one of stop_states."""
     operation = f"Wait for volume '{volume_id}' in app '{app_name}'"
 
     def fetch(request_timeout):
@@ -523,8 +532,8 @@ def wait_for_volume(
         return volume
 
     def done(volume):
-        # A failed volume will not recover, so stop waiting and let the caller report it.
-        if volume is None or volume["state"] == "failed":
+        # A failed or stopping volume will not reach the target, so stop waiting and let the caller report it.
+        if volume is None or volume["state"] == "failed" or volume["state"] in stop_states:
             return True
 
         if volume["state"] not in states:

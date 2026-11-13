@@ -3,7 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError, flyio_client
 from ansible_collections.linuxhq.flyio.plugins.modules import apps
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -181,6 +181,7 @@ class AppsTests(TestCase):
             raised.exception.values["msg"],
             "Deletion of app 'example' timed out",
         )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_check_mode_does_not_create(self):
         module = FakeModule({"name": "example", "org_slug": "linuxhq"}, check_mode=True)
@@ -225,6 +226,47 @@ class AppsTests(TestCase):
         self.assertEqual(get.call_count, 2)
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["app"], {"name": "example"})
+
+    def test_failed_read_after_create_reports_change(self):
+        module = FakeModule({"api_token": "token", "name": "example", "network": None, "org_slug": "linuxhq"})
+
+        with (
+            patch.object(apps, "get_app", side_effect=[None, FlyioApiError("GET /apps/example failed", 500)]),
+            patch.object(apps, "post_result"),
+            self.assertRaises(ModuleFail) as raised,
+            flyio_client(module) as client,
+        ):
+            apps.ensure_present(module, client)
+
+        self.assertEqual(raised.exception.values["msg"], "GET /apps/example failed")
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_failed_create_does_not_report_change(self):
+        module = FakeModule({"api_token": "token", "name": "example", "network": None, "org_slug": "linuxhq"})
+
+        with (
+            patch.object(apps, "get_app", return_value=None),
+            patch.object(apps, "post_result", side_effect=FlyioApiError("POST /apps failed", 422)),
+            self.assertRaises(ModuleFail) as raised,
+            flyio_client(module) as client,
+        ):
+            apps.ensure_present(module, client)
+
+        self.assertNotIn("changed", raised.exception.values)
+
+    def test_failed_wait_after_delete_reports_change(self):
+        module = FakeModule({"api_token": "token", "delete_timeout": 60, "name": "example"})
+
+        with (
+            patch.object(apps, "get_app", return_value={"name": "example"}),
+            patch.object(apps, "delete_result", return_value=None),
+            patch.object(apps, "wait_for_app_absent", side_effect=FlyioApiError("GET /apps/example failed", 500)),
+            self.assertRaises(ModuleFail) as raised,
+            flyio_client(module) as client,
+        ):
+            apps.ensure_absent(module, client)
+
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_check_mode_does_not_delete(self):
         current = {"name": "example"}

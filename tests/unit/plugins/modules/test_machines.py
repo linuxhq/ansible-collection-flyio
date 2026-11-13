@@ -6,7 +6,7 @@ from unittest.mock import patch
 from ansible.module_utils.common.parameters import _list_no_log_values, remove_values
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_machine_config as machine_config
-from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError, flyio_client
 from ansible_collections.linuxhq.flyio.plugins.modules import machines
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -1169,6 +1169,7 @@ class MachinesTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while updating Machine 'machine-one' in app 'example'",
             )
+            self.assertTrue(raised.exception.values["changed"])
 
     def test_rejects_unapplied_update_response(self):
         current = {
@@ -1189,6 +1190,7 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Fly.io API did not apply the requested configuration to Machine 'machine-one' in app 'example'",
         )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_rejects_malformed_current_configuration(self):
         current = {"config": None, "id": "machine-one", "state": "started"}
@@ -1474,6 +1476,35 @@ class MachinesTests(TestCase):
                     else:
                         post.assert_called_once()
                         self.assertEqual(post.call_args.args[2]["config"], applied["config"])
+
+    def test_static_empty_tigris_fields_are_sent_and_match_returned_empty_strings(self):
+        requested = [{"guest_path": "/public", "url_prefix": "/", "tigris_bucket": "", "index_document": ""}]
+        cleared = {"id": "machine-one", "state": "started", "region": "ord", "version": "v1"}
+        cleared["config"] = {"image": "example:latest", "statics": requested}
+        current = {
+            **cleared,
+            "config": {"image": "example:latest", "statics": [{**requested[0], "tigris_bucket": "b"}]},
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=cleared) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(statics=requested, wait=False)), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(post.call_args.args[2]["config"]["statics"], requested)
+
+        with (
+            patch.object(machines, "find_machine", return_value=cleared),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(statics=requested)), {})
+
+        post.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
 
     def test_identityless_nested_items_preserve_defaults(self):
         current = [{"interval": "15s", "timeout": "2s", "type": "tcp"}]
@@ -1824,6 +1855,7 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Fly.io API returned malformed data while creating Machine 'worker' in app 'example'",
         )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_rejects_unapplied_create_response(self):
         created = {
@@ -1845,6 +1877,7 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Fly.io API did not apply the requested configuration to Machine 'machine-one' in app 'example'",
         )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_machine_destroyed_elsewhere_after_read_is_unchanged(self):
         current = {"id": "machine-one", "version": "instance-one", "state": "started"}
@@ -1908,6 +1941,7 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Machine 'machine-one' in app 'example' did not reach state 'destroyed' (current state: started)",
         )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_destroy_without_wait_returns_request_status(self):
         current = {"id": "machine-one", "state": "started"}
@@ -2148,6 +2182,7 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Transition of Machine 'machine-one' in app 'example' timed out",
         )
+        self.assertNotIn("changed", raised.exception.values)
 
     def test_settle_reports_machine_headed_for_destruction_as_gone(self):
         for state in ("destroying", "launch_failed"):
@@ -2830,6 +2865,43 @@ class MachinesTests(TestCase):
             machines.ensure_present(FakeModule(params(auto_destroy=True)), {})
 
         self.assertIn("did not reach state 'settled' (current state: starting)", raised.exception.values["msg"])
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_failures_after_power_change_report_change(self):
+        current = {"id": "machine-one", "version": "v1", "state": "stopped"}
+        module = FakeModule(params(api_token="token", image=None))
+        for get_side_effect, message in (
+            ([None], "Machine 'machine-one' in app 'example' is no longer available"),
+            (FlyioApiError("GET failed", 500), "GET failed"),
+        ):
+            with (
+                self.subTest(message=message),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result") as post,
+                patch.object(machines, "wait_for_machine"),
+                patch.object(machines, "get_resource", side_effect=get_side_effect),
+                self.assertRaises(ModuleFail) as raised,
+                flyio_client(module) as client,
+            ):
+                machines.ensure_power_state(module, client, "started")
+
+            post.assert_called_once()
+            self.assertEqual(raised.exception.values["msg"], message)
+            self.assertTrue(raised.exception.values["changed"])
+
+    def test_failed_power_change_request_does_not_report_change(self):
+        current = {"id": "machine-one", "version": "v1", "state": "stopped"}
+        module = FakeModule(params(api_token="token", image=None))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", side_effect=FlyioApiError("POST failed", 412)),
+            self.assertRaises(ModuleFail) as raised,
+            flyio_client(module) as client,
+        ):
+            machines.ensure_power_state(module, client, "started")
+
+        self.assertNotIn("changed", raised.exception.values)
 
     def test_lowering_hard_limit_below_current_soft_limit_is_allowed(self):
         service = {
@@ -2883,8 +2955,6 @@ class MachinesTests(TestCase):
         for updates, name in (
             ({"guest": {"cpu_kind": ""}}, "guest.cpu_kind"),
             ({"guest": {"host_dedication_id": " "}}, "guest.host_dedication_id"),
-            ({"statics": [{"guest_path": "/a", "url_prefix": "/", "tigris_bucket": ""}]}, "statics[].tigris_bucket"),
-            ({"statics": [{"guest_path": "/a", "url_prefix": "/", "index_document": ""}]}, "statics[].index_document"),
             (
                 {
                     "services": [

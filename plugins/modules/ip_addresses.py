@@ -180,6 +180,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     graphql_not_found,
     graphql_request,
     ip_version,
+    report_changed_on_failure,
     require_nonempty,
     shared_ip_address,
     valid_ip_address,
@@ -271,6 +272,7 @@ def ensure_present(module, client):
         {"input": mutation_input},
         operation=f"Allocate an IP address for app '{app_name}'",
     )
+    report_changed_on_failure(module)
     # A malformed result yields no valid address, which the check below reports.
     result = data.get("allocateIpAddress")
     result = result if isinstance(result, dict) else {}
@@ -366,6 +368,7 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="IP address already released")
 
+    report_changed_on_failure(module)
     result = data.get("releaseIpAddress")
     if (
         not isinstance(result, dict)

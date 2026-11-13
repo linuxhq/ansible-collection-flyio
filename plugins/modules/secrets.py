@@ -33,6 +33,9 @@ options:
     type: str
     description:
       - Secret value.
+      - Ansible masks this value wherever it appears in the task result,
+        including inside names and numbers, for example a RV(version) equal
+        to the value.
       - Required when O(state=present).
       - Used only when O(state=present).
   state:
@@ -140,6 +143,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     get_app,
     get_resource,
     post_result,
+    report_changed_on_failure,
     require_nonempty,
     select_fields,
     valid_secret_metadata,
@@ -192,6 +196,7 @@ def ensure_present(module, client):
         module.exit_json(**values)
 
     result = post_result(client, path, {"value": module.params["value"]})
+    report_changed_on_failure(module)
     if (
         not valid_secret_metadata(result)
         or result["name"] != module.params["name"]
@@ -245,6 +250,7 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="Secret already absent")
 
+    report_changed_on_failure(module)
     if result is None:
         result = {}
     elif not isinstance(result, dict) or not valid_version(result.get("version")):
