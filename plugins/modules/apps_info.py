@@ -62,9 +62,58 @@ apps:
   type: list
   elements: dict
   contains:
+    id:
+      description: App identifier.
+      returned: when available
+      type: str
     name:
       description: App name.
       returned: always
+      type: str
+    internal_numeric_id:
+      description: Internal numeric app identifier.
+      returned: when available
+      type: int
+    machine_count:
+      description: Number of Machines in the app.
+      returned: when available
+      type: int
+    volume_count:
+      description: Number of volumes in the app.
+      returned: when available
+      type: int
+    network:
+      description: Private network name, such as C(default).
+      returned: when available
+      type: str
+    network_cidr:
+      description: Private network CIDR.
+      returned: when available
+      type: str
+    organization:
+      description: Organization that owns the app.
+      returned: when available
+      type: dict
+      contains:
+        name:
+          description: Organization name.
+          returned: when available
+          type: str
+        slug:
+          description: Organization slug.
+          returned: when available
+          type: str
+        internal_numeric_id:
+          description: Internal numeric organization identifier.
+          returned: when available
+          type: int
+    status:
+      description: App status, such as C(pending), C(deployed), or C(suspended).
+      returned: when available
+      type: str
+    cname_target:
+      description: CNAME target for custom domains.
+      returned: when available
       type: str
 
 """
@@ -85,30 +134,13 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 
 def list_resources(module, client):
     org_slug = module.params["org_slug"]
-    malformed = f"Fly.io API returned malformed data while listing apps for organization '{org_slug}'"
-    apps = []
-    cursor = None
-    while True:
-        query = {"org_slug": org_slug}
-        if cursor:
-            query["cursor"] = cursor
-
-        result = api_request(client, "get", f"/apps?{urlencode(query)}")
-        page = result.get("apps") if isinstance(result, dict) else None
-        if not isinstance(page, list) or not all(
-            isinstance(app, dict) and nonempty_string(app.get("name")) for app in page
-        ):
-            module.fail_json(msg=malformed)
-
-        apps.extend(page)
-        next_cursor = result.get("next_cursor")
-        if not next_cursor:
-            break
-
-        if not isinstance(next_cursor, str) or next_cursor == cursor:
-            module.fail_json(msg=malformed)
-
-        cursor = next_cursor
+    # Without a limit, Fly.io returns every app in one response.
+    result = api_request(client, "get", f"/apps?{urlencode({'org_slug': org_slug})}")
+    apps = result.get("apps") if isinstance(result, dict) else None
+    if not isinstance(apps, list) or not all(
+        isinstance(app, dict) and nonempty_string(app.get("name")) for app in apps
+    ):
+        module.fail_json(msg=f"Fly.io API returned malformed data while listing apps for organization '{org_slug}'")
 
     module.exit_json(changed=False, apps=apps)
 

@@ -36,7 +36,8 @@
     - _machine.1.name is defined or
       _machine.1.id is defined
   changed_when:
-    - ansible_check_mode | bool
+    - ansible_check_mode | bool or
+      machines_poll | int > 0
     - __machines_result.changed | bool
 
 - name: Ensure managed flyio machine jobs are complete
@@ -50,6 +51,7 @@
     label: "{{ _jid._machine.1.name | d(none) }}"
     loop_var: _jid
   when:
+    - machines_poll | int == 0
     - _jid.ansible_job_id is defined
   until:
     - __machines_status.finished | bool

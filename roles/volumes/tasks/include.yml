@@ -26,7 +26,8 @@
     - _volume.1.name is defined or
       _volume.1.id is defined
   changed_when:
-    - ansible_check_mode | bool
+    - ansible_check_mode | bool or
+      volumes_poll | int > 0
     - __volumes_result.changed | bool
 
 - name: Ensure managed flyio volume jobs are complete
@@ -40,6 +41,7 @@
     label: "{{ _jid._volume.1.name | d(none) }}"
     loop_var: _jid
   when:
+    - volumes_poll | int == 0
     - _jid.ansible_job_id is defined
   until:
     - __volumes_status.finished | bool

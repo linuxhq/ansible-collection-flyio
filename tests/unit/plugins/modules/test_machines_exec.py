@@ -122,6 +122,17 @@ class MachinesExecTests(TestCase):
         )
         self.assertEqual(raised.exception.values["stdout"], "ready")
 
+    def test_sends_container(self):
+        result = {"exit_code": 0, "stderr": "", "stdout": "ready"}
+
+        with (
+            patch.object(machines_exec, "post_result", return_value=result) as request,
+            self.assertRaises(ModuleExit),
+        ):
+            machines_exec.exec_command(module(container="app"), {})
+
+        self.assertEqual(request.call_args.args[2]["container"], "app")
+
     def test_fails_on_nonzero_exit(self):
         result = {"exit_code": 1, "stderr": "failed", "stdout": ""}
 

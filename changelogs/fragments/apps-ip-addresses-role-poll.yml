@@ -1,0 +1,16 @@
+---
+bugfixes:
+  - >-
+    apps - fail before any change, including in check mode, when an existing app's organization slug or network differs from a set ``org_slug`` or ``network``.
+    Playbooks that set a mismatched ``org_slug`` or ``network`` for an existing app now fail instead of reporting no change.
+  - apps_info - list an organization's apps with one request, because Fly.io returns every app without pagination when no ``limit`` is sent.
+  - ip_addresses - report no change instead of failing when the address is released elsewhere between the lookup and the release.
+  - >-
+    apps, ip_addresses, machines, secrets, volumes roles - support a ``*_poll`` value greater than zero.
+    The roles no longer fail with "could not find job" and report the module's change.
+  - apps, apps_info - document the app fields that Fly.io returns.
+  - apps - document that Fly.io creates the network named by ``network`` when it does not exist and that ``default`` selects the organization's default network.
+  - ip_addresses - add examples that allocate a private IPv6 address, allocate a regional address, and release an address by type and region.
+trivial:
+  - ip_addresses - build the shared IPv4 address result with one shared helper.
+  - machines_exec - add a unit test that ``container`` is sent in the request.
