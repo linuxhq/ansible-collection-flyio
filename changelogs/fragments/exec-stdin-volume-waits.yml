@@ -5,9 +5,6 @@ breaking_changes:
     masked when they contain the ``stdin`` value. Use task-level ``no_log`` when passing sensitive input.
 bugfixes:
   - >-
-    apps, ip_addresses, machines, machines_exec, secrets, volumes - report a change when the task fails after Fly.io
-    accepted a write, for example on a wait timeout, a failed re-read, or a malformed response.
-  - >-
     volumes - stop waiting when a volume being created, extended, or settled is deleted, and fail with a clear message
     instead of waiting until the timeout.
   - machines - accept an empty string for ``statics[].tigris_bucket`` and ``statics[].index_document`` to clear them.

@@ -164,7 +164,6 @@ class MachinesExecTests(TestCase):
                 "Fly.io API returned malformed data while executing a command on "
                 "Machine 'machine-one' for app 'example'",
             )
-            self.assertTrue(raised.exception.values["changed"])
 
     def test_stdin_is_not_no_log(self):
         with (

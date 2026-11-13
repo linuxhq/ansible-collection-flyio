@@ -236,7 +236,6 @@ class IpAddressesTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while allocating a 'v4' address for app 'example'",
             )
-            self.assertTrue(raised.exception.values["changed"])
 
     def test_malformed_allocation_returns_allocated_address(self):
         module = FakeModule({"app_name": "example", "region": "ord", "type": "v4"})
@@ -488,7 +487,6 @@ class IpAddressesTests(TestCase):
                 raised.exception.values["msg"],
                 "Fly.io API returned malformed data while releasing address '1.2.3.4' from app 'example'",
             )
-            self.assertTrue(raised.exception.values["changed"])
 
     def test_allocation_sends_normalized_region(self):
         module = FakeModule({"app_name": "example", "region": " ORD ", "type": "v4"})

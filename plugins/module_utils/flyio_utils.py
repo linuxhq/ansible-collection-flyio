@@ -2,7 +2,6 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 
-import functools
 import http.client
 import ipaddress
 import json
@@ -85,12 +84,6 @@ def flyio_client(module):
             status_code=exc.status_code,
             response=exc.response_body,
         )
-
-
-def report_changed_on_failure(module):
-    """Make every later failure report changed=True; call once Fly.io has accepted a write."""
-    # Covers module failures and API errors raised to flyio_client, which both end in fail_json.
-    module.fail_json = functools.partial(module.fail_json, changed=True)
 
 
 class FlyioApiError(Exception):

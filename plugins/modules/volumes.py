@@ -240,7 +240,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     list_all,
     positive_int,
     post_result,
-    report_changed_on_failure,
     require_nonempty,
     require_positive,
     require_region_code,
@@ -487,7 +486,6 @@ def update_volume(module, client, current, deadline):
         flyio_path("apps", app_name, "volumes", volume_id, "extend"),
         body={"size_gb": desired_size},
     )
-    report_changed_on_failure(module)
     needs_restart = result.get("needs_restart") if isinstance(result, dict) else None
     response_volume = result.get("volume") if isinstance(result, dict) else None
     response_size = response_volume.get("size_gb") if isinstance(response_volume, dict) else None
@@ -545,7 +543,6 @@ def create_volume(module, client, deadline):
         module.exit_json(changed=True, message="Volume would be created", **diff)
 
     current = post_result(client, flyio_path("apps", app_name, "volumes"), body)
-    report_changed_on_failure(module)
     if not valid_volume(current):
         module.fail_json(
             msg=(f"Fly.io API returned malformed data while creating volume '{params['name']}' in app '{app_name}'"),
@@ -655,7 +652,6 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="Volume already absent")
 
-    report_changed_on_failure(module)
     if result is not None and (
         not valid_volume(result)
         or result.get("id") != volume_id

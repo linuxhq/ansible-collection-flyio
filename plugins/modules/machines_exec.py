@@ -113,7 +113,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_path,
     get_resource,
     post_result,
-    report_changed_on_failure,
     require_nonempty,
     require_positive,
 )
@@ -185,7 +184,6 @@ def exec_command(module, client):
             response=response,
         )
 
-    report_changed_on_failure(module)
     if (
         not isinstance(result, dict)
         or not all(

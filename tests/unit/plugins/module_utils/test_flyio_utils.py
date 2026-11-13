@@ -24,7 +24,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     graphql_not_found,
     graphql_request,
     list_all,
-    report_changed_on_failure,
     require_nonempty,
     require_positive,
     wait_for_app_absent,
@@ -713,23 +712,6 @@ class FlyioUtilsTests(TestCase):
 
         self.assertEqual(get.call_count, 2)
         self.assertIsNone(result)
-
-    def test_report_changed_on_failure_marks_later_failures_changed(self):
-        module = Mock(params={"api_token": "token"})
-        fail_json = module.fail_json
-        fail_json.side_effect = RuntimeError
-
-        report_changed_on_failure(module)
-        with self.assertRaises(RuntimeError), flyio_client(module):
-            raise FlyioApiError("GET /apps/example failed", status_code=500)
-
-        fail_json.assert_called_once_with(
-            msg="GET /apps/example failed",
-            error="GET /apps/example failed",
-            status_code=500,
-            response=None,
-            changed=True,
-        )
 
     def test_volume_wait_rejects_malformed_size(self):
         volume = {"id": "volume-one", "size_gb": "2", "state": "created"}
