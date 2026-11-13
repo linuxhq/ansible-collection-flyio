@@ -14,6 +14,9 @@ description:
     is in any state other than C(started).
   - The task fails when the command exits with a non-zero status or is
     terminated by a signal.
+  - The task fails and reports a change when the command ran but Fly.io
+    could not return its output because the output exceeded the maximum
+    response size.
   - Results include every field of the Fly.io exec response as Fly.io
     reports it. The documented fields default to C(0) or an empty string
     when Fly.io omits them.
@@ -102,6 +105,7 @@ stdout:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    FlyioApiError,
     api_token_option,
     flyio_client,
     flyio_path,
@@ -151,12 +155,33 @@ def exec_command(module, client):
         if module.params[option] is not None:
             body[option] = module.params[option]
 
-    result = post_result(
-        client,
-        flyio_path("apps", module.params["app_name"], "machines", module.params["id"], "exec"),
-        body,
-        timeout=module.params["timeout"] + 10,
-    )
+    try:
+        result = post_result(
+            client,
+            flyio_path("apps", app_name, "machines", machine_id, "exec"),
+            body,
+            timeout=module.params["timeout"] + 10,
+        )
+    except FlyioApiError as exc:
+        response = exc.response_body
+        if (
+            exc.status_code != 413
+            or not isinstance(response, dict)
+            or response.get("status") != "exec_output_too_large"
+        ):
+            raise
+
+        # Fly.io ran the command but could not return its output.
+        module.fail_json(
+            msg=(
+                f"Executing a command on Machine '{machine_id}' for app '{app_name}' ran the command, "
+                "but Fly.io could not return output that exceeded its maximum response size"
+            ),
+            changed=True,
+            status_code=exc.status_code,
+            response=response,
+        )
+
     if (
         not isinstance(result, dict)
         or not all(

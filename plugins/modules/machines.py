@@ -126,6 +126,8 @@ options:
           - always
         description:
           - Root filesystem persistence policy.
+          - Fly.io deprecates this setting in favor of the Machine
+            configuration's C(rootfs.persist) setting.
   services:
     type: list
     elements: dict
@@ -486,6 +488,7 @@ options:
         type: str
         description:
           - Index document served for directory requests.
+          - Takes effect only with O(statics[].tigris_bucket).
           - Must not be empty when specified.
   wait:
     type: bool
@@ -511,7 +514,10 @@ options:
     default: present
     description:
       - Desired state of the resource.
-      - C(present) creates or updates the Machine.
+      - C(present) creates or updates the Machine. Updating a Machine that
+        is C(created), C(stopped), C(suspended), or C(failed) applies the
+        update without starting it, so the Machine ends up C(stopped) and a
+        suspended Machine loses its suspend snapshot.
       - C(started) ensures the Machine is running.
       - C(stopped) ensures the Machine is stopped.
       - C(absent) destroys the Machine. A running Machine is stopped forcibly

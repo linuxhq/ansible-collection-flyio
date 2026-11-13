@@ -26,6 +26,8 @@ options:
     description:
       - Machine identifier.
       - Fails when the Machine does not exist in the app.
+      - Can return a destroyed, replaced, or migrated Machine. Check
+        RV(machines[].state) to select live Machines.
 requirements:
   - python >= 3.9
 attributes:
