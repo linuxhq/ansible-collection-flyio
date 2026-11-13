@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import machines_exec
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -223,3 +224,34 @@ class MachinesExecTests(TestCase):
         self.assertEqual(raised.exception.values["duration_ms"], 12)
         self.assertEqual(raised.exception.values["exit_signal"], 0)
         self.assertEqual(raised.exception.values["stderr"], "")
+
+    def test_reports_change_when_output_too_large(self):
+        response = {"error": "output too large", "status": "exec_output_too_large"}
+        error = FlyioApiError("POST failed", status_code=413, response_body=response)
+
+        with (
+            patch.object(machines_exec, "post_result", side_effect=error),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines_exec.exec_command(module(), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["status_code"], 413)
+        self.assertEqual(raised.exception.values["response"], response)
+        self.assertIn("Machine 'machine-one' for app 'example'", raised.exception.values["msg"])
+
+    def test_reraises_other_api_errors(self):
+        for status_code, response in (
+            (413, {"error": "exec request rejected: payload too large", "status": "exec_request_too_large"}),
+            (413, "output too large"),
+            (412, {"error": "machine not running", "status": "exec_output_too_large"}),
+        ):
+            error = FlyioApiError("POST failed", status_code=status_code, response_body=response)
+            with (
+                self.subTest(status_code=status_code, response=response),
+                patch.object(machines_exec, "post_result", side_effect=error),
+                self.assertRaises(FlyioApiError) as raised,
+            ):
+                machines_exec.exec_command(module(), {})
+
+            self.assertIs(raised.exception, error)

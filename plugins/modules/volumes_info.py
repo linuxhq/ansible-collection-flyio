@@ -117,6 +117,11 @@ volumes:
       description: Host zone. Volumes in different zones are on different hosts.
       returned: when available
       type: str
+    required_host_features:
+      description: Host features the volume's host was required to have when the volume was created.
+      returned: when available
+      type: list
+      elements: str
     type:
       description: Volume kind, such as C(local) or C(cache).
       returned: when available
