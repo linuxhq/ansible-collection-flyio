@@ -4,6 +4,75 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.1.5
+======
+
+Release Summary
+---------------
+
+Bug fix release from repeated audits of the collection's plugins and roles against the Fly.io Machines API, fly-go, and live checks. Modules now return provider data unmodified, and machines_exec no longer masks output with the ``stdin`` value; see Breaking Changes.
+
+Minor Changes
+-------------
+
+- all modules - fall back to the ``FLY_API_TOKEN`` environment variable when ``api_token`` is not set.
+- machines - support diff mode; diffs include environment variables, HTTP headers, and file contents not set through ``files[].raw_value``.
+- machines, volumes - with ``state=absent``, return the last known resource when it was already being deleted, even once it is gone.
+- machines_exec - return every field of the exec response, not only ``exit_code``, ``exit_signal``, ``stderr``, and ``stdout``.
+- secrets - support diff mode; diffs show secret names and digests, never values.
+- secrets, secrets_info - return secret metadata as Fly.io reports it instead of a fixed field list.
+- volumes - support diff mode.
+
+Breaking Changes / Porting Guide
+--------------------------------
+
+- ip_addresses, ip_addresses_info - return IP addresses as Fly.io reports them; a global region stays ``global`` and null fields are kept.
+- machines, machines_info - return Machine data as Fly.io reports it, including ``env``, HTTP headers, and file contents; use task-level ``no_log``.
+- machines_exec - ``stdin`` is no longer ``no_log``, so ``stdout``, ``stderr``, and the exit codes are no longer masked when they contain the ``stdin`` value. Use task-level ``no_log`` when passing sensitive input.
+
+Bugfixes
+--------
+
+- apps - document that Fly.io creates the network named by ``network`` when it does not exist and that ``default`` selects the organization's default network.
+- apps - fail before any change, including in check mode, when an existing app's organization slug or network differs from a set ``org_slug`` or ``network``. Playbooks that set a mismatched ``org_slug`` or ``network`` for an existing app now fail instead of reporting no change.
+- apps - in check mode, return ``app`` with the requested name when the app would be created, as a real create does.
+- apps - with ``state=absent``, fail before deleting, including in check mode, when the existing app's organization slug or network differs from a set ``org_slug`` or ``network``. Playbooks that set a mismatched ``org_slug`` or ``network`` to delete an app now fail instead of deleting it.
+- apps, apps_info - document the app fields that Fly.io returns.
+- apps, ip_addresses, machines, secrets, volumes roles - support a ``*_poll`` value greater than zero. The roles no longer fail with "could not find job" and report the module's change.
+- apps, machines, secrets, volumes - with ``state=absent``, report no change when the resource is deleted elsewhere between the lookup and the delete.
+- apps, volumes - allow slack on each status check while waiting, so a slow final check reports the timeout instead of a connection error.
+- apps_info, machines_info, volumes_info - document that a lookup by ``name`` or ``id`` fails when the resource does not exist.
+- ip_addresses - add examples that allocate a private IPv6 address, allocate a regional address, and release an address by type and region.
+- ip_addresses - fail before any lookup or allocation when ``type=private_v6`` is given a region other than ``global``, because Fly.io allocates private IPv6 addresses globally. Previously the module allocated a global address, failed on the region it returned, and allocated another address on every run.
+- ip_addresses - report no change instead of failing when the address is released elsewhere between the lookup and the release.
+- ip_addresses - return the allocated address in ``ip_address`` when Fly.io returns unexpected allocation data.
+- machines - accept an empty string for ``statics[].tigris_bucket`` and ``statics[].index_document`` to clear them.
+- machines - document that Fly.io deprecates ``guest.persist_rootfs`` in favor of the Machine configuration's ``rootfs.persist`` setting.
+- machines - document that ``services[].ports`` and check ``headers`` replace the current lists.
+- machines - document that ``statics[].index_document`` takes effect only with ``statics[].tigris_bucket``.
+- machines - document that updating a Machine that is created, stopped, suspended, or failed leaves it stopped, and that a suspended Machine loses its suspend snapshot.
+- machines - reject ``init.tty=true`` before changing the Machine, because Fly.io ignores it and the task always failed afterwards.
+- machines - treat replaced and migrated Machines as gone when looking them up by ID, and ignore launch-failed Machines except with ``state=absent``.
+- machines, machines_info - document more of the Machine fields that Fly.io returns.
+- machines, volumes - with ``state=absent``, look up by name without failing when every match is already being deleted.
+- machines_exec - in check mode, fail for a destroyed, replaced, or migrated Machine instead of predicting a change.
+- machines_exec - in check mode, fail when the Machine does not exist instead of predicting a change.
+- machines_exec - in check mode, fail when the Machine is not ``started`` instead of predicting a change, because Fly.io rejects the command.
+- machines_exec - report a change when Fly.io ran the command but could not return its output because the output exceeded the maximum response size (HTTP 413 ``exec_output_too_large``); the task still fails.
+- machines_info - document that a lookup by ``id`` can return a destroyed, replaced, or migrated Machine.
+- secrets - document that Ansible masks the secret value wherever it appears in the task result.
+- secrets - document that Fly.io may return the masked ``value`` and ``version`` of a secret that was set.
+- secrets - document that creating or updating a Machine after a secret change uses the app's current secrets version instead of referring to an unsupported ``min_secrets_version`` option.
+- secrets - document the deprecated ``Version`` field that Fly.io returns alongside ``version`` after setting a secret.
+- secrets - in check mode, fail when the app does not exist instead of predicting a change.
+- volumes - stop waiting when a volume being created, extended, or settled is deleted, and fail with a clear message instead of waiting until the timeout.
+- volumes - treat volumes in the ``fork_cleanup`` and ``waiting_for_detach`` states as being deleted, like Fly.io's own client does.
+- volumes - with ``state=absent``, fail in check mode when the volume is attached to a Machine, as the real delete does, instead of reporting that the volume would be deleted.
+- volumes, volumes_info - document ``size_gb`` in GiB, as Fly.io does.
+- volumes, volumes_info - document more of the volume fields that Fly.io returns.
+- volumes, volumes_info - document the ``required_host_features`` field that Fly.io returns.
+- volumes_info - document that listing volumes can include volumes that are being deleted or were recently destroyed.
+
 v1.1.4
 ======
 
