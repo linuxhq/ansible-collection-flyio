@@ -55,7 +55,7 @@ options:
   size_gb:
     type: int
     description:
-      - Volume size in gigabytes.
+      - Volume size in GiB.
       - Required when creating a volume.
       - Must be greater than zero and at most the organization's maximum
         volume size (C(500) by default).
@@ -138,7 +138,7 @@ volume:
       returned: when available
       type: str
     size_gb:
-      description: Volume size in gigabytes.
+      description: Volume size in GiB.
       returned: when available
       type: int
     encrypted:
@@ -380,6 +380,18 @@ def wait_volume(module, client, volume_id, deadline, **kwargs):
     return current
 
 
+def wait_volume_created(module, client, volume_id, deadline, **kwargs):
+    gone_states = DEAD_STATES | DELETING_STATES
+    current = wait_volume(module, client, volume_id, deadline, stop_states=gone_states, **kwargs)
+    if current["state"] in gone_states:
+        module.fail_json(
+            msg=f"Volume '{volume_id}' in app '{module.params['app_name']}' was deleted while waiting",
+            volume=current,
+        )
+
+    return current
+
+
 def settle_volume(module, client, current, deadline):
     params = module.params
     app_name = params["app_name"]
@@ -394,7 +406,7 @@ def settle_volume(module, client, current, deadline):
             volume=current,
         )
 
-    current = wait_volume(module, client, volume_id, deadline)
+    current = wait_volume_created(module, client, volume_id, deadline)
     if current.get("state") != "created":
         module.fail_json(
             msg=f"Transition of volume '{volume_id}' in app '{app_name}' timed out",
@@ -433,7 +445,7 @@ def reject_shrink(module, current, current_size):
         module.fail_json(
             msg=(
                 f"Volume '{current['id']}' in app '{module.params['app_name']}' cannot be shrunk "
-                f"from {current_size} GB to {desired_size} GB"
+                f"from {current_size} GiB to {desired_size} GiB"
             ),
             volume=current,
         )
@@ -488,7 +500,7 @@ def update_volume(module, client, current, deadline):
         module.fail_json(msg=extension_error, volume=response_volume)
 
     if params["wait"]:
-        current = wait_volume(module, client, volume_id, deadline, size_gb=desired_size)
+        current = wait_volume_created(module, client, volume_id, deadline, size_gb=desired_size)
         current_size = current.get("size_gb")
         if current.get("state") != "created" or not positive_int(current_size) or current_size < desired_size:
             module.fail_json(
@@ -543,7 +555,7 @@ def create_volume(module, client, deadline):
     if params["wait"]:
         current = validate_created_volume(
             module,
-            wait_volume(module, client, volume_id, deadline),
+            wait_volume_created(module, client, volume_id, deadline),
         )
 
         if current.get("state") != "created":

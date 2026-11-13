@@ -690,7 +690,9 @@ class FindVolumeTests(TestCase):
             volumes.ensure_present(module, {})
 
         put.assert_called_once_with({}, "put", "/apps/example/volumes/vol_one/extend", body={"size_gb": 2})
-        wait.assert_called_once_with({}, "example", "vol_one", 60, size_gb=2)
+        wait.assert_called_once_with(
+            {}, "example", "vol_one", 60, stop_states=volumes.DEAD_STATES | volumes.DELETING_STATES, size_gb=2
+        )
         self.assertEqual(raised.exception.values["volume"], extended)
         self.assertTrue(raised.exception.values["needs_restart"])
 
@@ -873,7 +875,9 @@ class FindVolumeTests(TestCase):
         ):
             volumes.ensure_present(module, {})
 
-        wait.assert_called_once_with({}, "example", "vol_one", 60)
+        wait.assert_called_once_with(
+            {}, "example", "vol_one", 60, stop_states=volumes.DEAD_STATES | volumes.DELETING_STATES
+        )
         put.assert_not_called()
         self.assertFalse(raised.exception.values["changed"])
 
@@ -1021,7 +1025,7 @@ class FindVolumeTests(TestCase):
 
         self.assertEqual(
             raised.exception.values["msg"],
-            "Volume 'vol_one' in app 'example' cannot be shrunk from 10 GB to 5 GB",
+            "Volume 'vol_one' in app 'example' cannot be shrunk from 10 GiB to 5 GiB",
         )
 
     def test_rejects_malformed_current_volume(self):
@@ -1234,7 +1238,7 @@ class FindVolumeTests(TestCase):
             volumes.ensure_present(module, {})
 
         self.assertEqual(
-            raised.exception.values["msg"], "Volume 'vol_one' in app 'example' cannot be shrunk from 3 GB to 2 GB"
+            raised.exception.values["msg"], "Volume 'vol_one' in app 'example' cannot be shrunk from 3 GiB to 2 GiB"
         )
 
     def test_diff_mode_reports_deleted_volume_fields(self):
@@ -1295,3 +1299,74 @@ class FindVolumeTests(TestCase):
             raised.exception.values["diff"],
             {"before": {}, "after": {"name": "data", "region": "ord", "size_gb": 1, "encrypted": True}},
         )
+
+    def test_volume_deleted_while_waiting_for_extension_fails(self):
+        current = {"encrypted": True, "id": "vol_one", "size_gb": 1, "state": "created"}
+        module = FakeModule(
+            {
+                "app_name": "example",
+                "encrypted": None,
+                "id": "vol_one",
+                "name": None,
+                "region": None,
+                "size_gb": 2,
+                "wait": True,
+                "wait_timeout": 60,
+            }
+        )
+
+        with (
+            patch.object(volumes, "find_volume", return_value=current),
+            patch.object(
+                volumes,
+                "api_request",
+                return_value={"needs_restart": False, "volume": {**current, "size_gb": 2}},
+            ),
+            patch.object(volumes, "wait_for_volume", return_value={**current, "state": "pending_destroy"}),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.ensure_present(module, {})
+
+        self.assertEqual(raised.exception.values["msg"], "Volume 'vol_one' in app 'example' was deleted while waiting")
+        self.assertNotIn("changed", raised.exception.values)
+
+    def test_volume_deleted_while_settling_fails(self):
+        module = FakeModule({"app_name": "example", "wait": True, "wait_timeout": 60})
+        deleting = {"id": "vol_one", "state": "scheduling_destroy"}
+
+        with (
+            patch.object(volumes, "wait_for_volume", return_value=deleting),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.settle_volume(module, {}, {"id": "vol_one", "state": "creating"}, 60)
+
+        self.assertEqual(raised.exception.values["msg"], "Volume 'vol_one' in app 'example' was deleted while waiting")
+        self.assertNotIn("changed", raised.exception.values)
+
+    def test_volume_deleted_while_waiting_for_creation_fails(self):
+        created = {"id": "vol_new", "name": "data", "region": "ord", "size_gb": 1, "state": "creating"}
+        module = FakeModule(
+            {
+                "app_name": "example",
+                "encrypted": None,
+                "id": None,
+                "name": "data",
+                "region": "ord",
+                "size_gb": 1,
+                "wait": True,
+                "wait_timeout": 60,
+            }
+        )
+
+        with (
+            patch.object(volumes, "find_volume", return_value=None),
+            patch.object(volumes, "post_result", return_value=created),
+            patch.object(volumes, "wait_for_volume", return_value={**created, "state": "destroying"}) as wait,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.ensure_present(module, {})
+
+        wait.assert_called_once_with(
+            {}, "example", "vol_new", 60, stop_states=volumes.DEAD_STATES | volumes.DELETING_STATES
+        )
+        self.assertEqual(raised.exception.values["msg"], "Volume 'vol_new' in app 'example' was deleted while waiting")

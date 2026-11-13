@@ -688,6 +688,31 @@ class FlyioUtilsTests(TestCase):
         self.assertEqual(get.call_count, 2)
         self.assertEqual(result, extended)
 
+    def test_volume_wait_ends_on_stop_state(self):
+        creating = {"id": "volume-one", "state": "creating"}
+        deleting = {"id": "volume-one", "state": "scheduling_destroy"}
+        with (
+            patch(f"{FLYIO_UTILS}.time.monotonic", return_value=0),
+            patch(f"{FLYIO_UTILS}.get_resource", side_effect=[creating, deleting]) as get,
+            patch(f"{FLYIO_UTILS}.time.sleep"),
+        ):
+            result = wait_for_volume({}, "example", "volume-one", timeout=5, stop_states={"scheduling_destroy"})
+
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(result, deleting)
+
+    def test_volume_wait_continues_through_states_outside_stop_states(self):
+        deleting = {"id": "volume-one", "state": "destroying"}
+        with (
+            patch(f"{FLYIO_UTILS}.time.monotonic", return_value=0),
+            patch(f"{FLYIO_UTILS}.get_resource", side_effect=[deleting, None]) as get,
+            patch(f"{FLYIO_UTILS}.time.sleep"),
+        ):
+            result = wait_for_volume({}, "example", "volume-one", timeout=5, states={"destroyed"}, ok_statuses=[404])
+
+        self.assertEqual(get.call_count, 2)
+        self.assertIsNone(result)
+
     def test_volume_wait_rejects_malformed_size(self):
         volume = {"id": "volume-one", "size_gb": "2", "state": "created"}
         with (

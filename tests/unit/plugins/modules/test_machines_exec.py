@@ -165,14 +165,14 @@ class MachinesExecTests(TestCase):
                 "Machine 'machine-one' for app 'example'",
             )
 
-    def test_stdin_is_no_log(self):
+    def test_stdin_is_not_no_log(self):
         with (
             patch.object(machines_exec, "AnsibleModule", side_effect=RuntimeError) as ansible_module,
             self.assertRaises(RuntimeError),
         ):
             machines_exec.main()
 
-        self.assertTrue(ansible_module.call_args.kwargs["argument_spec"]["stdin"]["no_log"])
+        self.assertEqual(ansible_module.call_args.kwargs["argument_spec"]["stdin"], {"type": "str"})
 
     def test_rejects_timeout_above_api_limit(self):
         with (

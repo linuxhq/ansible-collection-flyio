@@ -33,6 +33,9 @@ options:
     type: str
     description:
       - Secret value.
+      - Ansible masks this value wherever it appears in the task result,
+        including inside names and numbers, for example a RV(version) equal
+        to the value.
       - Required when O(state=present).
       - Used only when O(state=present).
   state:

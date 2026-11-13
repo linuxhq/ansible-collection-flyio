@@ -505,7 +505,9 @@ def wait_for_volume(
     states=("created",),
     ok_statuses=None,
     size_gb=None,
+    stop_states=(),
 ):
+    """Poll until the volume reaches one of states, fails, or enters one of stop_states."""
     operation = f"Wait for volume '{volume_id}' in app '{app_name}'"
 
     def fetch(request_timeout):
@@ -523,8 +525,8 @@ def wait_for_volume(
         return volume
 
     def done(volume):
-        # A failed volume will not recover, so stop waiting and let the caller report it.
-        if volume is None or volume["state"] == "failed":
+        # A failed or stopping volume will not reach the target, so stop waiting and let the caller report it.
+        if volume is None or volume["state"] == "failed" or volume["state"] in stop_states:
             return True
 
         if volume["state"] not in states:

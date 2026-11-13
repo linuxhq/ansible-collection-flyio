@@ -483,13 +483,13 @@ options:
         type: str
         description:
           - Tigris bucket containing the static files.
-          - Must not be empty when specified.
+          - An empty string clears the bucket.
       index_document:
         type: str
         description:
           - Index document served for directory requests.
           - Takes effect only with O(statics[].tigris_bucket).
-          - Must not be empty when specified.
+          - An empty string clears the index document.
   wait:
     type: bool
     default: true
@@ -1053,11 +1053,6 @@ def validate_requested_strings(module, params):
     """Reject empty optional strings; Fly.io omits them from returned config, so they could never match."""
     guest = params.get("guest") or {}
     values = [(f"guest.{field}", guest.get(field)) for field in ("cpu_kind", "host_dedication_id")]
-    values += [
-        (f"statics[].{field}", static.get(field))
-        for static in params.get("statics") or []
-        for field in ("tigris_bucket", "index_document")
-    ]
     values += [
         ("services[].ports[].proxy_proto_options.version", (port.get("proxy_proto_options") or {}).get("version"))
         for service in params.get("services") or []

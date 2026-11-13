@@ -1475,6 +1475,35 @@ class MachinesTests(TestCase):
                         post.assert_called_once()
                         self.assertEqual(post.call_args.args[2]["config"], applied["config"])
 
+    def test_static_empty_tigris_fields_are_sent_and_match_returned_empty_strings(self):
+        requested = [{"guest_path": "/public", "url_prefix": "/", "tigris_bucket": "", "index_document": ""}]
+        cleared = {"id": "machine-one", "state": "started", "region": "ord", "version": "v1"}
+        cleared["config"] = {"image": "example:latest", "statics": requested}
+        current = {
+            **cleared,
+            "config": {"image": "example:latest", "statics": [{**requested[0], "tigris_bucket": "b"}]},
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=cleared) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(statics=requested, wait=False)), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(post.call_args.args[2]["config"]["statics"], requested)
+
+        with (
+            patch.object(machines, "find_machine", return_value=cleared),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(statics=requested)), {})
+
+        post.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+
     def test_identityless_nested_items_preserve_defaults(self):
         current = [{"interval": "15s", "timeout": "2s", "type": "tcp"}]
         desired = [{"interval": "15s", "type": "tcp"}]
@@ -2883,8 +2912,6 @@ class MachinesTests(TestCase):
         for updates, name in (
             ({"guest": {"cpu_kind": ""}}, "guest.cpu_kind"),
             ({"guest": {"host_dedication_id": " "}}, "guest.host_dedication_id"),
-            ({"statics": [{"guest_path": "/a", "url_prefix": "/", "tigris_bucket": ""}]}, "statics[].tigris_bucket"),
-            ({"statics": [{"guest_path": "/a", "url_prefix": "/", "index_document": ""}]}, "statics[].index_document"),
             (
                 {
                     "services": [

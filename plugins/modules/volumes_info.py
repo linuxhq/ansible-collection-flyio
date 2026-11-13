@@ -74,7 +74,7 @@ volumes:
       returned: when available
       type: str
     size_gb:
-      description: Volume size in gigabytes.
+      description: Volume size in GiB.
       returned: when available
       type: int
     encrypted:

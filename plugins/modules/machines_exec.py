@@ -52,7 +52,9 @@ options:
     type: str
     description:
       - Data supplied to the command on standard input.
-      - Treated as sensitive and masked in module output.
+      - Sent only when specified.
+      - Not treated as sensitive. Use task-level C(no_log) when passing
+        sensitive input.
   timeout:
     default: 30
     type: int
@@ -219,7 +221,7 @@ def main():
             "command": {"required": True, "type": "str"},
             "container": {"type": "str"},
             "id": {"required": True, "type": "str"},
-            "stdin": {"type": "str", "no_log": True},
+            "stdin": {"type": "str"},
             "timeout": {"default": 30, "type": "int"},
         },
         supports_check_mode=True,
