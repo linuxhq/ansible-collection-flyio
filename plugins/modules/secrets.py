@@ -103,6 +103,11 @@ secret:
       description: App secret version after setting the secret.
       type: int
       returned: when Fly.io returns it after setting a secret
+    Version:
+      description:
+        - Deprecated duplicate of RV(secret.version), returned as Fly.io reports it.
+      type: int
+      returned: when Fly.io returns it after setting a secret
     created_at:
       description: Secret creation timestamp.
       type: str

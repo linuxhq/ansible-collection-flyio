@@ -50,7 +50,7 @@ class MachinesExecTests(TestCase):
 
     def test_check_mode_does_not_execute(self):
         with (
-            patch.object(machines_exec, "get_resource", return_value={"id": "machine-one"}),
+            patch.object(machines_exec, "get_resource", return_value={"id": "machine-one", "state": "started"}),
             patch.object(machines_exec, "post_result") as request,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -82,6 +82,24 @@ class MachinesExecTests(TestCase):
 
             request.assert_not_called()
             self.assertEqual(raised.exception.values["msg"], "Machine 'machine-one' not found in app 'example'")
+
+    def test_check_mode_fails_for_machine_not_running(self):
+        for state in ("stopped", "suspended", "created"):
+            machine = {"id": "machine-one", "state": state}
+            with (
+                self.subTest(state=state),
+                patch.object(machines_exec, "get_resource", return_value=machine),
+                patch.object(machines_exec, "post_result") as request,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines_exec.exec_command(module(check_mode=True), {})
+
+            request.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                f"Machine 'machine-one' in app 'example' is not running (state '{state}')",
+            )
+            self.assertEqual(raised.exception.values["machine"], machine)
 
     def test_executes_command(self):
         result = {"exit_code": 0, "stderr": "", "stdout": "ready"}

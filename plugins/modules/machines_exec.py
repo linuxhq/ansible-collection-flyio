@@ -10,6 +10,8 @@ short_description: Execute a command on a Fly.io Machine
 description:
   - Execute a command on a Fly.io Machine.
   - Command execution is inherently non-idempotent and reports a change when run.
+  - The Machine must be running. Fly.io rejects the command when the Machine
+    is in any state other than C(started).
   - The task fails when the command exits with a non-zero status or is
     terminated by a signal.
   - Results include every field of the Fly.io exec response as Fly.io
@@ -126,11 +128,18 @@ def exec_command(module, client):
             client,
             flyio_path("apps", app_name, "machines", machine_id),
             ok_statuses=[404],
-            required_fields=("id",),
+            required_fields=("id", "state"),
             expected={"id": machine_id},
         )
-        if machine is None or machine.get("state") in TERMINAL_STATES:
+        if machine is None or machine["state"] in TERMINAL_STATES:
             module.fail_json(msg=f"Machine '{machine_id}' not found in app '{app_name}'")
+
+        # Fly.io rejects exec with HTTP 412 unless the Machine is running.
+        if machine["state"] != "started":
+            module.fail_json(
+                msg=f"Machine '{machine_id}' in app '{app_name}' is not running (state '{machine['state']}')",
+                machine=machine,
+            )
 
         module.exit_json(changed=True)
 

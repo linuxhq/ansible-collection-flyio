@@ -1,0 +1,10 @@
+---
+bugfixes:
+  - volumes - treat volumes in the ``fork_cleanup`` and ``waiting_for_detach`` states as being deleted, like Fly.io's own client does.
+  - machines_exec - in check mode, fail when the Machine is not ``started`` instead of predicting a change, because Fly.io rejects the command.
+  - secrets - document the deprecated ``Version`` field that Fly.io returns alongside ``version`` after setting a secret.
+  - volumes_info - document that listing volumes can include volumes that are being deleted or were recently destroyed.
+trivial:
+  - apps - add a unit test that creating an app without ``org_slug`` fails before any request, with and without check mode.
+  - apps_info, ip_addresses_info, machines_info, secrets_info, volumes_info - assert empty facts without a target in the Molecule scenario.
+  - apps_info - assert that deleted apps are absent after teardown in the Molecule scenario.

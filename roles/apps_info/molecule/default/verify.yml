@@ -14,6 +14,18 @@
           - _apps_info_dict['molecule-test-app-2'] is defined
           - _apps_info_dict['molecule-test-app-2'].name == 'molecule-test-app-2'
 
+    - name: Ensure info is gathered without a target
+      ansible.builtin.include_role:
+        name: apps_info
+      vars:
+        apps_info_org_slug: null
+
+    - name: Ensure empty info is verified
+      ansible.builtin.assert:
+        that:
+          - _apps_info_list == []
+          - _apps_info_dict == {}
+
     - name: Ensure inventory lists are formatted
       ansible.builtin.set_fact:
         apps_list:
@@ -28,4 +40,14 @@
       loop_control:
         label: "{{ _role | d(none) }}"
         loop_var: _role
+
+    - name: Ensure info is gathered after teardown
+      ansible.builtin.include_role:
+        name: apps_info
+
+    - name: Ensure deleted apps are absent
+      ansible.builtin.assert:
+        that:
+          - _apps_info_dict['molecule-test-app'] is not defined
+          - _apps_info_dict['molecule-test-app-2'] is not defined
 ...

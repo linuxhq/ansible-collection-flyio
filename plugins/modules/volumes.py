@@ -186,7 +186,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 )
 
 DEAD_STATES = {"destroyed", "pending_destroy"}
-DELETING_STATES = {"destroying", "scheduling_destroy"}
+DELETING_STATES = {"destroying", "fork_cleanup", "scheduling_destroy", "waiting_for_detach"}
 FAILED_STATE = "failed"
 TRANSITIONAL_STATES = {
     "creating",
