@@ -1,0 +1,5 @@
+---
+bugfixes:
+  - >-
+    volumes - with ``state=absent``, fail in check mode when the volume is attached to a Machine,
+    as the real delete does, instead of reporting that the volume would be deleted.
