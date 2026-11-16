@@ -48,5 +48,4 @@ bugfixes:
 trivial:
   - machines - compare the requested ``region`` with the Machine's region once,
     before any wait.
-  - machines - read checks, check lists, and list items from Fly.io data
-    without type guards.
+  - machines - read current checks from Fly.io data without type guards.

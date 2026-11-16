@@ -72,7 +72,7 @@ def find_list_item(values, value):
         return None
 
     return next(
-        (item for item in values if all(item.get(key) == value[key] for key in keys)),
+        (item for item in values if isinstance(item, dict) and all(item.get(key) == value[key] for key in keys)),
         None,
     )
 

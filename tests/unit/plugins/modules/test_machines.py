@@ -1458,6 +1458,14 @@ class MachinesTests(TestCase):
 
         self.assertEqual(machine_config.merge_config({"checks": None}, desired), desired)
 
+    def test_merges_identity_entries_into_scalar_lists(self):
+        current = {"checks": {"health": {"headers": [{"name": "X-Test", "values": ["current"]}], "type": "http"}}}
+        desired = {"checks": {"health": {"headers": [{"name": "X-Test", "values": [{"name": "replacement"}]}]}}}
+
+        merged = machine_config.merge_config(current, desired)
+
+        self.assertEqual(merged["checks"]["health"]["headers"][0]["values"], [{"name": "replacement"}])
+
     def test_merges_duplicate_ports_by_complete_identity(self):
         current = [
             {"internal_port": 53, "protocol": "tcp", "tcp_checks": ["preserve"]},
