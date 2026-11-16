@@ -65,9 +65,6 @@ def flyio_client(module):
     if any(ord(character) < 32 or ord(character) == 127 for character in token):
         module.fail_json(msg="api_token must not contain control characters")
 
-    if token in ("Bearer", "FlyV1"):
-        module.fail_json(msg="api_token credential must not be empty")
-
     client = {
         "headers": {
             "Authorization": authorization_header(token),
@@ -84,6 +81,16 @@ def flyio_client(module):
             status_code=exc.status_code,
             response=exc.response_body,
         )
+
+
+def mark_changed(module):
+    """Report changed=True on every later failure; call once a write has been sent."""
+    fail_json = module.fail_json
+
+    def fail_changed(**kwargs):
+        fail_json(**{"changed": True, **kwargs})
+
+    module.fail_json = fail_changed
 
 
 class FlyioApiError(Exception):
@@ -169,37 +176,6 @@ def positive_int(value):
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def optional_strings(value, fields):
-    return all(field not in value or nonempty_string(value[field]) for field in fields)
-
-
-def valid_machine(machine):
-    return (
-        isinstance(machine, dict)
-        and nonempty_string(machine.get("id"))
-        and optional_strings(machine, ("name", "region", "state"))
-    )
-
-
-def valid_volume(volume):
-    return (
-        isinstance(volume, dict)
-        and nonempty_string(volume.get("id"))
-        and optional_strings(volume, ("name", "region", "state"))
-        and ("size_gb" not in volume or positive_int(volume["size_gb"]))
-        and ("encrypted" not in volume or isinstance(volume["encrypted"], bool))
-    )
-
-
-def valid_secret_metadata(secret):
-    return (
-        isinstance(secret, dict)
-        and nonempty_string(secret.get("name"))
-        and nonempty_string(secret.get("digest"))
-        and optional_strings(secret, ("created_at", "updated_at"))
-    )
-
-
 def ip_version(value):
     if not isinstance(value, str) or "%" in value:
         return None
@@ -208,29 +184,6 @@ def ip_version(value):
         return ipaddress.ip_address(value).version
     except ValueError:
         return None
-
-
-def valid_ip_address(address):
-    if not isinstance(address, dict):
-        return False
-
-    address_version = ip_version(address.get("address"))
-    address_type = address.get("type")
-    if not isinstance(address_type, str):
-        return False
-
-    expected_version = {
-        "private_v6": 6,
-        "shared_v4": 4,
-        "v4": 4,
-        "v6": 6,
-    }.get(address_type)
-    return (
-        expected_version is not None
-        and address_version == expected_version
-        and all(address.get(field) is None or nonempty_string(address[field]) for field in ("id", "created_at"))
-        and (address.get("region") is None or (isinstance(address["region"], str) and not address["region"].isspace()))
-    )
 
 
 def shared_ip_address(address):
@@ -269,31 +222,16 @@ def get_ip_addresses(client, app_name, missing_ok=False):
 
         raise
 
-    app = data.get("app")
+    app = data["app"]
     if app is None:
         if missing_ok:
             return []
 
         raise FlyioApiError(f"App '{app_name}' not found")
 
-    if not isinstance(app, dict):
-        raise FlyioApiError(f"{operation} returned malformed data: expected an app")
-
-    ip_addresses = app.get("ipAddresses")
-    if not isinstance(ip_addresses, dict):
-        raise FlyioApiError(f"{operation} returned malformed data: expected an address connection")
-
-    addresses = ip_addresses.get("nodes")
-    if not isinstance(addresses, list) or not all(valid_ip_address(address) for address in addresses):
-        raise FlyioApiError(f"{operation} returned malformed data: expected a list")
-
-    shared = app.get("sharedIpAddress")
-    if shared is not None:
-        shared_address = shared_ip_address(shared)
-        if not valid_ip_address(shared_address):
-            raise FlyioApiError(f"{operation} returned malformed data: expected a shared address")
-
-        addresses.append(shared_address)
+    addresses = app["ipAddresses"]["nodes"]
+    if app["sharedIpAddress"] is not None:
+        addresses.append(shared_ip_address(app["sharedIpAddress"]))
 
     return addresses
 
@@ -317,58 +255,35 @@ def graphql_request(client, query, variables=None, timeout=30, operation="GraphQ
         payload["variables"] = variables
 
     result = _send(client, "POST", GRAPHQL_API_URL, payload, timeout, operation)
-
-    if not isinstance(result, dict):
-        raise FlyioApiError(f"{operation} returned malformed data: expected an object")
-
     if result.get("errors"):
         errors = result["errors"]
-        message = (
-            errors[0].get("message", "GraphQL error")
-            if isinstance(errors, list) and errors and isinstance(errors[0], dict)
-            else "GraphQL error"
-        )
         raise FlyioApiError(
-            f"{operation} failed: {message}",
+            f"{operation} failed: {errors[0]['message']}",
             response_body=errors,
         )
 
-    data = result.get("data")
-    if not isinstance(data, dict):
-        raise FlyioApiError(f"{operation} returned malformed data: expected a data object")
-
-    return data
+    return result["data"]
 
 
-def _valid_resource(value, required_fields):
-    return isinstance(value, dict) and all(nonempty_string(value.get(field)) for field in required_fields)
-
-
-def get_resource(client, path, ok_statuses=None, timeout=30, required_fields=(), expected=None):
-    """Get one resource whose required string fields are present and whose expected fields match."""
+def get_resource(client, path, ok_statuses=None, timeout=30, expected=None):
+    """Get one resource; with expected, fail unless the response is the resource whose fields match it."""
     result = api_request(client, "get", path, ok_statuses=ok_statuses, timeout=timeout)
     if result is _MISSING:
         return None
 
-    if not _valid_resource(result, required_fields):
-        raise FlyioApiError(f"GET {path} returned malformed data: expected an object")
-
-    for field, value in (expected or {}).items():
-        if result.get(field) != value:
-            raise FlyioApiError(f"GET {path} returned a different resource: expected {field}={value!r}")
+    # flyio_path leaves "." and ".." unquoted, so such an identifier can reach a different route.
+    if expected and (
+        not isinstance(result, dict) or any(result.get(field) != value for field, value in expected.items())
+    ):
+        fields = ", ".join(f"{field}={value!r}" for field, value in expected.items())
+        raise FlyioApiError(f"GET {path} returned a different resource: expected {fields}")
 
     return result
 
 
-def list_all(client, path, ok_statuses=None, required_fields=()):
+def list_all(client, path, ok_statuses=None):
     result = api_request(client, "get", path, ok_statuses=ok_statuses)
-    if result is _MISSING:
-        return []
-
-    if not isinstance(result, list) or not all(_valid_resource(item, required_fields) for item in result):
-        raise FlyioApiError(f"GET {path} returned malformed data: expected a list")
-
-    return result
+    return [] if result is _MISSING else result
 
 
 def post_result(client, path, body=None, timeout=30):
@@ -416,9 +331,6 @@ def require_positive(module, *names):
 
 def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, version=None):
     operation = f"Wait for Machine '{machine_id}' in app '{app_name}' to reach state '{state}'"
-    if version is not None and not nonempty_string(version):
-        raise FlyioApiError(f"{operation} received a malformed version")
-
     if state == "stopped" and version is None:
         raise FlyioApiError(f"{operation} requires a version")
 
@@ -434,14 +346,14 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, 
 
         path = f"{flyio_path('apps', app_name, 'machines', machine_id, 'wait')}?{urllib.parse.urlencode(query)}"
         try:
-            result = api_request(
+            api_request(
                 client,
                 "get",
                 path,
                 ok_statuses=ok_statuses,
                 timeout=request_timeout + 10,
             )
-            break
+            return
         except FlyioApiError as exc:
             if exc.status_code != 408:
                 raise
@@ -449,12 +361,6 @@ def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, 
             remaining = seconds_left(deadline)
             if remaining <= 0:
                 raise FlyioApiError(f"{operation} timed out", status_code=408) from exc
-
-    if result is _MISSING and state == "destroyed":
-        return
-
-    if not isinstance(result, dict) or result.get("ok") is not True:
-        raise FlyioApiError(f"{operation} returned malformed data: expected ok=true")
 
 
 def wait_deadline(timeout):
@@ -486,7 +392,6 @@ def get_app(client, app_name, timeout=30):
         flyio_path("apps", app_name),
         ok_statuses=[404],
         timeout=timeout,
-        required_fields=("name",),
         expected={"name": app_name},
     )
 
@@ -508,21 +413,15 @@ def wait_for_volume(
     stop_states=(),
 ):
     """Poll until the volume reaches one of states, fails, or enters one of stop_states."""
-    operation = f"Wait for volume '{volume_id}' in app '{app_name}'"
 
     def fetch(request_timeout):
-        volume = get_resource(
+        return get_resource(
             client,
             flyio_path("apps", app_name, "volumes", volume_id),
             ok_statuses=ok_statuses,
             timeout=request_timeout,
-            required_fields=("id", "state"),
             expected={"id": volume_id},
         )
-        if volume is not None and not valid_volume(volume):
-            raise FlyioApiError(f"{operation} returned malformed data")
-
-        return volume
 
     def done(volume):
         # A failed or stopping volume will not reach the target, so stop waiting and let the caller report it.
@@ -532,13 +431,6 @@ def wait_for_volume(
         if volume["state"] not in states:
             return False
 
-        if size_gb is None:
-            return True
-
-        current_size = volume.get("size_gb")
-        if not positive_int(current_size):
-            raise FlyioApiError(f"{operation} returned malformed data: expected an integer size")
-
-        return current_size >= size_gb
+        return size_gb is None or volume["size_gb"] >= size_gb
 
     return poll_until(fetch, done, timeout)

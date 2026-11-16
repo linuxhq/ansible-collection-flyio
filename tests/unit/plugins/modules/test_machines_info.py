@@ -10,6 +10,8 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     ModuleFail,
 )
 
+FLYIO_UTILS = "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils"
+
 
 class MachinesInfoTests(TestCase):
     def test_info(self):
@@ -32,7 +34,6 @@ class MachinesInfoTests(TestCase):
             {},
             "/apps/example/machines/machine-one",
             ok_statuses=[404],
-            required_fields=("id",),
             expected={"id": "machine-one"},
         )
         self.assertEqual(raised.exception.values["machines"], [machine])
@@ -64,31 +65,14 @@ class MachinesInfoTests(TestCase):
         list_all.assert_called_once_with({}, "/apps/example/machines", ok_statuses=[404])
         self.assertEqual(raised.exception.values["machines"], [machine])
 
-    def test_rejects_malformed_documented_fields(self):
+    def test_lists_machines_as_reported(self):
+        listed = [{"id": "machine-one", "state": False}, {"state": "started"}]
         module = FakeModule({"app_name": "example"})
 
         with (
-            patch.object(
-                machines_info,
-                "list_all",
-                return_value=[{"id": "machine-one", "state": False}],
-            ),
-            self.assertRaises(ModuleFail) as raised,
+            patch(f"{FLYIO_UTILS}.api_request", return_value=listed),
+            self.assertRaises(ModuleExit) as raised,
         ):
             machines_info.list_resources(module, {})
 
-        self.assertIn("malformed Machine data", raised.exception.values["msg"])
-
-    def test_listing_without_ids_reports_app_specific_failure(self):
-        module = FakeModule({"app_name": "example"})
-
-        with (
-            patch(
-                "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.api_request",
-                return_value=[{"state": "started"}],
-            ),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines_info.list_resources(module, {})
-
-        self.assertEqual(raised.exception.values["msg"], "Fly.io API returned malformed Machine data for app 'example'")
+        self.assertEqual(raised.exception.values["machines"], listed)

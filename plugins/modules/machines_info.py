@@ -143,13 +143,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     get_resource,
     list_all,
     require_nonempty,
-    valid_machine,
 )
-
-
-def validate_machines(module, machines):
-    if not all(valid_machine(machine) for machine in machines):
-        module.fail_json(msg=f"Fly.io API returned malformed Machine data for app '{module.params['app_name']}'")
 
 
 def list_resources(module, client):
@@ -159,8 +153,6 @@ def list_resources(module, client):
         flyio_path("apps", app_name, "machines"),
         ok_statuses=[404],
     )
-    validate_machines(module, machines)
-
     module.exit_json(
         changed=False,
         machines=machines,
@@ -172,14 +164,11 @@ def info(module, client):
         client,
         flyio_path("apps", module.params["app_name"], "machines", module.params["id"]),
         ok_statuses=[404],
-        required_fields=("id",),
         expected={"id": module.params["id"]},
     )
 
     if machine is None:
         module.fail_json(msg=f"Machine '{module.params['id']}' not found in app '{module.params['app_name']}'")
-
-    validate_machines(module, [machine])
 
     module.exit_json(changed=False, machines=[machine])
 

@@ -112,7 +112,9 @@ options:
         type: int
         description:
           - Memory allocation in megabytes.
-          - Must be a positive multiple of C(256).
+          - Must be greater than zero.
+          - Fly.io requires a multiple of C(256) for shared CPUs and C(1024)
+            for performance CPUs.
       kernel_args:
         type: list
         elements: str
@@ -139,7 +141,6 @@ options:
         O(services[].internal_port) and O(services[].protocol), are paired with
         current entries in order.
       - Each service requires O(services[].internal_port).
-      - O(services[].protocol) is required for new services.
     suboptions:
       protocol:
         type: str
@@ -148,8 +149,8 @@ options:
           - udp
         description:
           - Network protocol.
-          - Required for a new service.
-          - May be omitted when updating an existing service. It then pairs, in
+          - Fly.io uses C(tcp) when a new service omits it.
+          - When omitted for an existing service, the service pairs, in
             order, with current services on the same
             O(services[].internal_port), whatever their protocol.
       internal_port:
@@ -740,6 +741,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_path,
     get_resource,
     list_all,
+    mark_changed,
     nonempty_string,
     post_result,
     require_nonempty,
@@ -747,7 +749,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     require_region_code,
     seconds_left,
     select_fields,
-    valid_machine,
     wait_deadline,
     wait_for_machine,
 )
@@ -760,11 +761,7 @@ CHECK_STRING_FIELDS = (
     "tls_server_name",
     "type",
 )
-CHECK_INTEGER_FIELDS = ("port",)
-CHECK_BOOLEAN_FIELDS = ("tls_skip_verify",)
-CHECK_FIELDS = set(
-    CHECK_STRING_FIELDS + CHECK_INTEGER_FIELDS + CHECK_DURATION_FIELDS + CHECK_BOOLEAN_FIELDS + ("headers",)
-)
+CHECK_FIELDS = set(CHECK_STRING_FIELDS + CHECK_DURATION_FIELDS + ("headers", "port", "tls_skip_verify"))
 # The union of the Machine states in the Fly.io Machines API specification and in the
 # Machine states documentation (https://docs.fly.io/machines/machine-states); neither
 # list is complete on its own.
@@ -805,7 +802,6 @@ def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False,
         client,
         flyio_path("apps", app_name, "machines"),
         ok_statuses=[404] if missing_ok else None,
-        required_fields=("id", "name", "state"),
     )
 
     named = [machine for machine in machines if machine.get("name") == name and machine["state"] not in TERMINAL_STATES]
@@ -819,43 +815,23 @@ def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False,
     return matches[0] if matches else None
 
 
-def validate_integer_range(module, value, name, minimum, maximum=None):
-    if value is None:
-        return
-
-    if not isinstance(value, int) or isinstance(value, bool):
-        module.fail_json(msg=f"{name} must be an integer")
-
-    if value < minimum or (maximum is not None and value > maximum):
-        if maximum is None:
-            module.fail_json(msg=f"{name} must be at least {minimum}")
-        else:
-            module.fail_json(msg=f"{name} must be between {minimum} and {maximum}")
-
-
-def validate_dictionary(module, value, name):
-    if value is not None and not isinstance(value, dict):
-        module.fail_json(msg=f"{name} must be a dictionary")
-
-    return value or {}
+def validate_minimum(module, value, name, minimum):
+    """Reject an integer below minimum; Fly.io omits zero values, and rejects other types itself."""
+    if isinstance(value, int) and not isinstance(value, bool) and value < minimum:
+        module.fail_json(msg=f"{name} must be at least {minimum}")
 
 
 def validate_string_mappings(module, config):
     for field in ("env", "metadata"):
         value = config.get(field)
-        if value is not None and not all(nonempty_string(key) and isinstance(item, str) for key, item in value.items()):
-            module.fail_json(msg=f"{field} must use non-empty string keys and string values")
+        if value is not None and not all(nonempty_string(key) for key in value):
+            module.fail_json(msg=f"{field} keys must not be empty")
 
 
 def validate_check_strings(module, name, check):
     for field in CHECK_STRING_FIELDS:
-        if field not in check:
-            continue
-
-        if not isinstance(check[field], str):
-            module.fail_json(msg=f"checks.{name}.{field} must be a string")
-
-        if not nonempty_string(check[field]):
+        value = check.get(field)
+        if isinstance(value, str) and not value.strip():
             module.fail_json(msg=f"checks.{name}.{field} must not be empty")
 
 
@@ -868,59 +844,19 @@ def validate_check_fields(module, name, check):
         module.fail_json(msg=f"check '{name}' contains unsupported fields: {', '.join(sorted(unsupported))}")
 
     validate_check_strings(module, name, check)
-    for field in CHECK_INTEGER_FIELDS:
-        if field in check:
-            validate_integer_range(
-                module,
-                check[field],
-                f"checks.{name}.{field}",
-                1,
-                65535,
-            )
-
-    for field in CHECK_BOOLEAN_FIELDS:
-        if field in check and not isinstance(check[field], bool):
-            module.fail_json(msg=f"checks.{name}.{field} must be a boolean")
-
-
-def validate_check_protocols(module, name, check):
-    if check.get("kind") not in (None, "informational", "readiness"):
-        module.fail_json(msg=f"checks.{name}.kind must be informational or readiness")
-
-    if check.get("type") not in (None, "http", "tcp"):
-        module.fail_json(msg=f"checks.{name}.type must be http or tcp")
-
-    if check.get("protocol") not in (None, "http", "https"):
-        module.fail_json(msg=f"checks.{name}.protocol must be http or https")
-
-
-def validate_check_durations(module, name, check):
-    for field in CHECK_DURATION_FIELDS:
-        if field not in check:
-            continue
-
-        value = check[field]
-        if not ((isinstance(value, int) and not isinstance(value, bool)) or nonempty_string(value)):
-            module.fail_json(msg=f"checks.{name}.{field} must be an integer or duration string")
-
-        if isinstance(value, int) and not isinstance(value, bool):
-            validate_integer_range(module, value, f"checks.{name}.{field}", 1)
+    for field in ("port",) + CHECK_DURATION_FIELDS:
+        validate_minimum(module, check.get(field), f"checks.{name}.{field}", 1)
 
 
 def validate_check_headers(module, name, headers):
     if headers is not None and (
         not isinstance(headers, list)
         or not all(
-            isinstance(header, dict)
-            and set(header) == {"name", "values"}
-            and isinstance(header.get("name"), str)
-            and header["name"].strip()
-            and isinstance(header.get("values"), list)
-            and all(isinstance(value, str) for value in header["values"])
+            isinstance(header, dict) and set(header) == {"name", "values"} and nonempty_string(header["name"])
             for header in headers
         )
     ):
-        module.fail_json(msg=f"checks.{name}.headers must contain name and string values")
+        module.fail_json(msg=f"checks.{name}.headers must contain only a non-empty name and values")
 
 
 def validate_checks(module, checks):
@@ -934,8 +870,6 @@ def validate_checks(module, checks):
 
     for name, check in checks.items():
         validate_check_fields(module, name, check)
-        validate_check_protocols(module, name, check)
-        validate_check_durations(module, name, check)
         validate_check_headers(module, name, check.get("headers"))
 
 
@@ -969,84 +903,21 @@ def validate_files(module, files):
 
 def validate_services(module, services):
     for service in services:
-        validate_integer_range(
+        validate_minimum(module, service.get("internal_port"), "services[].internal_port", 1)
+        validate_minimum(module, service.get("min_machines_running"), "services[].min_machines_running", 0)
+        validate_minimum(
             module,
-            service.get("internal_port"),
-            "services[].internal_port",
-            1,
-            65535,
-        )
-        validate_integer_range(
-            module,
-            service.get("min_machines_running"),
-            "services[].min_machines_running",
+            (service.get("concurrency") or {}).get("hard_limit"),
+            "services[].concurrency.hard_limit",
             0,
         )
-        concurrency = validate_dictionary(
-            module,
-            service.get("concurrency"),
-            "services[].concurrency",
-        )
-        for field in ("soft_limit", "hard_limit"):
-            validate_integer_range(
-                module,
-                concurrency.get(field),
-                f"services[].concurrency.{field}",
-                0,
-            )
-
-        autostop = service.get("autostop")
-        if autostop is not None and not (isinstance(autostop, bool) or autostop in ("off", "stop", "suspend")):
-            module.fail_json(msg="service autostop must be off, stop, suspend, true, or false")
-
-        ports = service.get("ports")
-        if ports is not None and (not isinstance(ports, list) or not all(isinstance(port, dict) for port in ports)):
-            module.fail_json(msg="services[].ports must be a list of dictionaries")
-
-        for port in ports or []:
+        for port in service.get("ports") or []:
             for field in ("port", "start_port", "end_port"):
-                validate_integer_range(
-                    module,
-                    port.get(field),
-                    f"services[].ports[].{field}",
-                    1,
-                    65535,
-                )
+                validate_minimum(module, port.get(field), f"services[].ports[].{field}", 1)
 
-            if (
-                port.get("start_port") is not None
-                and port.get("end_port") is not None
-                and port["start_port"] > port["end_port"]
-            ):
-                module.fail_json(msg="services[].ports[].start_port must not exceed end_port")
-
-            http_options = validate_dictionary(
-                module,
-                port.get("http_options"),
-                "services[].ports[].http_options",
-            )
-            response = validate_dictionary(
-                module,
-                http_options.get("response"),
-                "services[].ports[].http_options.response",
-            )
-            headers = response.get("headers")
-            if headers is not None and (
-                not isinstance(headers, dict)
-                or not all(
-                    isinstance(header, str)
-                    and header.strip()
-                    and (
-                        value is False
-                        or isinstance(value, str)
-                        or (isinstance(value, list) and all(isinstance(item, str) for item in value))
-                    )
-                    for header, value in headers.items()
-                )
-            ):
-                module.fail_json(
-                    msg=("service HTTP response headers must map non-empty strings to strings, string lists, or false")
-                )
+            headers = ((port.get("http_options") or {}).get("response") or {}).get("headers") or {}
+            if not all(nonempty_string(header) for header in headers):
+                module.fail_json(msg="service HTTP response header names must not be empty")
 
 
 def validate_requested_strings(module, params):
@@ -1082,15 +953,8 @@ def validate_concurrency_limits(module, requested_services, effective_services=N
 
 
 def validate_guest(module, guest):
-    if guest is None:
-        return
-
     for field in ("cpus", "memory_mb"):
-        validate_integer_range(module, guest.get(field), f"guest.{field}", 1)
-
-    memory_mb = guest.get("memory_mb")
-    if memory_mb is not None and memory_mb % 256:
-        module.fail_json(msg="guest.memory_mb must be a multiple of 256")
+        validate_minimum(module, (guest or {}).get(field), f"guest.{field}", 1)
 
 
 def validate_mounts(module, mounts):
@@ -1098,14 +962,8 @@ def validate_mounts(module, mounts):
         if not nonempty_string(mount.get("volume")):
             module.fail_json(msg="mounts[].volume must not be empty")
 
-        threshold = mount.get("extend_threshold_percent")
-        if threshold:
-            validate_integer_range(module, threshold, "mounts[].extend_threshold_percent", 50, 99)
-        else:
-            validate_integer_range(module, threshold, "mounts[].extend_threshold_percent", 0)
-
-        validate_integer_range(module, mount.get("add_size_gb"), "mounts[].add_size_gb", 0, 100)
-        validate_integer_range(module, mount.get("size_gb_limit"), "mounts[].size_gb_limit", 0)
+        for field in ("extend_threshold_percent", "add_size_gb", "size_gb_limit"):
+            validate_minimum(module, mount.get(field), f"mounts[].{field}", 0)
 
         if (mount.get("extend_threshold_percent") == 0) != (mount.get("add_size_gb") == 0):
             module.fail_json(
@@ -1114,15 +972,7 @@ def validate_mounts(module, mounts):
 
 
 def validate_restart(module, restart):
-    if restart is None:
-        return
-
-    validate_integer_range(
-        module,
-        restart.get("max_retries"),
-        "restart.max_retries",
-        0,
-    )
+    validate_minimum(module, (restart or {}).get("max_retries"), "restart.max_retries", 0)
 
 
 def validate_config(module, config):
@@ -1150,9 +1000,6 @@ def validate_complete_config(
         if missing:
             module.fail_json(msg=f"check '{name}' requires {' and '.join(sorted(missing))}")
 
-    if any("protocol" not in service for service in config.get("services", [])):
-        module.fail_json(msg="each service requires protocol")
-
     restart = config.get("restart")
     if restart is not None:
         if requested_restart is None:
@@ -1165,18 +1012,7 @@ def validate_complete_config(
             module.fail_json(msg="restart.max_retries is valid only with policy=on-failure")
 
 
-def validate_machine_data(module, machine):
-    if machine is not None and not valid_machine(machine):
-        module.fail_json(
-            msg=f"Fly.io API returned malformed Machine data for app '{module.params['app_name']}'",
-            machine=machine,
-        )
-
-    return machine
-
-
 def validate_waited_machine(module, machine_id, current, expected_state):
-    validate_machine_data(module, current)
     state = current.get("state") if current is not None else None
     if expected_state == "destroyed":
         reached = current is None or state == "destroyed"
@@ -1195,26 +1031,11 @@ def validate_waited_machine(module, machine_id, current, expected_state):
         )
 
 
-def machine_version(module, machine):
-    version = machine.get("version")
-    if not nonempty_string(version):
-        module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data for Machine '{machine['id']}' "
-                f"in app '{module.params['app_name']}': expected a version"
-            ),
-            machine=machine,
-        )
-
-    return version
-
-
 def get_machine(client, app_name, machine_id, missing_ok=False):
     return get_resource(
         client,
         flyio_path("apps", app_name, "machines", machine_id),
         ok_statuses=[404] if missing_ok else None,
-        required_fields=("id", "state"),
         expected={"id": machine_id},
     )
 
@@ -1228,7 +1049,7 @@ def wait_until_settled(module, client, machine, deadline):
         machine,
         "settled",
         deadline,
-        version=machine_version(module, machine) if "version" in machine else None,
+        version=machine.get("version"),
     )
     current = get_machine(client, app_name, machine["id"], missing_ok=True)
     if auto_destroys(module, machine) and (current is None or current.get("state") in SELF_DESTROYED_STATES):
@@ -1237,7 +1058,7 @@ def wait_until_settled(module, client, machine, deadline):
 
     # After a successful settled wait, a Machine that has already moved on (for example a job exiting) is fine.
     if settled and current is not None and current.get("state") in MOVED_ON_STATES:
-        return validate_machine_data(module, current)
+        return current
 
     validate_waited_machine(module, machine["id"], current, "settled")
     return current
@@ -1270,8 +1091,8 @@ def auto_destroys(module, machine):
     """Whether the Machine destroys itself on exit, from the request or its existing configuration."""
     # The option configures the Machine only for state=present; other states use the Machine's own config.
     requested = module.params["state"] == "present" and module.params.get("auto_destroy")
-    config = machine.get("config")
-    return bool(requested or (isinstance(config, dict) and config.get("auto_destroy")))
+    # Fly.io reports no config while it cannot reach the Machine's host.
+    return bool(requested or (machine.get("config") or {}).get("auto_destroy"))
 
 
 def exit_self_destroyed(module, machine, action, diff):
@@ -1324,10 +1145,10 @@ def settle_machine(module, client, current, desired_state, deadline):
         machine_id,
         wait_state,
         seconds_left(deadline),
-        version=machine_version(module, current) if wait_state == "stopped" else None,
+        version=current["version"] if wait_state == "stopped" else None,
     )
     # The wait succeeded; the checks below reject only Machines that are gone, unmanaged, or still moving.
-    current = validate_machine_data(module, get_machine(client, app_name, machine_id, missing_ok=True))
+    current = get_machine(client, app_name, machine_id, missing_ok=True)
 
     # The settled wait also matches archived Machines.
     if current is not None and current.get("state") in UNMANAGED_STATES:
@@ -1350,7 +1171,7 @@ def settle_machine(module, client, current, desired_state, deadline):
 
 def reject_unreachable_host(module, machine):
     """Fly.io returns no config while it cannot reach the Machine's host; report that, not bad data."""
-    host_status = machine.get("host_status") if isinstance(machine, dict) else None
+    host_status = machine.get("host_status")
     if host_status not in (None, "ok"):
         module.fail_json(
             msg=(
@@ -1364,23 +1185,9 @@ def reject_unreachable_host(module, machine):
 def validate_machine_update(module, current, desired_config):
     app_name = module.params["app_name"]
     reject_unreachable_host(module, current)
-    current_config = current.get("config")
-    if not isinstance(current_config, dict):
-        module.fail_json(
-            msg=f"Fly.io API returned malformed configuration for Machine '{current['id']}' in app '{app_name}'",
-            machine=current,
-        )
-
-    current_region = current.get("region")
-    if module.params.get("region") is not None:
-        if not isinstance(current_region, str) or not current_region:
-            module.fail_json(
-                msg=(f"Fly.io API returned malformed region data for Machine '{current['id']}' in app '{app_name}'"),
-                machine=current,
-            )
-
-        if module.params["region"] != current_region:
-            module.fail_json(msg=f"Region cannot be changed for Machine '{current['id']}' in app '{app_name}'")
+    current_config = current["config"]
+    if module.params.get("region") is not None and module.params["region"] != current["region"]:
+        module.fail_json(msg=f"Region cannot be changed for Machine '{current['id']}' in app '{app_name}'")
 
     if "mounts" in desired_config and mounts_differ(current_config, desired_config):
         module.fail_json(msg=f"Attached volume cannot be changed for Machine '{current['id']}' in app '{app_name}'")
@@ -1395,12 +1202,10 @@ def validate_machine_postcondition(
     expected_name=None,
     expected_region=None,
 ):
-    # Callers pass a Machine that has already been validated and, when waited for, re-read.
+    # Callers pass a Machine that, when waited for, has been re-read.
     reject_unreachable_host(module, machine)
-    config = machine.get("config")
     if (
-        not isinstance(config, dict)
-        or machine_config_changed(config, desired_config)
+        machine_config_changed(machine["config"], desired_config)
         or (expected_name is not None and machine.get("name") != expected_name)
         or (expected_region is not None and machine.get("region") != expected_region)
     ):
@@ -1443,7 +1248,6 @@ def update_machine(module, client, current, desired_config, deadline):
     }
 
     requested_config = {field: config[field] for field in desired_config}
-    validate_config(module, requested_config)
     # Merged services follow the requested order, so each requested service pairs with its merged result.
     validate_concurrency_limits(module, desired_config.get("services") or [], config.get("services") or [])
     validate_complete_config(
@@ -1480,7 +1284,7 @@ def update_machine(module, client, current, desired_config, deadline):
 
     body = {"config": config}
     if current.get("version") is not None:
-        body["current_version"] = machine_version(module, current)
+        body["current_version"] = current["version"]
 
     if skip_launch:
         body["skip_launch"] = True
@@ -1490,11 +1294,7 @@ def update_machine(module, client, current, desired_config, deadline):
         flyio_path("apps", app_name, "machines", current["id"]),
         body,
     )
-    if not valid_machine(result) or result["id"] != current["id"]:
-        module.fail_json(
-            msg=(f"Fly.io API returned malformed data while updating Machine '{current['id']}' in app '{app_name}'"),
-            machine=result,
-        )
+    mark_changed(module)
 
     if params["wait"]:
         result = wait_until_settled(module, client, result, deadline) or exit_self_destroyed(
@@ -1530,11 +1330,7 @@ def create_machine(module, client, desired_config, deadline):
         module.exit_json(changed=True, message="Machine would be created", **diff)
 
     result = post_result(client, flyio_path("apps", app_name, "machines"), body)
-    if not valid_machine(result):
-        module.fail_json(
-            msg=(f"Fly.io API returned malformed data while creating Machine '{params['name']}' in app '{app_name}'"),
-            machine=result,
-        )
+    mark_changed(module)
 
     if params["wait"]:
         result = wait_until_settled(module, client, result, deadline) or exit_self_destroyed(
@@ -1569,23 +1365,17 @@ def ensure_present(module, client):
     if params["wait"]:
         require_positive(module, "wait_timeout")
 
-    if len(params.get("mounts") or []) > 1:
-        module.fail_json(msg="only one volume can be mounted to a Machine")
-
     # Check requested concurrency limits first so their documented minimums are reported.
     validate_concurrency_limits(module, params.get("services") or [])
     validate_config(module, params)
     validate_requested_strings(module, params)
     desired_config = build_config(params)
     deadline = wait_deadline(params["wait_timeout"])
-    current = validate_machine_data(
-        module,
-        find_machine(
-            client,
-            params["app_name"],
-            name=params.get("name"),
-            machine_id=params.get("id"),
-        ),
+    current = find_machine(
+        client,
+        params["app_name"],
+        name=params.get("name"),
+        machine_id=params.get("id"),
     )
     if current is not None:
         return update_machine(module, client, current, desired_config, deadline)
@@ -1615,16 +1405,13 @@ def ensure_absent(module, client):
         require_positive(module, "wait_timeout")
 
     deadline = wait_deadline(params["wait_timeout"])
-    current = validate_machine_data(
-        module,
-        find_machine(
-            client,
-            app_name,
-            name=params.get("name"),
-            machine_id=params.get("id"),
-            missing_ok=True,
-            include_destroying=True,
-        ),
+    current = find_machine(
+        client,
+        app_name,
+        name=params.get("name"),
+        machine_id=params.get("id"),
+        missing_ok=True,
+        include_destroying=True,
     )
 
     if current is None:
@@ -1659,6 +1446,7 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="Machine already absent")
 
+    mark_changed(module)
     requested = current
     if params["wait"]:
         current = wait_until_machine_destroyed(module, client, current, deadline)
@@ -1679,14 +1467,11 @@ def ensure_power_state(module, client, desired_state):
         require_positive(module, "wait_timeout")
 
     deadline = wait_deadline(params["wait_timeout"])
-    current = validate_machine_data(
-        module,
-        find_machine(
-            client,
-            app_name,
-            name=params.get("name"),
-            machine_id=params.get("id"),
-        ),
+    current = find_machine(
+        client,
+        app_name,
+        name=params.get("name"),
+        machine_id=params.get("id"),
     )
 
     if current is None:
@@ -1719,15 +1504,16 @@ def ensure_power_state(module, client, desired_state):
         )
 
     # Stopping waits on the current Machine version, so capture it first.
-    version = machine_version(module, current) if params["wait"] and desired_state == "stopped" else None
+    version = current["version"] if params["wait"] and desired_state == "stopped" else None
     post_result(client, flyio_path("apps", app_name, "machines", current["id"], action))
+    mark_changed(module)
 
     waited = params["wait"] and wait_tolerating_self_destroy(
         module, client, current, desired_state, deadline, version=version
     )
 
     requested = current
-    current = validate_machine_data(module, get_machine(client, app_name, current["id"], missing_ok=True))
+    current = get_machine(client, app_name, current["id"], missing_ok=True)
     if (current is None or current.get("state") in SELF_DESTROYED_STATES) and auto_destroys(module, requested):
         exit_self_destroyed(module, requested, f"{action} requested", diff)
 

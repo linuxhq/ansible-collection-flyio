@@ -159,19 +159,12 @@ def merge_config(current, desired):
             continue
 
         if field == "checks":
-            checks = current.get("checks")
-            if not isinstance(checks, dict):
-                checks = {}
-
-            checks = copy.deepcopy(checks)
+            checks = copy.deepcopy(current.get("checks") or {})
             for check in checks.values():
-                headers = check.get("headers") if isinstance(check, dict) else None
-                if isinstance(headers, list):
-                    for header in headers:
-                        if isinstance(header, dict) and header.get("values") is None:
-                            # Fly omits empty values in existing headers. Caller
-                            # headers are validated before merging provider data.
-                            header["values"] = []
+                for header in check.get("headers") or []:
+                    if header.get("values") is None:
+                        # Fly omits empty values in existing headers.
+                        header["values"] = []
 
             config[field] = {
                 name: merge_values(existing_check(checks, name, value), value) for name, value in desired[field].items()
@@ -192,30 +185,18 @@ def existing_check(checks, name, desired):
 
 
 def matching_mount(current, desired):
-    current_mounts = current.get("mounts", [])
-    desired_mounts = desired.get("mounts", [])
+    current_mounts = current.get("mounts") or []
+    desired_mounts = desired.get("mounts") or []
     if not current_mounts or not desired_mounts:
         return None
 
     # Requests identify the mount by volume ID or name; Fly.io reports both on the current mount.
-    volume = desired_mounts[0].get("volume")
-    identifiers = {volume} if isinstance(volume, str) and volume else set()
-    current_identifiers = {
-        current_mounts[0][key]
-        for key in ("volume", "name")
-        if isinstance(current_mounts[0].get(key), str) and current_mounts[0][key]
-    }
-    return current_mounts[0] if identifiers and identifiers <= current_identifiers else None
+    current_identifiers = {current_mounts[0].get(key) for key in ("volume", "name")} - {None, ""}
+    return current_mounts[0] if desired_mounts[0].get("volume") in current_identifiers else None
 
 
 def mounts_differ(current, desired):
-    current_mounts = current.get("mounts", [])
-    if current_mounts is None:
-        current_mounts = []
-
-    if not isinstance(current_mounts, list) or not all(isinstance(mount, dict) for mount in current_mounts):
-        return True
-
+    current_mounts = current.get("mounts") or []
     if len(current_mounts) != len(desired.get("mounts", [])):
         return True
 

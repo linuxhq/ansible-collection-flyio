@@ -37,7 +37,6 @@ options:
     description:
       - Command to execute.
       - Commands run through C(/bin/sh -c).
-      - Must not be empty.
   container:
     type: str
     description:
@@ -60,7 +59,8 @@ options:
     type: int
     description:
       - Command timeout in seconds.
-      - Must be between C(1) and C(600).
+      - Must be greater than zero.
+      - Fly.io accepts at most C(600).
 requirements:
   - python >= 3.9
 attributes:
@@ -123,9 +123,6 @@ TERMINAL_STATES = {"destroyed", "replaced", "migrated"}
 
 def exec_command(module, client):
     require_positive(module, "timeout")
-    if module.params["timeout"] > 600:
-        module.fail_json(msg="timeout must not exceed 600")
-
     app_name = module.params["app_name"]
     machine_id = module.params["id"]
     if module.check_mode:
@@ -134,7 +131,6 @@ def exec_command(module, client):
             client,
             flyio_path("apps", app_name, "machines", machine_id),
             ok_statuses=[404],
-            required_fields=("id", "state"),
             expected={"id": machine_id},
         )
         if machine is None or machine["state"] in TERMINAL_STATES:
@@ -184,19 +180,13 @@ def exec_command(module, client):
             response=response,
         )
 
-    if (
-        not isinstance(result, dict)
-        or not all(
-            isinstance(result.get(field, 0), int) and not isinstance(result.get(field), bool)
-            for field in ("exit_code", "exit_signal")
-        )
-        or not all(isinstance(result.get(field, ""), str) for field in ("stderr", "stdout"))
-    ):
+    if not isinstance(result, dict):
         module.fail_json(
             msg=(
                 "Fly.io API returned malformed data while executing a command on "
                 f"Machine '{module.params['id']}' for app '{module.params['app_name']}'"
             ),
+            changed=True,
             response=result,
         )
 
@@ -227,7 +217,7 @@ def main():
         supports_check_mode=True,
     )
 
-    require_nonempty(module, "app_name", "id", "command", "container")
+    require_nonempty(module, "app_name", "id", "container")
 
     with flyio_client(module) as client:
         exec_command(module, client)

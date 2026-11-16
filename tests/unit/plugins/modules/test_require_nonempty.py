@@ -24,17 +24,27 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
 # Each module's identifier options that must reject blank strings before any API call.
 NONEMPTY_OPTIONS = {
     apps: ("name", "org_slug", "network"),
-    apps_info: ("name", "org_slug"),
-    ip_addresses: ("app_name", "address"),
-    ip_addresses_info: ("app_name",),
+    apps_info: ("name",),
     machines: ("app_name", "id", "name"),
-    machines_exec: ("app_name", "id", "command", "container"),
+    machines_exec: ("app_name", "id", "container"),
     machines_info: ("app_name", "id"),
     secrets: ("app_name", "name"),
     secrets_info: ("app_name",),
-    volumes: ("app_name", "id", "name"),
+    volumes: ("app_name", "id"),
     volumes_info: ("app_name", "id"),
 }
+# Blank values Fly.io rejects on the module's only write, or that select nothing, reach the API client.
+PROVIDER_VALIDATED_OPTIONS = {
+    apps_info: ("org_slug",),
+    ip_addresses: ("app_name", "address"),
+    ip_addresses_info: ("app_name",),
+    machines_exec: ("command",),
+    volumes: ("name",),
+}
+
+
+class ClientReached(Exception):
+    pass
 
 
 class RequireNonemptyTests(TestCase):
@@ -51,3 +61,14 @@ class RequireNonemptyTests(TestCase):
 
                 client.assert_not_called()
                 self.assertEqual(raised.exception.values["msg"], f"{name} must not be empty")
+
+    def test_modules_leave_provider_validated_blank_values_to_fly(self):
+        for module_under_test, names in PROVIDER_VALIDATED_OPTIONS.items():
+            for name in names:
+                with (
+                    self.subTest(module=module_under_test.__name__, option=name),
+                    patch.object(module_under_test, "AnsibleModule", return_value=FakeModule({name: " "})),
+                    patch.object(module_under_test, "flyio_client", side_effect=ClientReached),
+                    self.assertRaises(ClientReached),
+                ):
+                    module_under_test.main()

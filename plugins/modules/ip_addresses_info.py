@@ -50,7 +50,7 @@ ip_addresses:
     id:
       description:
         - IP address identifier.
-        - Null when Fly.io reports none. Absent for the shared IPv4 address.
+        - Absent for the shared IPv4 address.
       returned: when available
       type: str
     address:
@@ -70,7 +70,7 @@ ip_addresses:
     created_at:
       description:
         - Allocation timestamp.
-        - Null when Fly.io reports none. Absent for the shared IPv4 address.
+        - Absent for the shared IPv4 address.
       returned: when available
       type: str
 
@@ -82,7 +82,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_token_option,
     flyio_client,
     get_ip_addresses,
-    require_nonempty,
 )
 
 
@@ -99,8 +98,6 @@ def main():
         },
         supports_check_mode=True,
     )
-
-    require_nonempty(module, "app_name")
 
     with flyio_client(module) as client:
         list_resources(module, client)

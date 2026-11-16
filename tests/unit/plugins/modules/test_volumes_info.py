@@ -10,6 +10,8 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     ModuleFail,
 )
 
+FLYIO_UTILS = "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils"
+
 
 class VolumesInfoTests(TestCase):
     def test_info(self):
@@ -26,7 +28,6 @@ class VolumesInfoTests(TestCase):
             {},
             "/apps/example/volumes/vol_one",
             ok_statuses=[404],
-            required_fields=("id",),
             expected={"id": "vol_one"},
         )
         self.assertEqual(raised.exception.values["volumes"], [volume])
@@ -58,31 +59,14 @@ class VolumesInfoTests(TestCase):
         list_all.assert_called_once_with({}, "/apps/example/volumes", ok_statuses=[404])
         self.assertEqual(raised.exception.values["volumes"], volumes)
 
-    def test_rejects_malformed_documented_fields(self):
+    def test_lists_volumes_as_reported(self):
+        listed = [{"id": "vol_one", "size_gb": True}, {"state": "created"}]
         module = FakeModule({"app_name": "example"})
 
         with (
-            patch.object(
-                volumes_info,
-                "list_all",
-                return_value=[{"id": "vol_one", "size_gb": True}],
-            ),
-            self.assertRaises(ModuleFail) as raised,
+            patch(f"{FLYIO_UTILS}.api_request", return_value=listed),
+            self.assertRaises(ModuleExit) as raised,
         ):
             volumes_info.list_resources(module, {})
 
-        self.assertIn("malformed volume data", raised.exception.values["msg"])
-
-    def test_listing_without_ids_reports_app_specific_failure(self):
-        module = FakeModule({"app_name": "example"})
-
-        with (
-            patch(
-                "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.api_request",
-                return_value=[{"state": "started"}],
-            ),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            volumes_info.list_resources(module, {})
-
-        self.assertEqual(raised.exception.values["msg"], "Fly.io API returned malformed volume data for app 'example'")
+        self.assertEqual(raised.exception.values["volumes"], listed)

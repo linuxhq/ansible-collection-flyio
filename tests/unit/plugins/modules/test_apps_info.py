@@ -63,25 +63,15 @@ class AppsInfoTests(TestCase):
         get.assert_called_once_with({}, "get", "/apps?org_slug=linuxhq")
         self.assertEqual(raised.exception.values["apps"], listed)
 
-    def test_rejects_missing_apps_envelope(self):
+    def test_returns_listed_apps_as_reported(self):
         module = FakeModule({"org_slug": "linuxhq"})
 
-        with (
-            patch.object(apps_info, "api_request", return_value={}),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            apps_info.list_resources(module, {})
+        for response, expected in (({}, []), ({"apps": None}, []), ({"apps": [{"name": " "}]}, [{"name": " "}])):
+            with (
+                self.subTest(response=response),
+                patch.object(apps_info, "api_request", return_value=response),
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                apps_info.list_resources(module, {})
 
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Fly.io API returned malformed data while listing apps for organization 'linuxhq'",
-        )
-
-    def test_rejects_whitespace_app_name(self):
-        module = FakeModule({"org_slug": "linuxhq"})
-
-        with (
-            patch.object(apps_info, "api_request", return_value={"apps": [{"name": " "}]}),
-            self.assertRaises(ModuleFail),
-        ):
-            apps_info.list_resources(module, {})
+            self.assertEqual(raised.exception.values["apps"], expected)
