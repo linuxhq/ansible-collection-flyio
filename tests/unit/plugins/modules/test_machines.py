@@ -309,7 +309,6 @@ class MachinesTests(TestCase):
                 {},
                 "/apps/example/machines",
                 ok_statuses=None,
-                required_fields=("id", "name", "state"),
             )
 
             list_all.reset_mock()
@@ -318,7 +317,6 @@ class MachinesTests(TestCase):
                 {},
                 "/apps/example/machines",
                 ok_statuses=[404],
-                required_fields=("id", "name", "state"),
             )
 
     def test_builds_config_without_none_values(self):
@@ -371,14 +369,8 @@ class MachinesTests(TestCase):
         for update, message in (
             ({"image": " "}, "image must not be empty"),
             ({"region": " "}, "region must not be empty"),
-            (
-                {"env": {"PORT": 8080}},
-                "env must use non-empty string keys and string values",
-            ),
-            (
-                {"metadata": {" ": "value"}},
-                "metadata must use non-empty string keys and string values",
-            ),
+            ({"metadata": {" ": "value"}}, "metadata keys must not be empty"),
+            ({"env": {"": "value"}}, "env keys must not be empty"),
             (
                 {"checks": {"health": None}},
                 "checks must map names to configuration dictionaries",
@@ -388,28 +380,12 @@ class MachinesTests(TestCase):
                 "checks.health field names must be strings",
             ),
             (
-                {"checks": {"health": {"port": "8080"}}},
-                "checks.health.port must be an integer",
-            ),
-            (
-                {"checks": {"health": {"timeout": False}}},
-                "checks.health.timeout must be an integer or duration string",
-            ),
-            (
-                {"checks": {"health": {"timeout": " "}}},
-                "checks.health.timeout must be an integer or duration string",
-            ),
-            (
                 {"checks": {"health": {"method": " "}}},
                 "checks.health.method must not be empty",
             ),
             (
-                {"checks": {"health": {"kind": "liveness"}}},
-                "checks.health.kind must be informational or readiness",
-            ),
-            (
                 {"checks": {"health": {"port": 0}}},
-                "checks.health.port must be between 1 and 65535",
+                "checks.health.port must be at least 1",
             ),
             (
                 {"checks": {"health": {"interval": 0}}},
@@ -417,19 +393,15 @@ class MachinesTests(TestCase):
             ),
             (
                 {"checks": {"health": {"headers": {"X-Test": ["value"]}}}},
-                "checks.health.headers must contain name and string values",
+                "checks.health.headers must contain only a non-empty name and values",
             ),
             (
                 {"checks": {"health": {"headers": [{"name": "X-Test"}]}}},
-                "checks.health.headers must contain name and string values",
-            ),
-            (
-                {"checks": {"health": {"headers": [{"name": "X-Test", "values": None}]}}},
-                "checks.health.headers must contain name and string values",
+                "checks.health.headers must contain only a non-empty name and values",
             ),
             (
                 {"checks": {"health": {"headers": [{"name": " ", "values": ["x"]}]}}},
-                "checks.health.headers must contain name and string values",
+                "checks.health.headers must contain only a non-empty name and values",
             ),
             (
                 {"checks": {" ": {"port": 8080, "type": "tcp"}}},
@@ -449,16 +421,17 @@ class MachinesTests(TestCase):
                         }
                     }
                 },
-                "checks.health.headers must contain name and string values",
+                "checks.health.headers must contain only a non-empty name and values",
             ),
             ({"guest": {"cpus": 0}}, "guest.cpus must be at least 1"),
+            ({"guest": {"memory_mb": 0}}, "guest.memory_mb must be at least 1"),
             (
-                {"guest": {"memory_mb": 300}},
-                "guest.memory_mb must be a multiple of 256",
+                {"services": [{"internal_port": 0, "protocol": "tcp"}]},
+                "services[].internal_port must be at least 1",
             ),
             (
-                {"services": [{"internal_port": 65536, "protocol": "tcp"}]},
-                "services[].internal_port must be between 1 and 65535",
+                {"services": [{"internal_port": 8080, "ports": [{"port": 0}]}]},
+                "services[].ports[].port must be at least 1",
             ),
             (
                 {
@@ -477,39 +450,13 @@ class MachinesTests(TestCase):
                     "mounts": [
                         {
                             "add_size_gb": 1,
-                            "extend_threshold_percent": 101,
+                            "extend_threshold_percent": -1,
                             "path": "/data",
                             "volume": "vol-data",
                         }
                     ]
                 },
-                "mounts[].extend_threshold_percent must be between 50 and 99",
-            ),
-            (
-                {
-                    "mounts": [
-                        {
-                            "add_size_gb": 1,
-                            "extend_threshold_percent": 10,
-                            "path": "/data",
-                            "volume": "vol-data",
-                        }
-                    ]
-                },
-                "mounts[].extend_threshold_percent must be between 50 and 99",
-            ),
-            (
-                {
-                    "mounts": [
-                        {
-                            "add_size_gb": 101,
-                            "extend_threshold_percent": 80,
-                            "path": "/data",
-                            "volume": "vol-data",
-                        }
-                    ]
-                },
-                "mounts[].add_size_gb must be between 0 and 100",
+                "mounts[].extend_threshold_percent must be at least 0",
             ),
             (
                 {
@@ -533,26 +480,11 @@ class MachinesTests(TestCase):
                     "services": [
                         {
                             "internal_port": 8080,
-                            "ports": [{"http_options": {"response": {"headers": {"X-Test": True}}}}],
-                        }
-                    ]
-                },
-                ("service HTTP response headers must map non-empty strings to strings, string lists, or false"),
-            ),
-            (
-                {
-                    "services": [
-                        {
-                            "internal_port": 8080,
                             "ports": [{"http_options": {"response": {"headers": {"": "x"}}}}],
                         }
                     ]
                 },
-                ("service HTTP response headers must map non-empty strings to strings, string lists, or false"),
-            ),
-            (
-                {"services": [{"autostop": 1, "internal_port": 8080}]},
-                "service autostop must be off, stop, suspend, true, or false",
+                "service HTTP response header names must not be empty",
             ),
             (
                 {
@@ -606,6 +538,43 @@ class MachinesTests(TestCase):
 
             find.assert_not_called()
             self.assertEqual(raised.exception.values["msg"], message)
+
+    def test_leaves_provider_checked_values_to_fly(self):
+        mount = {"path": "/data", "volume": "vol-data"}
+        for update in (
+            {"env": {"PORT": 8080}},
+            {"metadata": {"count": 1}},
+            {"checks": {"health": {"port": "8080"}}},
+            {"checks": {"health": {"port": 65536}}},
+            {"checks": {"health": {"timeout": False}}},
+            {"checks": {"health": {"timeout": " "}}},
+            {"checks": {"health": {"kind": "liveness", "protocol": "ftp", "type": "udp"}}},
+            {"checks": {"health": {"tls_skip_verify": "yes"}}},
+            {"checks": {"health": {"headers": [{"name": "X-Test", "values": None}]}}},
+            {"checks": {"health": {"headers": [{"name": "X-Test", "values": [1]}]}}},
+            {"guest": {"memory_mb": 300}},
+            {"services": [{"internal_port": 65536, "protocol": "tcp"}]},
+            {"services": [{"autostop": 1, "internal_port": 8080}]},
+            {"services": [{"internal_port": 8080, "ports": [{"port": 65536}]}]},
+            {"services": [{"internal_port": 8080, "ports": [{"end_port": 80, "start_port": 90}]}]},
+            {
+                "services": [
+                    {
+                        "internal_port": 8080,
+                        "ports": [{"http_options": {"response": {"headers": {"X-Test": True}}}}],
+                    }
+                ]
+            },
+            {"mounts": [{**mount, "add_size_gb": 1, "extend_threshold_percent": 10}]},
+            {"mounts": [{**mount, "add_size_gb": 101, "extend_threshold_percent": 80}]},
+            {"mounts": [mount, {"path": "/logs", "volume": "vol-logs"}]},
+        ):
+            with (
+                self.subTest(update=update),
+                patch.object(machines, "find_machine", side_effect=FlyioApiError("reached lookup")),
+                self.assertRaises(FlyioApiError),
+            ):
+                machines.ensure_present(FakeModule(params(**update)), {})
 
     def test_accepts_documented_check_durations(self):
         module = FakeModule(params())
@@ -687,21 +656,25 @@ class MachinesTests(TestCase):
         self.assertIsNone(machines.validate_config(FakeModule(params()), desired))
         self.assertEqual(machine_config.merge_config(current, desired), desired)
 
-    def test_create_requires_service_protocol(self):
-        module = FakeModule(params(services=[{"internal_port": 8080}]))
+    def test_create_sends_service_without_protocol(self):
+        module = FakeModule(params(services=[{"internal_port": 8080}], wait=False))
+        created = {
+            "config": {"image": "example:latest", "services": [{"internal_port": 8080, "protocol": "tcp"}]},
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "created",
+        }
 
         with (
             patch.object(machines, "find_machine", return_value=None),
-            patch.object(machines, "post_result") as post,
-            self.assertRaises(ModuleFail) as raised,
+            patch.object(machines, "post_result", return_value=created) as post,
+            self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(module, {})
 
-        post.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "each service requires protocol",
-        )
+        self.assertEqual(post.call_args.args[2]["config"]["services"], [{"internal_port": 8080}])
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_create_rejects_invalid_restart_policy_configuration(self):
         for restart, message in (
@@ -724,7 +697,7 @@ class MachinesTests(TestCase):
             post.assert_not_called()
             self.assertEqual(raised.exception.values["msg"], message)
 
-    def test_update_requires_protocol_for_unmatched_service(self):
+    def test_update_sends_unmatched_service_without_protocol(self):
         current = {
             "config": {
                 "image": "example:latest",
@@ -735,16 +708,20 @@ class MachinesTests(TestCase):
             "state": "started",
         }
         module = FakeModule(params(services=[{"internal_port": 9090}], wait=False))
+        updated = {
+            **current,
+            "config": {"image": "example:latest", "services": [{"internal_port": 9090, "protocol": "tcp"}]},
+        }
 
         with (
             patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "post_result") as post,
-            self.assertRaises(ModuleFail) as raised,
+            patch.object(machines, "post_result", return_value=updated) as post,
+            self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(module, {})
 
-        post.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "each service requires protocol")
+        self.assertEqual(post.call_args.args[2]["config"]["services"], [{"internal_port": 9090}])
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_create_requires_complete_checks(self):
         module = FakeModule(params(checks={"health": {"port": 8080}}))
@@ -827,37 +804,6 @@ class MachinesTests(TestCase):
                         self.assertEqual(header, original_header)
                         self.assertEqual(check["timeout"], "2s")
                         self.assertEqual(requested, {"health": {"timeout": timeout}})
-
-    def test_update_requires_complete_malformed_existing_checks(self):
-        module = FakeModule(params(checks={"health": {"timeout": "2s"}}, wait=False))
-
-        for check, message in (
-            (None, "check 'health' requires port and type"),
-            ({"port": True, "type": "tcp"}, "checks.health.port must be an integer"),
-            (
-                {"port": 8080, "type": "http", "headers": [{"name": "X-Test", "values": "invalid"}]},
-                "checks.health.headers must contain name and string values",
-            ),
-        ):
-            current = {
-                "config": {
-                    "checks": {"health": check},
-                    "image": "example:latest",
-                },
-                "id": "machine-one",
-                "region": "ord",
-                "state": "started",
-            }
-            with (
-                self.subTest(check=check),
-                patch.object(machines, "find_machine", return_value=current),
-                patch.object(machines, "post_result") as post,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(module, {})
-
-            post.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], message)
 
     def test_equivalent_machine_is_unchanged(self):
         current = {
@@ -1121,54 +1067,26 @@ class MachinesTests(TestCase):
 
         wait.assert_called_once_with({}, "example", "machine-one", "settled", 60, version=None)
 
-    def test_update_rejects_malformed_current_version_before_mutation(self):
-        for instance_id in ([], " "):
-            current = {
-                "config": {"image": "example:old"},
-                "id": "machine-one",
-                "version": instance_id,
-                "region": "ord",
-                "state": "started",
-            }
-
-            with (
-                self.subTest(version=instance_id),
-                patch.object(machines, "find_machine", return_value=current),
-                patch.object(machines, "post_result") as post,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(FakeModule(params(wait=False)), {})
-
-            post.assert_not_called()
-            self.assertIn("expected a version", raised.exception.values["msg"])
-
-    def test_rejects_malformed_update_response(self):
+    def test_update_returns_response_as_reported(self):
         current = {
             "config": {"image": "example:old"},
             "id": "machine-one",
-            "version": "instance-one",
+            "version": " ",
             "region": "ord",
             "state": "started",
         }
-        module = FakeModule(params(wait=False))
+        response = {"config": {"image": "example:latest"}, "id": "machine-two", "state": False}
 
-        for response in (
-            {},
-            {"id": "machine-two"},
-            {"id": "machine-one", "state": False},
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=response) as post,
+            self.assertRaises(ModuleExit) as raised,
         ):
-            with (
-                self.subTest(response=response),
-                patch.object(machines, "find_machine", return_value=current),
-                patch.object(machines, "post_result", return_value=response),
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(module, {})
+            machines.ensure_present(FakeModule(params(wait=False)), {})
 
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "Fly.io API returned malformed data while updating Machine 'machine-one' in app 'example'",
-            )
+        self.assertEqual(post.call_args.args[2]["current_version"], " ")
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["machine"], response)
 
     def test_rejects_unapplied_update_response(self):
         current = {
@@ -1189,21 +1107,7 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Fly.io API did not apply the requested configuration to Machine 'machine-one' in app 'example'",
         )
-
-    def test_rejects_malformed_current_configuration(self):
-        current = {"config": None, "id": "machine-one", "state": "started"}
-        module = FakeModule(params())
-
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Fly.io API returned malformed configuration for Machine 'machine-one' in app 'example'",
-        )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_preserves_unmanaged_nested_config_on_update(self):
         current = {
@@ -1326,57 +1230,26 @@ class MachinesTests(TestCase):
             {"restart": {"policy": "always"}},
         )
 
-    def test_rejects_malformed_existing_nested_service_data(self):
-        for current_service, desired_service, message in (
-            (
-                {"concurrency": [], "internal_port": 8080, "protocol": "tcp"},
-                {"internal_port": 8080},
-                "services[].concurrency must be a dictionary",
-            ),
-            (
-                {"internal_port": 8080, "ports": {}, "protocol": "tcp"},
-                {"internal_port": 8080},
-                "services[].ports must be a list of dictionaries",
-            ),
-            (
-                {
-                    "internal_port": 8080,
-                    "ports": [{"http_options": [], "port": 80}],
-                    "protocol": "tcp",
-                },
-                {"internal_port": 8080, "ports": [{"port": 80}]},
-                "services[].ports[].http_options must be a dictionary",
-            ),
-            (
-                {
-                    "internal_port": 8080,
-                    "ports": [{"http_options": {"response": []}, "port": 80}],
-                    "protocol": "tcp",
-                },
-                {"internal_port": 8080, "ports": [{"port": 80}]},
-                "services[].ports[].http_options.response must be a dictionary",
-            ),
+    def test_existing_nested_service_data_is_not_validated(self):
+        current = {
+            "config": {
+                "image": "example:latest",
+                "services": [{"concurrency": [], "internal_port": 8080, "protocol": "tcp"}],
+            },
+            "id": "machine-one",
+            "region": "ord",
+        }
+        module = FakeModule(params(services=[{"internal_port": 8080}], wait=False))
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
         ):
-            current = {
-                "config": {
-                    "image": "example:latest",
-                    "services": [current_service],
-                },
-                "id": "machine-one",
-                "region": "ord",
-            }
-            module = FakeModule(params(services=[desired_service], wait=False))
+            machines.ensure_present(module, {})
 
-            with (
-                self.subTest(message=message),
-                patch.object(machines, "find_machine", return_value=current),
-                patch.object(machines, "post_result") as post,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(module, {})
-
-            post.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], message)
+        post.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
 
     def test_merges_reordered_list_items_by_identity(self):
         current = [
@@ -1518,28 +1391,6 @@ class MachinesTests(TestCase):
         self.assertTrue(machine_config.config_values_differ(current, desired))
         self.assertFalse(machine_config.config_values_differ(desired, desired))
 
-    def test_rejects_multiple_mounts(self):
-        module = FakeModule(
-            params(
-                mounts=[
-                    {"path": "/data", "volume": "vol-data"},
-                    {"path": "/logs", "volume": "vol-logs"},
-                ]
-            )
-        )
-
-        with (
-            patch.object(machines, "find_machine") as find,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        find.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "only one volume can be mounted to a Machine",
-        )
-
     def test_mount_name_and_id_are_equivalent(self):
         current = {
             "config": {
@@ -1609,15 +1460,6 @@ class MachinesTests(TestCase):
         desired = {"mounts": [{"name": "data", "path": "/data", "volume": "vol-new"}]}
 
         self.assertTrue(machine_config.mounts_differ(current, desired))
-
-    def test_malformed_current_mounts_are_different(self):
-        self.assertTrue(machine_config.mounts_differ({"mounts": "invalid"}, {"mounts": []}))
-        self.assertTrue(
-            machine_config.mounts_differ(
-                {"mounts": [{"volume": ["invalid"]}]},
-                {"mounts": [{"volume": "data"}]},
-            )
-        )
 
     def test_malformed_current_checks_do_not_crash_merge(self):
         desired = {"checks": {"health": {"port": 8080}}}
@@ -1758,24 +1600,6 @@ class MachinesTests(TestCase):
             "Region cannot be changed for Machine 'machine-one' in app 'example'",
         )
 
-    def test_rejects_missing_current_region_when_region_is_managed(self):
-        current = {
-            "config": {"image": "example:latest"},
-            "id": "machine-one",
-            "state": "started",
-        }
-
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(FakeModule(params()), {})
-
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Fly.io API returned malformed region data for Machine 'machine-one' in app 'example'",
-        )
-
     def test_check_mode_does_not_create_machine(self):
         module = FakeModule(params(), check_mode=True)
 
@@ -1834,25 +1658,9 @@ class MachinesTests(TestCase):
             {},
             "/apps/example/machines/machine-one",
             ok_statuses=[404],
-            required_fields=("id", "state"),
             expected={"id": "machine-one"},
         )
         self.assertEqual(raised.exception.values["machine"], started)
-
-    def test_rejects_malformed_create_response(self):
-        module = FakeModule(params(wait=False))
-
-        with (
-            patch.object(machines, "find_machine", return_value=None),
-            patch.object(machines, "post_result", return_value={}),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Fly.io API returned malformed data while creating Machine 'worker' in app 'example'",
-        )
 
     def test_rejects_unapplied_create_response(self):
         created = {
@@ -1874,6 +1682,37 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Fly.io API did not apply the requested configuration to Machine 'machine-one' in app 'example'",
         )
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_create_returns_response_as_reported(self):
+        created = {"config": {"image": "example:latest"}, "id": "", "name": "worker", "region": "ord", "state": 1}
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(wait=False)), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["machine"], created)
+
+    def test_create_wait_failure_reports_change(self):
+        created = {"id": "machine-one", "version": "instance-one", "state": "created"}
+        module = FakeModule(params(api_token="token"))
+
+        # The client boundary turns API errors after the create into failures that report the change.
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created),
+            patch.object(machines, "wait_for_machine", side_effect=FlyioApiError("wait failed", status_code=500)),
+            self.assertRaises(ModuleFail) as raised,
+            machines.flyio_client(module) as client,
+        ):
+            machines.ensure_present(module, client)
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["status_code"], 500)
 
     def test_machine_destroyed_elsewhere_after_read_is_unchanged(self):
         current = {"id": "machine-one", "version": "instance-one", "state": "started"}
@@ -1914,7 +1753,6 @@ class MachinesTests(TestCase):
             {},
             "/apps/example/machines/machine-one",
             ok_statuses=[404],
-            required_fields=("id", "state"),
             expected={"id": "machine-one"},
         )
         self.assertTrue(raised.exception.values["changed"])
@@ -1937,6 +1775,7 @@ class MachinesTests(TestCase):
             raised.exception.values["msg"],
             "Machine 'machine-one' in app 'example' did not reach state 'destroyed' (current state: started)",
         )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_destroy_without_wait_returns_request_status(self):
         current = {"id": "machine-one", "state": "started"}
@@ -2024,18 +1863,34 @@ class MachinesTests(TestCase):
         )
         self.assertEqual(raised.exception.values["machine"], started)
 
-    def test_waiting_for_stop_requires_instance_id_before_mutation(self):
+    def test_waiting_for_stop_reads_version_before_mutation(self):
         current = {"id": "machine-one", "state": "started"}
 
         with (
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result") as request,
-            self.assertRaises(ModuleFail) as raised,
+            self.assertRaises(KeyError),
         ):
             machines.ensure_power_state(FakeModule(params(image=None)), {}, "stopped")
 
         request.assert_not_called()
-        self.assertIn("expected a version", raised.exception.values["msg"])
+
+    def test_power_change_failure_after_request_reports_change(self):
+        current = {"id": "machine-one", "version": "instance-one", "state": "started"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result"),
+            patch.object(machines, "wait_for_machine"),
+            patch.object(machines, "get_resource", return_value=None),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_power_state(FakeModule(params(image=None)), {}, "stopped")
+
+        self.assertEqual(
+            raised.exception.values["msg"], "Machine 'machine-one' in app 'example' is no longer available"
+        )
+        self.assertTrue(raised.exception.values["changed"])
 
     def test_starting_machine_waits_without_starting_again(self):
         current = {
@@ -3312,15 +3167,3 @@ class MachinesTests(TestCase):
         self.assertEqual(
             raised.exception.values["msg"], "Region cannot be changed for Machine 'machine-one' in app 'example'"
         )
-
-    def test_rejects_inverted_port_range(self):
-        services = [{"internal_port": 8080, "protocol": "tcp", "ports": [{"start_port": 2000, "end_port": 1000}]}]
-
-        with (
-            patch.object(machines, "find_machine") as find,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(FakeModule(params(services=services)), {})
-
-        find.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "services[].ports[].start_port must not exceed end_port")

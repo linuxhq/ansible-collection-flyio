@@ -57,7 +57,7 @@ options:
     description:
       - Volume size in GiB.
       - Required when creating a volume.
-      - Must be greater than zero and at most the organization's maximum
+      - Fly.io accepts sizes from C(1) up to the organization's maximum
         volume size (C(500) by default).
       - Used only when O(state=present).
   encrypted:
@@ -240,14 +240,13 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_path,
     get_resource,
     list_all,
-    positive_int,
+    mark_changed,
     post_result,
     require_nonempty,
     require_positive,
     require_region_code,
     seconds_left,
     select_fields,
-    valid_volume,
     wait_deadline,
     wait_for_volume,
 )
@@ -265,29 +264,8 @@ TRANSITIONAL_STATES = {
 }
 
 
-def validate_volume_data(module, volume):
-    if volume is not None and not valid_volume(volume):
-        volume_id = volume.get("id") if isinstance(volume, dict) else None
-        detail = f" for volume '{volume_id}'" if volume_id else ""
-        module.fail_json(
-            msg=f"Fly.io API returned malformed data{detail} in app '{module.params['app_name']}'",
-            volume=volume,
-        )
-
-    return require_matching_volume(module, volume)
-
-
 def require_matching_volume(module, volume):
-    name = module.params.get("name")
-    if volume is not None and name is not None and volume.get("name") != name:
-        module.fail_json(
-            msg=(
-                f"Volume '{volume['id']}' in app '{module.params['app_name']}' "
-                f"does not match requested name '{name}'"
-            ),
-            volume=volume,
-        )
-
+    # A name lookup already filters by region, so only a volume selected by id can differ.
     region = module.params.get("region")
     if volume is not None and region is not None and volume.get("region") != region:
         module.fail_json(
@@ -297,23 +275,6 @@ def require_matching_volume(module, volume):
             ),
             volume=volume,
         )
-
-    return volume
-
-
-def validate_created_volume(module, volume):
-    # Callers pass a volume that already passed valid_volume.
-    volume = require_matching_volume(module, volume)
-    for field in ("size_gb", "encrypted"):
-        expected = module.params.get(field)
-        if expected is not None and volume.get(field) != expected:
-            module.fail_json(
-                msg=(
-                    f"Fly.io API did not apply requested {field} to volume "
-                    f"'{volume['id']}' in app '{module.params['app_name']}'"
-                ),
-                volume=volume,
-            )
 
     return volume
 
@@ -337,7 +298,6 @@ def find_volume(
             client,
             flyio_path("apps", app_name, "volumes", volume_id),
             ok_statuses=[404],
-            required_fields=("id", "state"),
             expected={"id": volume_id},
         )
         if is_live(volume) or (include_deleting and volume is not None and volume.get("state") in DELETING_STATES):
@@ -349,7 +309,6 @@ def find_volume(
         client,
         flyio_path("apps", app_name, "volumes"),
         ok_statuses=[404] if missing_ok else None,
-        required_fields=("id", "name", "region", "state"),
     )
     named = [
         volume
@@ -422,23 +381,13 @@ def validate_volume_update(module, current):
     app_name = module.params["app_name"]
     volume_id = current["id"]
     desired_encrypted = module.params["encrypted"]
-    desired_size = module.params["size_gb"]
-    current_size = current.get("size_gb")
-    if (desired_encrypted is not None and not isinstance(current.get("encrypted"), bool)) or (
-        desired_size is not None and not positive_int(current_size)
-    ):
-        module.fail_json(
-            msg=f"Fly.io API returned malformed data for volume '{volume_id}' in app '{app_name}'",
-            volume=current,
-        )
-
-    if desired_encrypted is not None and current["encrypted"] != desired_encrypted:
+    if desired_encrypted is not None and current.get("encrypted") != desired_encrypted:
         module.fail_json(
             msg=f"Encryption cannot be changed for volume '{volume_id}' in app '{app_name}'",
             volume=current,
         )
 
-    return current_size
+    return current.get("size_gb")
 
 
 def reject_shrink(module, current, current_size):
@@ -481,42 +430,28 @@ def update_volume(module, client, current, deadline):
             **diff_result(module, {"size_gb": original_size}, {"size_gb": desired_size}),
         )
 
-    extension_error = f"Fly.io API returned malformed data while extending volume '{volume_id}' in app '{app_name}'"
     result = api_request(
         client,
         "put",
         flyio_path("apps", app_name, "volumes", volume_id, "extend"),
         body={"size_gb": desired_size},
     )
-    needs_restart = result.get("needs_restart") if isinstance(result, dict) else None
-    response_volume = result.get("volume") if isinstance(result, dict) else None
-    response_size = response_volume.get("size_gb") if isinstance(response_volume, dict) else None
-    if (
-        not isinstance(result, dict)
-        or not isinstance(needs_restart, bool)
-        or not valid_volume(response_volume)
-        or response_volume["id"] != volume_id
-        or not positive_int(response_size)
-        or response_size < desired_size
-    ):
-        module.fail_json(msg=extension_error, volume=response_volume)
-
+    mark_changed(module)
     if params["wait"]:
         current = wait_volume_created(module, client, volume_id, deadline, size_gb=desired_size)
-        current_size = current.get("size_gb")
-        if current.get("state") != "created" or not positive_int(current_size) or current_size < desired_size:
+        if current.get("state") != "created" or current["size_gb"] < desired_size:
             module.fail_json(
                 msg=f"Extension of volume '{volume_id}' in app '{app_name}' timed out",
                 volume=current,
             )
     else:
-        current = response_volume
+        current = result["volume"]
 
     module.exit_json(
         changed=True,
         message="Volume extended",
         volume=current,
-        needs_restart=needs_restart,
+        needs_restart=result["needs_restart"],
         # Fly.io may extend beyond the request, so report the size it applied.
         **diff_result(module, {"size_gb": original_size}, {"size_gb": current["size_gb"]}),
     )
@@ -545,21 +480,10 @@ def create_volume(module, client, deadline):
         module.exit_json(changed=True, message="Volume would be created", **diff)
 
     current = post_result(client, flyio_path("apps", app_name, "volumes"), body)
-    if not valid_volume(current):
-        module.fail_json(
-            msg=(f"Fly.io API returned malformed data while creating volume '{params['name']}' in app '{app_name}'"),
-            volume=current,
-        )
-
-    current = validate_created_volume(module, current)
-
+    mark_changed(module)
     volume_id = current["id"]
     if params["wait"]:
-        current = validate_created_volume(
-            module,
-            wait_volume_created(module, client, volume_id, deadline),
-        )
-
+        current = wait_volume_created(module, client, volume_id, deadline)
         if current.get("state") != "created":
             module.fail_json(
                 msg=f"Creation of volume '{volume_id}' in app '{app_name}' timed out",
@@ -572,14 +496,11 @@ def create_volume(module, client, deadline):
 def ensure_present(module, client):
     params = module.params
     require_region_code(module)
-    if params["size_gb"] is not None:
-        require_positive(module, "size_gb")
-
     if params["wait"]:
         require_positive(module, "wait_timeout")
 
     deadline = wait_deadline(params["wait_timeout"])
-    current = validate_volume_data(
+    current = require_matching_volume(
         module,
         find_volume(
             module,
@@ -615,7 +536,7 @@ def ensure_absent(module, client):
         require_positive(module, "wait_timeout")
 
     deadline = wait_deadline(params["wait_timeout"])
-    current = validate_volume_data(
+    current = require_matching_volume(
         module,
         find_volume(
             module,
@@ -665,16 +586,7 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="Volume already absent")
 
-    if result is not None and (
-        not valid_volume(result)
-        or result.get("id") != volume_id
-        or result.get("state") not in (DEAD_STATES | DELETING_STATES)
-    ):
-        module.fail_json(
-            msg=f"Fly.io API returned malformed data while deleting volume '{volume_id}' in app '{app_name}'",
-            volume=result,
-        )
-
+    mark_changed(module)
     requested = current
     if params["wait"]:
         current = wait_until_volume_deleted(module, client, current, deadline)
@@ -720,7 +632,7 @@ def main():
         supports_check_mode=True,
     )
 
-    require_nonempty(module, "app_name", "id", "name")
+    require_nonempty(module, "app_name", "id")
 
     with flyio_client(module) as client:
         if module.params["state"] == "present":

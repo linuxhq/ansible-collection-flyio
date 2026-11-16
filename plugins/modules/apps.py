@@ -171,6 +171,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_client,
     flyio_path,
     get_app,
+    mark_changed,
     post_result,
     require_nonempty,
     require_positive,
@@ -220,6 +221,7 @@ def ensure_present(module, client):
         body["network"] = params["network"]
 
     post_result(client, "/apps", body)
+    mark_changed(module)
 
     # The create succeeded; tolerate read-after-write lag instead of failing.
     current = get_app(client, params["name"]) or {"name": params["name"]}
@@ -251,6 +253,7 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="App already absent")
 
+    mark_changed(module)
     remaining = wait_for_app_absent(
         client,
         params["name"],

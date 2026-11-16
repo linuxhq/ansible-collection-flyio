@@ -1,0 +1,41 @@
+---
+minor_changes:
+  - all modules - accept a bare ``Bearer`` or ``FlyV1`` ``api_token`` and let
+    Fly.io reject it, instead of failing before the request.
+  - apps_info - send a blank ``org_slug`` to Fly.io instead of failing before
+    the request.
+  - ip_addresses - ignore ``region`` when ``address`` is set, and treat a
+    whitespace-only ``region`` as global, instead of failing before the lookup.
+  - ip_addresses, ip_addresses_info - send a blank ``app_name`` or ``address``
+    to Fly.io instead of failing before the request.
+  - machines - leave guest memory and CPU rules, mount extension ranges, the
+    single-mount limit, the service protocol, enum and type checks for checks,
+    services, autostop, environment and metadata values, response headers, and
+    port upper bounds and ranges to Fly.io, which rejects them on the only write.
+    A service may now omit ``protocol``; Fly.io uses ``tcp``.
+  - machines_exec - send an empty ``command`` and a ``timeout`` above 600 to
+    Fly.io instead of failing before the request.
+  - volumes - send a non-positive ``size_gb`` and a blank ``name`` to Fly.io
+    instead of failing before the request.
+bugfixes:
+  - apps - report ``changed=true`` when the app was created or deleted but a
+    later read or the deletion wait failed.
+  - apps_info, machines_info, secrets, secrets_info, volumes_info - return
+    resources as Fly.io reports them instead of failing on fields the module
+    does not use.
+  - ip_addresses - report a change, and return the address as Fly.io reports
+    it, after a successful allocation; fail with ``changed=true`` only when
+    Fly.io returns no address.
+  - ip_addresses - report a change after a successful release whatever the
+    mutation payload.
+  - machines - report ``changed=true`` when a Machine was created, updated,
+    started, stopped, or destroyed but a later wait, read, or verification
+    failed.
+  - machines - return the create and update responses as Fly.io reports them
+    instead of failing on fields the module does not use.
+  - machines_exec - report ``changed=true`` when the command ran but Fly.io
+    returned a response that is not an object, and return output fields as
+    Fly.io reports them.
+  - volumes - report ``changed=true`` when a volume was created, extended, or
+    deleted but a later wait failed, and return the create, extend, and delete
+    responses as Fly.io reports them.

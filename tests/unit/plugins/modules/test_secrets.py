@@ -71,52 +71,6 @@ class SecretsTests(TestCase):
 
         self.assertTrue(raised.exception.values["changed"])
 
-    def test_rejects_malformed_set_response(self):
-        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
-
-        for response in (
-            [],
-            {"digest": "digest"},
-            {"digest": "", "name": "APP_SECRET"},
-            {"digest": "digest", "name": "OTHER_SECRET"},
-            {"digest": "digest", "name": "APP_SECRET", "version": "two"},
-            {"digest": "digest", "name": "APP_SECRET", "version": -1},
-            {"created_at": "", "digest": "digest", "name": "APP_SECRET"},
-            {"created_at": 1, "digest": "digest", "name": "APP_SECRET"},
-        ):
-            with (
-                self.subTest(response=response),
-                patch.object(secrets, "get_resource", return_value=None),
-                patch.object(secrets, "post_result", return_value=response),
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                secrets.ensure_present(module, {})
-
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "Fly.io API returned malformed data while setting secret 'APP_SECRET' for app 'example'",
-            )
-
-    def test_rejects_malformed_current_secret_timestamps(self):
-        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
-
-        with (
-            patch.object(
-                secrets,
-                "get_resource",
-                return_value={
-                    "created_at": 1,
-                    "digest": "current",
-                    "name": "APP_SECRET",
-                },
-            ),
-            patch.object(secrets, "post_result") as post,
-            self.assertRaises(FlyioApiError),
-        ):
-            secrets.ensure_present(module, {})
-
-        post.assert_not_called()
-
     def test_rejects_malformed_read_before_setting(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
 
@@ -222,27 +176,6 @@ class SecretsTests(TestCase):
         ):
             secrets.ensure_absent(module, {})
 
-    def test_rejects_malformed_remove_response(self):
-        module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
-
-        for response in (["invalid"], {"version": "three"}, {"version": -1}):
-            with (
-                self.subTest(response=response),
-                patch.object(
-                    secrets,
-                    "get_resource",
-                    return_value={"digest": "current", "name": "APP_SECRET"},
-                ),
-                patch.object(secrets, "delete_result", return_value=response),
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                secrets.ensure_absent(module, {})
-
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "Fly.io API returned malformed data while removing secret 'APP_SECRET' from app 'example'",
-            )
-
     def test_rejects_malformed_read_before_removing(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
 
@@ -308,3 +241,35 @@ class SecretsTests(TestCase):
 
         post.assert_not_called()
         self.assertEqual(raised.exception.values["msg"], "App 'missing' not found")
+
+    def test_set_returns_response_as_reported(self):
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
+        current = {"created_at": 1, "digest": "old", "name": "APP_SECRET"}
+        response = {"created_at": "", "digest": "new", "name": "APP_SECRET", "version": "two"}
+
+        with (
+            patch.object(secrets, "get_resource", return_value=current),
+            patch.object(secrets, "post_result", return_value=response) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets.ensure_present(module, {})
+
+        post.assert_called_once()
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["secret"], response)
+        self.assertEqual(raised.exception.values["version"], "two")
+
+    def test_remove_reports_change_for_any_response(self):
+        module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
+        current = {"digest": "current", "name": "APP_SECRET"}
+
+        with (
+            patch.object(secrets, "get_resource", return_value=current),
+            patch.object(secrets, "delete_result", return_value={"version": -1}),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            secrets.ensure_absent(module, {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["secret"], current)
+        self.assertEqual(raised.exception.values["version"], -1)

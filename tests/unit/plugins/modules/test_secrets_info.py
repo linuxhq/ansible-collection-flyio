@@ -7,7 +7,6 @@ from ansible_collections.linuxhq.flyio.plugins.modules import secrets_info
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
     ModuleExit,
-    ModuleFail,
 )
 
 
@@ -32,46 +31,6 @@ class SecretsInfoTests(TestCase):
             response["secrets"],
         )
 
-    def test_rejects_malformed_response(self):
-        module = FakeModule({"app_name": "example"})
-
-        for response in (
-            {"secrets": None},
-            {"secrets": [None]},
-            {"secrets": [{}]},
-            {"secrets": [{"name": "APP_SECRET"}]},
-            {"secrets": [{"name": "APP_SECRET", "digest": 1}]},
-            {
-                "secrets": [
-                    {
-                        "name": "APP_SECRET",
-                        "digest": "digest",
-                        "updated_at": None,
-                    }
-                ]
-            },
-            {
-                "secrets": [
-                    {
-                        "name": "APP_SECRET",
-                        "digest": "digest",
-                        "updated_at": "",
-                    }
-                ]
-            },
-        ):
-            with (
-                self.subTest(response=response),
-                patch.object(secrets_info, "get_resource", return_value=response),
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                secrets_info.list_resources(module, {})
-
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "Fly.io API returned malformed data while listing secrets for app 'example'",
-            )
-
     def test_missing_app_lists_no_secrets(self):
         module = FakeModule({"app_name": "missing"})
 
@@ -83,11 +42,19 @@ class SecretsInfoTests(TestCase):
 
         self.assertEqual(raised.exception.values["secrets"], [])
 
-    def test_rejects_empty_listing_object(self):
+    def test_returns_listed_secrets_as_reported(self):
         module = FakeModule({"app_name": "example"})
 
-        with (
-            patch.object(secrets_info, "get_resource", return_value={}),
-            self.assertRaises(ModuleFail),
+        for response, expected in (
+            ({}, []),
+            ({"secrets": None}, []),
+            ({"secrets": [{"name": "APP_SECRET", "digest": 1}]}, [{"name": "APP_SECRET", "digest": 1}]),
         ):
-            secrets_info.list_resources(module, {})
+            with (
+                self.subTest(response=response),
+                patch.object(secrets_info, "get_resource", return_value=response),
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                secrets_info.list_resources(module, {})
+
+            self.assertEqual(raised.exception.values["secrets"], expected)

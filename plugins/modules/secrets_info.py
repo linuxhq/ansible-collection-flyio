@@ -76,23 +76,13 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     flyio_path,
     get_resource,
     require_nonempty,
-    valid_secret_metadata,
 )
 
 
 def list_resources(module, client):
-    result = get_resource(client, flyio_path("apps", module.params["app_name"], "secrets"), ok_statuses=[404])
-    if result is None:
-        # A missing app has no secrets.
-        result = {"secrets": []}
-
-    secrets = result.get("secrets")
-    if not isinstance(secrets, list) or not all(valid_secret_metadata(secret) for secret in secrets):
-        module.fail_json(
-            msg=f"Fly.io API returned malformed data while listing secrets for app '{module.params['app_name']}'"
-        )
-
-    module.exit_json(changed=False, secrets=secrets)
+    # A missing app has no secrets.
+    result = get_resource(client, flyio_path("apps", module.params["app_name"], "secrets"), ok_statuses=[404]) or {}
+    module.exit_json(changed=False, secrets=result.get("secrets") or [])
 
 
 def main():

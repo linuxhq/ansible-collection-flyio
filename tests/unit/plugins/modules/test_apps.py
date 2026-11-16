@@ -181,6 +181,22 @@ class AppsTests(TestCase):
             raised.exception.values["msg"],
             "Deletion of app 'example' timed out",
         )
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_read_failure_after_create_reports_change(self):
+        module = FakeModule({"api_token": "token", "name": "example", "network": None, "org_slug": "linuxhq"})
+
+        # The client boundary turns API errors after the create into failures that report the change.
+        with (
+            patch.object(apps, "get_app", side_effect=[None, FlyioApiError("GET failed", status_code=500)]),
+            patch.object(apps, "post_result"),
+            self.assertRaises(ModuleFail) as raised,
+            apps.flyio_client(module) as client,
+        ):
+            apps.ensure_present(module, client)
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["status_code"], 500)
 
     def test_check_mode_does_not_create(self):
         module = FakeModule({"name": "example", "org_slug": "linuxhq"}, check_mode=True)

@@ -145,7 +145,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     post_result,
     require_nonempty,
     select_fields,
-    valid_secret_metadata,
 )
 
 # Secret values are never readable, so diffs compare names and digests.
@@ -156,22 +155,8 @@ def secret_path(app_name, name):
     return flyio_path("apps", app_name, "secrets", name)
 
 
-def valid_version(value):
-    return value is None or (isinstance(value, int) and not isinstance(value, bool) and value >= 0)
-
-
 def get_secret(client, path, name):
-    secret = get_resource(
-        client,
-        path,
-        ok_statuses=[404],
-        required_fields=("name",),
-        expected={"name": name},
-    )
-    if secret is not None and not valid_secret_metadata(secret):
-        raise FlyioApiError(f"GET {path} returned malformed data: expected a secret")
-
-    return secret
+    return get_resource(client, path, ok_statuses=[404], expected={"name": name})
 
 
 def ensure_present(module, client):
@@ -195,24 +180,11 @@ def ensure_present(module, client):
         module.exit_json(**values)
 
     result = post_result(client, path, {"value": module.params["value"]})
-    if (
-        not valid_secret_metadata(result)
-        or result["name"] != module.params["name"]
-        or not valid_version(result.get("version"))
-    ):
-        module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data while setting secret "
-                f"'{module.params['name']}' for app '{module.params['app_name']}'"
-            )
-        )
-
-    secret = result
     changed = current is None or current["digest"] != result["digest"]
     values = {
         "changed": changed,
         "message": "Secret set" if changed else "Secret value unchanged",
-        "secret": secret,
+        "secret": result,
     }
     if changed:
         values.update(diff_result(module, before, select_fields(result, DIFF_FIELDS)))
@@ -230,13 +202,12 @@ def ensure_absent(module, client):
     if current is None:
         module.exit_json(changed=False, message="Secret already absent")
 
-    secret = current
     diff = diff_result(module, select_fields(current, DIFF_FIELDS), {})
     if module.check_mode:
         module.exit_json(
             changed=True,
             message="Secret would be removed",
-            secret=secret,
+            secret=current,
             **diff,
         )
 
@@ -250,15 +221,8 @@ def ensure_absent(module, client):
 
     if result is None:
         result = {}
-    elif not isinstance(result, dict) or not valid_version(result.get("version")):
-        module.fail_json(
-            msg=(
-                f"Fly.io API returned malformed data while removing secret "
-                f"'{module.params['name']}' from app '{module.params['app_name']}'"
-            )
-        )
 
-    values = {"changed": True, "message": "Secret removed", "secret": secret, **diff}
+    values = {"changed": True, "message": "Secret removed", "secret": current, **diff}
     if result.get("version") is not None:
         values["version"] = result["version"]
 

@@ -26,19 +26,6 @@ def module(check_mode=False, **updates):
 
 
 class MachinesExecTests(TestCase):
-    def test_rejects_empty_command_and_container(self):
-        for name in ("command", "container"):
-            with (
-                self.subTest(name=name),
-                patch.object(machines_exec, "AnsibleModule", return_value=module(**{name: " "})),
-                patch.object(machines_exec, "post_result") as request,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines_exec.main()
-
-            request.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], f"{name} must not be empty")
-
     def test_rejects_nonpositive_timeout(self):
         with (
             patch.object(machines_exec, "post_result") as request,
@@ -150,21 +137,6 @@ class MachinesExecTests(TestCase):
             "Command failed on Machine 'machine-one' for app 'example'",
         )
 
-    def test_rejects_malformed_response(self):
-        for result in (None, ["invalid"], {"exit_code": "0"}, {"exit_code": False}, {"stdout": 1}):
-            with (
-                self.subTest(result=result),
-                patch.object(machines_exec, "post_result", return_value=result),
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines_exec.exec_command(module(), {})
-
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "Fly.io API returned malformed data while executing a command on "
-                "Machine 'machine-one' for app 'example'",
-            )
-
     def test_stdin_is_not_no_log(self):
         with (
             patch.object(machines_exec, "AnsibleModule", side_effect=RuntimeError) as ansible_module,
@@ -173,16 +145,6 @@ class MachinesExecTests(TestCase):
             machines_exec.main()
 
         self.assertEqual(ansible_module.call_args.kwargs["argument_spec"]["stdin"], {"type": "str"})
-
-    def test_rejects_timeout_above_api_limit(self):
-        with (
-            patch.object(machines_exec, "post_result") as request,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines_exec.exec_command(module(timeout=601), {})
-
-        request.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "timeout must not exceed 600")
 
     def test_missing_exit_code_means_success(self):
         with (
@@ -202,15 +164,6 @@ class MachinesExecTests(TestCase):
             machines_exec.exec_command(module(), {})
 
         self.assertEqual(raised.exception.values["exit_signal"], 9)
-
-    def test_rejects_malformed_exit_signal(self):
-        with (
-            patch.object(machines_exec, "post_result", return_value={"exit_code": 0, "exit_signal": "9"}),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines_exec.exec_command(module(), {})
-
-        self.assertIn("malformed data", raised.exception.values["msg"])
 
     def test_returns_additional_response_fields(self):
         response = {"exit_code": 0, "stdout": "ok", "duration_ms": 12}
@@ -255,3 +208,50 @@ class MachinesExecTests(TestCase):
                 machines_exec.exec_command(module(), {})
 
             self.assertIs(raised.exception, error)
+
+    def test_rejects_empty_container(self):
+        with (
+            patch.object(machines_exec, "AnsibleModule", return_value=module(container=" ")),
+            patch.object(machines_exec, "post_result") as request,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines_exec.main()
+
+        request.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "container must not be empty")
+
+    def test_sends_empty_command_and_long_timeout_to_fly(self):
+        with (
+            patch.object(machines_exec, "post_result", return_value={"exit_code": 0}) as request,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines_exec.exec_command(module(command="", timeout=601), {})
+
+        request.assert_called_once_with(
+            {},
+            "/apps/example/machines/machine-one/exec",
+            {"command": ["/bin/sh", "-c", ""], "timeout": 601},
+            timeout=611,
+        )
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_non_object_response_fails_with_change(self):
+        for result in (None, ["invalid"]):
+            with (
+                self.subTest(result=result),
+                patch.object(machines_exec, "post_result", return_value=result),
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines_exec.exec_command(module(), {})
+
+            self.assertTrue(raised.exception.values["changed"])
+            self.assertEqual(raised.exception.values["response"], result)
+
+    def test_returns_unusual_output_fields_as_reported(self):
+        with (
+            patch.object(machines_exec, "post_result", return_value={"exit_code": 0, "stdout": 1}),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines_exec.exec_command(module(), {})
+
+        self.assertEqual(raised.exception.values["stdout"], 1)

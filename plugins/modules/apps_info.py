@@ -127,7 +127,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_token_option,
     flyio_client,
     get_app,
-    nonempty_string,
     require_nonempty,
 )
 
@@ -136,13 +135,7 @@ def list_resources(module, client):
     org_slug = module.params["org_slug"]
     # Without a limit, Fly.io returns every app in one response.
     result = api_request(client, "get", f"/apps?{urlencode({'org_slug': org_slug})}")
-    apps = result.get("apps") if isinstance(result, dict) else None
-    if not isinstance(apps, list) or not all(
-        isinstance(app, dict) and nonempty_string(app.get("name")) for app in apps
-    ):
-        module.fail_json(msg=f"Fly.io API returned malformed data while listing apps for organization '{org_slug}'")
-
-    module.exit_json(changed=False, apps=apps)
+    module.exit_json(changed=False, apps=result.get("apps") or [])
 
 
 def info(module, client):
@@ -170,7 +163,7 @@ def main():
         supports_check_mode=True,
     )
 
-    require_nonempty(module, "name", "org_slug")
+    require_nonempty(module, "name")
 
     with flyio_client(module) as client:
         if module.params["name"] is not None:
