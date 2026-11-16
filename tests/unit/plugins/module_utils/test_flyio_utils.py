@@ -436,12 +436,6 @@ class FlyioUtilsTests(TestCase):
             request.assert_called_once()
             self.assertIs(raised.exception, error)
 
-    def test_machine_wait_requires_stopped_instance_id(self):
-        with self.assertRaises(FlyioApiError) as raised:
-            wait_for_machine({}, "example", "machine-one", state="stopped")
-
-        self.assertIn("requires a version", str(raised.exception))
-
     def test_machine_wait_succeeds_on_any_successful_response(self):
         for result in (None, {}, {"ok": False}):
             with (

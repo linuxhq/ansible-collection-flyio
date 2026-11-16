@@ -157,15 +157,8 @@ def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
     )
 
 
-def delete_result(client, path, timeout=30, ok_statuses=None):
-    result = api_request(
-        client,
-        "delete",
-        path,
-        ok_statuses=ok_statuses,
-        timeout=timeout,
-    )
-    return None if result is _MISSING else result
+def delete_result(client, path, timeout=30):
+    return api_request(client, "delete", path, timeout=timeout)
 
 
 def nonempty_string(value):
@@ -249,12 +242,12 @@ def graphql_not_found(exc):
     )
 
 
-def graphql_request(client, query, variables=None, timeout=30, operation="GraphQL request"):
+def graphql_request(client, query, variables=None, operation="GraphQL request"):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
 
-    result = _send(client, "POST", GRAPHQL_API_URL, payload, timeout, operation)
+    result = _send(client, "POST", GRAPHQL_API_URL, payload, 30, operation)
     if result.get("errors"):
         errors = result["errors"]
         raise FlyioApiError(
@@ -331,9 +324,6 @@ def require_positive(module, *names):
 
 def wait_for_machine(client, app_name, machine_id, state="started", timeout=60, version=None):
     operation = f"Wait for Machine '{machine_id}' in app '{app_name}' to reach state '{state}'"
-    if state == "stopped" and version is None:
-        raise FlyioApiError(f"{operation} requires a version")
-
     ok_statuses = [404] if state == "destroyed" else None
     deadline = wait_deadline(timeout)
     remaining = timeout
