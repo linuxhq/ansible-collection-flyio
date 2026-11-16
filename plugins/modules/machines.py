@@ -172,7 +172,6 @@ options:
         type: int
         description:
           - Minimum Machines to keep running in the primary region.
-          - Must not be negative.
       concurrency:
         type: dict
         description:
@@ -196,7 +195,6 @@ options:
             type: int
             description:
               - Maximum concurrency limit.
-              - Must not be negative.
               - Set to C(0) to remove the hard limit.
               - When positive, must be greater than or equal to a requested
                 O(services[].concurrency.soft_limit). Fly.io lowers an existing soft
@@ -415,7 +413,6 @@ options:
         type: int
         description:
           - Maximum size after automatic extension.
-          - Must not be negative.
           - Set to C(0) to remove the limit.
       encrypted:
         type: bool
@@ -816,7 +813,7 @@ def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False,
 
 
 def validate_minimum(module, value, name, minimum):
-    """Reject an integer below minimum; Fly.io omits zero values, and rejects other types itself."""
+    """Reject an integer below minimum; Fly.io drops or replaces such values, so they could never match."""
     if isinstance(value, int) and not isinstance(value, bool) and value < minimum:
         module.fail_json(msg=f"{name} must be at least {minimum}")
 
@@ -875,9 +872,7 @@ def validate_checks(module, checks):
 
 def validate_paths(module, config):
     for option, field in (("files", "guest_path"), ("mounts", "path")):
-        if any(
-            not isinstance(item.get(field), str) or not item[field].startswith("/") for item in config.get(option) or []
-        ):
+        if any(not item[field].startswith("/") for item in config.get(option) or []):
             module.fail_json(msg=f"{option}[].{field} must be an absolute path")
 
     for field in ("guest_path", "url_prefix"):
@@ -904,13 +899,6 @@ def validate_files(module, files):
 def validate_services(module, services):
     for service in services:
         validate_minimum(module, service.get("internal_port"), "services[].internal_port", 1)
-        validate_minimum(module, service.get("min_machines_running"), "services[].min_machines_running", 0)
-        validate_minimum(
-            module,
-            (service.get("concurrency") or {}).get("hard_limit"),
-            "services[].concurrency.hard_limit",
-            0,
-        )
         for port in service.get("ports") or []:
             for field in ("port", "start_port", "end_port"):
                 validate_minimum(module, port.get(field), f"services[].ports[].{field}", 1)
@@ -962,9 +950,6 @@ def validate_mounts(module, mounts):
         if not nonempty_string(mount.get("volume")):
             module.fail_json(msg="mounts[].volume must not be empty")
 
-        for field in ("extend_threshold_percent", "add_size_gb", "size_gb_limit"):
-            validate_minimum(module, mount.get(field), f"mounts[].{field}", 0)
-
         if (mount.get("extend_threshold_percent") == 0) != (mount.get("add_size_gb") == 0):
             module.fail_json(
                 msg="mounts[].extend_threshold_percent and add_size_gb must both be zero to disable extension"
@@ -972,6 +957,7 @@ def validate_mounts(module, mounts):
 
 
 def validate_restart(module, restart):
+    # Fly.io replaces a negative max_retries with its default.
     validate_minimum(module, (restart or {}).get("max_retries"), "restart.max_retries", 0)
 
 
@@ -1186,9 +1172,6 @@ def validate_machine_update(module, current, desired_config):
     app_name = module.params["app_name"]
     reject_unreachable_host(module, current)
     current_config = current["config"]
-    if module.params.get("region") is not None and module.params["region"] != current["region"]:
-        module.fail_json(msg=f"Region cannot be changed for Machine '{current['id']}' in app '{app_name}'")
-
     if "mounts" in desired_config and mounts_differ(current_config, desired_config):
         module.fail_json(msg=f"Attached volume cannot be changed for Machine '{current['id']}' in app '{app_name}'")
 
@@ -1224,8 +1207,7 @@ def update_machine(module, client, current, desired_config, deadline):
     params = module.params
     app_name = params["app_name"]
     # Report an impossible region change before waiting; other checks need the settled Machine.
-    current_region = current.get("region")
-    if params.get("region") is not None and nonempty_string(current_region) and params["region"] != current_region:
+    if params.get("region") is not None and params["region"] != current["region"]:
         module.fail_json(msg=f"Region cannot be changed for Machine '{current['id']}' in app '{app_name}'")
 
     if not params["wait"] and current.get("state") in TRANSITIONAL_STATES:
@@ -1238,8 +1220,7 @@ def update_machine(module, client, current, desired_config, deadline):
     current_config = validate_machine_update(module, current, desired_config)
 
     config = merge_config(current_config, desired_config)
-    current_checks = current_config.get("checks")
-    current_checks = current_checks if isinstance(current_checks, dict) else {}
+    current_checks = current_config.get("checks") or {}
     # A check whose type changes is replaced, so it must be complete like a new check.
     existing_checks = {
         name
