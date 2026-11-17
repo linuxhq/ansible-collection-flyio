@@ -128,6 +128,8 @@ class MachinesTests(TestCase):
 
         for requested_duration, returned_duration in (
             (15000000000, "15s"),
+            (15000000000.0, "15s"),
+            (1500000000.9, "1.5s"),
             ("60s", "1m0s"),
             ("1500ms", "1.5s"),
             ("1h30m", "1h30m0s"),
@@ -398,6 +400,18 @@ class MachinesTests(TestCase):
             (
                 {"checks": {"health": {"interval": 0}}},
                 "checks.health.interval must be at least 1",
+            ),
+            (
+                {"checks": {"health": {"interval": 0.5}}},
+                "checks.health.interval must be at least 1",
+            ),
+            (
+                {"checks": {"health": {"timeout": 0.5}}},
+                "checks.health.timeout must be at least 1",
+            ),
+            (
+                {"checks": {"health": {"grace_period": 0.5}}},
+                "checks.health.grace_period must be at least 1",
             ),
             (
                 {"checks": {"health": {"headers": {"X-Test": ["value"]}}}},

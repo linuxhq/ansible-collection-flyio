@@ -325,10 +325,11 @@ options:
       - C(protocol) accepts C(http) or C(https).
       - C(headers) is a list of dictionaries containing C(name) and C(values).
         It replaces the check's current headers; headers not listed are removed.
-      - C(interval), C(timeout), and C(grace_period) accept integer nanoseconds
-        or duration strings such as C(15s).
+      - C(interval), C(timeout), and C(grace_period) accept numeric nanoseconds
+        or duration strings such as C(15s). Fly.io truncates fractional
+        nanoseconds.
       - C(port) must be between C(1) and C(65535).
-      - Integer durations must be greater than zero.
+      - Numeric durations must be at least C(1).
       - Values are not treated as sensitive. Do not put credentials in check
         headers.
   env:
@@ -830,8 +831,8 @@ def find_machine(module, client, app_name, name=None, machine_id=None, missing_o
 
 
 def validate_minimum(module, value, name, minimum):
-    """Reject an integer below minimum; Fly.io drops or replaces such values, so they could never match."""
-    if isinstance(value, int) and not isinstance(value, bool) and value < minimum:
+    """Reject a number below minimum; Fly.io drops or replaces such values, so they could never match."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value < minimum:
         module.fail_json(msg=f"{name} must be at least {minimum}")
 
 

@@ -1175,6 +1175,59 @@ class FindVolumeTests(TestCase):
         self.assertEqual(raised.exception.values["msg"], "Volume 'vol_new' in app 'example' was deleted while waiting")
         self.assertTrue(raised.exception.values["changed"])
 
+    def test_creation_wait_timeout_reports_change(self):
+        created = {"id": "vol_new", "name": "data", "region": "ord", "size_gb": 1, "state": "creating"}
+        module = FakeModule(
+            {
+                "app_name": "example",
+                "encrypted": None,
+                "id": None,
+                "name": "data",
+                "region": "ord",
+                "size_gb": 1,
+                "wait": True,
+                "wait_timeout": 60,
+            }
+        )
+
+        with (
+            patch.object(volumes, "find_volume", return_value=None),
+            patch.object(volumes, "post_result", return_value=created),
+            patch.object(volumes, "wait_for_volume", return_value=created),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.ensure_present(module, {})
+
+        self.assertEqual(raised.exception.values["msg"], "Creation of volume 'vol_new' in app 'example' timed out")
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_transition_wait_timeout_reports_no_change(self):
+        current = {"encrypted": True, "id": "vol_one", "size_gb": 1, "state": "extending"}
+        module = FakeModule(
+            {
+                "app_name": "example",
+                "encrypted": None,
+                "id": "vol_one",
+                "name": None,
+                "region": None,
+                "size_gb": 2,
+                "wait": True,
+                "wait_timeout": 60,
+            }
+        )
+
+        with (
+            patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "api_request") as put,
+            patch.object(volumes, "wait_for_volume", return_value=current),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.ensure_present(module, {})
+
+        put.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "Transition of volume 'vol_one' in app 'example' timed out")
+        self.assertNotIn("changed", raised.exception.values)
+
     def test_sends_nonpositive_size_to_fly(self):
         module = FakeModule(
             {

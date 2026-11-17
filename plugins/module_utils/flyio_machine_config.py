@@ -4,6 +4,7 @@
 """Build, compare, and merge Fly.io Machine configurations without API access."""
 
 import copy
+import math
 import re
 from decimal import Decimal
 
@@ -214,6 +215,10 @@ def mount_values_differ(current, desired):
 
 
 def duration_nanoseconds(value):
+    if isinstance(value, float) and math.isfinite(value):
+        # Fly.io truncates numeric durations to whole nanoseconds.
+        return int(value)
+
     if not isinstance(value, str):
         return value
 

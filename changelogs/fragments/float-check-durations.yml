@@ -1,0 +1,7 @@
+---
+bugfixes:
+  - machines - compare a check ``interval``, ``timeout``, or ``grace_period``
+    given as a float as whole nanoseconds, as Fly.io stores it, instead of
+    failing after every write with "did not apply the requested
+    configuration" and updating the Machine again on each run. A float below
+    ``1`` now fails before any change, including in check mode.
