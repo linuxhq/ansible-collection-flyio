@@ -452,7 +452,7 @@ def update_volume(module, client, current, deadline):
         message="Volume extended",
         volume=current,
         needs_restart=result["needs_restart"],
-        # Fly.io may extend beyond the request, so report the size it applied.
+        # Report the size Fly.io returns, not the requested size.
         **diff_result(module, {"size_gb": original_size}, {"size_gb": current["size_gb"]}),
     )
 

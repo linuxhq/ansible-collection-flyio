@@ -450,19 +450,6 @@ class MachinesTests(TestCase):
                     "mounts": [
                         {
                             "add_size_gb": 1,
-                            "extend_threshold_percent": -1,
-                            "path": "/data",
-                            "volume": "vol-data",
-                        }
-                    ]
-                },
-                "mounts[].extend_threshold_percent must be at least 0",
-            ),
-            (
-                {
-                    "mounts": [
-                        {
-                            "add_size_gb": 1,
                             "extend_threshold_percent": 0,
                             "path": "/data",
                             "volume": "vol-data",
@@ -568,6 +555,11 @@ class MachinesTests(TestCase):
             {"mounts": [{**mount, "add_size_gb": 1, "extend_threshold_percent": 10}]},
             {"mounts": [{**mount, "add_size_gb": 101, "extend_threshold_percent": 80}]},
             {"mounts": [mount, {"path": "/logs", "volume": "vol-logs"}]},
+            {"services": [{"internal_port": 8080, "min_machines_running": -1}]},
+            {"services": [{"concurrency": {"hard_limit": -1}, "internal_port": 8080}]},
+            {"mounts": [{**mount, "add_size_gb": 1, "extend_threshold_percent": -1}]},
+            {"mounts": [{**mount, "add_size_gb": -1, "extend_threshold_percent": 80}]},
+            {"mounts": [{**mount, "size_gb_limit": -1}]},
         ):
             with (
                 self.subTest(update=update),
@@ -1461,10 +1453,18 @@ class MachinesTests(TestCase):
 
         self.assertTrue(machine_config.mounts_differ(current, desired))
 
-    def test_malformed_current_checks_do_not_crash_merge(self):
+    def test_merges_checks_into_null_current_checks(self):
         desired = {"checks": {"health": {"port": 8080}}}
 
         self.assertEqual(machine_config.merge_config({"checks": None}, desired), desired)
+
+    def test_merges_identity_entries_into_scalar_lists(self):
+        current = {"checks": {"health": {"headers": [{"name": "X-Test", "values": ["current"]}], "type": "http"}}}
+        desired = {"checks": {"health": {"headers": [{"name": "X-Test", "values": [{"name": "replacement"}]}]}}}
+
+        merged = machine_config.merge_config(current, desired)
+
+        self.assertEqual(merged["checks"]["health"]["headers"][0]["values"], [{"name": "replacement"}])
 
     def test_merges_duplicate_ports_by_complete_identity(self):
         current = [
@@ -3154,16 +3154,18 @@ class MachinesTests(TestCase):
         self.assertEqual(raised.exception.values["msg"], "init.tty cannot be true because Fly.io ignores it")
 
     def test_region_change_fails_before_waiting_for_transition(self):
-        current = {"id": "machine-one", "name": "worker", "region": "ord", "state": "starting"}
+        for region in ("ord", ""):
+            current = {"id": "machine-one", "name": "worker", "region": region, "state": "starting"}
 
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "wait_for_machine") as wait,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(FakeModule(params(region="iad")), {})
+            with (
+                self.subTest(region=region),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "wait_for_machine") as wait,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines.ensure_present(FakeModule(params(region="iad")), {})
 
-        wait.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"], "Region cannot be changed for Machine 'machine-one' in app 'example'"
-        )
+            wait.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"], "Region cannot be changed for Machine 'machine-one' in app 'example'"
+            )

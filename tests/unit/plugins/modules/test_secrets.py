@@ -71,14 +71,14 @@ class SecretsTests(TestCase):
 
         self.assertTrue(raised.exception.values["changed"])
 
-    def test_rejects_malformed_read_before_setting(self):
+    def test_failed_read_prevents_setting(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
 
         with (
             patch.object(
                 secrets,
                 "get_resource",
-                side_effect=FlyioApiError("malformed"),
+                side_effect=FlyioApiError("GET failed", status_code=500),
             ),
             patch.object(secrets, "post_result") as post,
             self.assertRaises(FlyioApiError),
@@ -176,14 +176,14 @@ class SecretsTests(TestCase):
         ):
             secrets.ensure_absent(module, {})
 
-    def test_rejects_malformed_read_before_removing(self):
+    def test_failed_read_prevents_removing(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET"})
 
         with (
             patch.object(
                 secrets,
                 "get_resource",
-                side_effect=FlyioApiError("malformed"),
+                side_effect=FlyioApiError("GET failed", status_code=500),
             ),
             patch.object(secrets, "delete_result") as delete,
             self.assertRaises(FlyioApiError),

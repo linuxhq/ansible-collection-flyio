@@ -270,26 +270,28 @@ class IpAddressesTests(TestCase):
         self.assertFalse(raised.exception.values["changed"])
 
     def test_rejects_invalid_release_address_before_lookup(self):
-        module = FakeModule(
-            {
-                "address": "not-an-ip",
-                "app_name": "example",
-                "region": "",
-                "type": None,
-            }
-        )
+        for address in ("not-an-ip", "", " "):
+            module = FakeModule(
+                {
+                    "address": address,
+                    "app_name": "example",
+                    "region": "",
+                    "type": None,
+                }
+            )
 
-        with (
-            patch.object(ip_addresses, "get_ip_addresses") as get,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            ip_addresses.ensure_absent(module, {})
+            with (
+                self.subTest(address=address),
+                patch.object(ip_addresses, "get_ip_addresses") as get,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                ip_addresses.ensure_absent(module, {})
 
-        get.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "address must be a valid IPv4 or IPv6 address",
-        )
+            get.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "address must be a valid IPv4 or IPv6 address",
+            )
 
     def test_rejects_ambiguous_type_release(self):
         addresses = [

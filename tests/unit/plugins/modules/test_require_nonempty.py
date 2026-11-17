@@ -33,10 +33,10 @@ NONEMPTY_OPTIONS = {
     volumes: ("app_name", "id"),
     volumes_info: ("app_name", "id"),
 }
-# Blank values Fly.io rejects on the module's only write, or that select nothing, reach the API client.
+# Blank values these modules send to Fly.io instead of failing before the API client is created.
 PROVIDER_VALIDATED_OPTIONS = {
     apps_info: ("org_slug",),
-    ip_addresses: ("app_name", "address"),
+    ip_addresses: ("app_name",),
     ip_addresses_info: ("app_name",),
     machines_exec: ("command",),
     volumes: ("name",),

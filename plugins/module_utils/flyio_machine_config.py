@@ -178,7 +178,7 @@ def merge_config(current, desired):
 def existing_check(checks, name, desired):
     """Merge into the current check only when its type is unchanged; a new type replaces it."""
     check = checks.get(name)
-    if not isinstance(check, dict) or ("type" in desired and check.get("type") != desired["type"]):
+    if check is None or ("type" in desired and check.get("type") != desired["type"]):
         return {}
 
     return check
@@ -327,20 +327,15 @@ def normalize_config_comparison(config, requested):
         if current is not None:
             normalize_service_defaults(current, desired)
 
-    checks = config.get("checks")
-    if isinstance(checks, dict):
-        for name, check in checks.items():
-            if isinstance(check, dict):
-                desired_check = (requested.get("checks") or {}).get(name) or {}
-                normalize_requested_defaults(check, desired_check, {"headers": []})
-                for header, desired_header in match_list_items(
-                    check.get("headers") or [], desired_check.get("headers") or []
-                ):
-                    normalize_requested_defaults(header, desired_header, {"values": []})
+    for name, check in (config.get("checks") or {}).items():
+        desired_check = (requested.get("checks") or {}).get(name) or {}
+        normalize_requested_defaults(check, desired_check, {"headers": []})
+        for header, desired_header in match_list_items(check.get("headers") or [], desired_check.get("headers") or []):
+            normalize_requested_defaults(header, desired_header, {"values": []})
 
-                for field in CHECK_DURATION_FIELDS:
-                    if field in check:
-                        check[field] = duration_nanoseconds(check[field])
+        for field in CHECK_DURATION_FIELDS:
+            if field in check:
+                check[field] = duration_nanoseconds(check[field])
 
     return config
 
