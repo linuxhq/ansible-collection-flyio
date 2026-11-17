@@ -26,9 +26,10 @@ minor_changes:
 bugfixes:
   - apps - report ``changed=true`` when the app was created or deleted but a
     later read or the deletion wait failed.
-  - apps_info, machines_info, secrets, secrets_info, volumes_info - return
-    resources as Fly.io reports them instead of failing on fields the module
-    does not use.
+  - apps_info, ip_addresses, ip_addresses_info, machines, machines_info,
+    secrets, secrets_info, volumes, volumes_info - read and return resources
+    as Fly.io reports them instead of failing on fields the module does not
+    use.
   - ip_addresses - report a change, and return the address as Fly.io reports
     it, after a successful allocation; fail with ``changed=true`` only when
     Fly.io returns no address.
