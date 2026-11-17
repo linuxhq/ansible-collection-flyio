@@ -115,6 +115,10 @@ apps:
       description: CNAME target for custom domains.
       returned: when available
       type: str
+    app_role:
+      description: App role, such as C(postgres_cluster).
+      returned: when available
+      type: str
 
 """
 

@@ -227,6 +227,48 @@ class AppsTests(TestCase):
             post.assert_not_called()
             self.assertEqual(raised.exception.values["msg"], "org_slug is required when creating an app")
 
+    def test_blank_org_slug_is_sent_to_fly_on_create(self):
+        module = FakeModule({"name": "example", "network": None, "org_slug": "", "state": "present"})
+
+        with (
+            patch.object(apps, "AnsibleModule", return_value=module),
+            patch.object(apps, "flyio_client") as client,
+            patch.object(apps, "get_app", return_value=None),
+            patch.object(apps, "post_result", side_effect=FlyioApiError("POST failed", status_code=400)) as post,
+            self.assertRaises(FlyioApiError),
+        ):
+            apps.main()
+
+        post.assert_called_once_with(
+            client.return_value.__enter__.return_value, "/apps", {"name": "example", "org_slug": ""}
+        )
+
+    def test_blank_org_slug_fails_for_existing_app(self):
+        current = {"name": "example", "organization": {"name": "linuxhq", "slug": "linuxhq"}}
+
+        for state in ("present", "absent"):
+            module = FakeModule(
+                {"delete_timeout": 60, "name": "example", "network": None, "org_slug": "", "state": state}
+            )
+
+            with (
+                self.subTest(state=state),
+                patch.object(apps, "AnsibleModule", return_value=module),
+                patch.object(apps, "flyio_client"),
+                patch.object(apps, "get_app", return_value=current),
+                patch.object(apps, "post_result") as post,
+                patch.object(apps, "delete_result") as delete,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                apps.main()
+
+            post.assert_not_called()
+            delete.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "App 'example' has org_slug 'linuxhq', not the requested org_slug ''",
+            )
+
     def test_create_tolerates_read_after_write_lag(self):
         module = FakeModule({"name": "example", "network": None, "org_slug": "linuxhq"})
 

@@ -1228,12 +1228,11 @@ def update_machine(module, client, current, desired_config, deadline):
         if existing_check(current_checks, name, check)
     }
 
-    requested_config = {field: config[field] for field in desired_config}
     # Merged services follow the requested order, so each requested service pairs with its merged result.
     validate_concurrency_limits(module, desired_config.get("services") or [], config.get("services") or [])
     validate_complete_config(
         module,
-        {field: requested_config[field] for field in ("checks", "services", "restart") if field in desired_config},
+        {field: config[field] for field in ("checks", "restart") if field in desired_config},
         existing_checks,
         requested_restart=desired_config.get("restart"),
     )
