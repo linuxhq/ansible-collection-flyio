@@ -1,0 +1,9 @@
+---
+bugfixes:
+  - apps_info - return an empty ``apps`` list when ``org_slug`` names an
+    organization that does not exist, like the other info modules do for a
+    missing parent, instead of failing with "organization not found".
+  - machines - accept ``restart.max_retries`` with any ``restart.policy``,
+    as Fly.io does, instead of failing unless the policy is ``on-failure``.
+    A requested ``max_retries`` is now sent when the policy changes, so the
+    Machine converges.
