@@ -361,6 +361,8 @@ options:
         type: str
         description:
           - Base64-encoded file content.
+          - Line breaks are allowed, for example in wrapped C(base64) output,
+            and the value is sent to Fly.io as given.
           - Either O(files[].raw_value) or O(files[].secret_name) is required.
           - Mutually exclusive with O(files[].secret_name).
       secret_name:
@@ -918,7 +920,8 @@ def validate_files(module, files):
             continue
 
         try:
-            base64.b64decode(raw_value, validate=True)
+            # Fly.io decodes Base64 with line breaks ignored.
+            base64.b64decode(raw_value.replace("\r", "").replace("\n", ""), validate=True)
         except (binascii.Error, TypeError, ValueError):
             module.fail_json(msg="files[].raw_value must be valid Base64")
 

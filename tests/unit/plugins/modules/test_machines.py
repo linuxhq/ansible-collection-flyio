@@ -695,6 +695,28 @@ class MachinesTests(TestCase):
         self.assertEqual(post.call_args.args[2]["config"]["services"], [{"internal_port": 8080}])
         self.assertTrue(raised.exception.values["changed"])
 
+    def test_create_sends_wrapped_raw_value_unchanged(self):
+        # Fly.io ignores line breaks in Base64 and stores the value as given.
+        files = [{"guest_path": "/etc/example.conf", "raw_value": "ZXhh\r\nbXBs\nZQ==\n"}]
+        module = FakeModule(params(files=files, wait=False))
+        created = {
+            "config": {"files": files, "image": "example:latest"},
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "created",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertEqual(post.call_args.args[2]["config"]["files"], files)
+        self.assertTrue(raised.exception.values["changed"])
+
     def test_create_requires_restart_policy(self):
         # Fly.io stores a policy-less restart as on-failure with its default retries, which never converges.
         module = FakeModule(params(restart={"max_retries": 1}))
