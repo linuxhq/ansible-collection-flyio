@@ -83,7 +83,7 @@ ip_addresses:
         name:
           description:
             - Network name.
-            - Empty for the app's default network.
+            - Empty for the organization's default network.
           returned: when available
           type: str
 

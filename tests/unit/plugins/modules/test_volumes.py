@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_utils
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import volumes
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
@@ -143,7 +144,7 @@ class FindVolumeTests(TestCase):
     def test_destroyed_id_is_absent(self):
         destroyed = {"id": "vol_old", "state": "destroyed"}
 
-        with patch.object(volumes, "get_resource", return_value=destroyed):
+        with patch.object(flyio_utils, "get_resource", return_value=destroyed):
             result = volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old")
 
         self.assertIsNone(result)
@@ -151,7 +152,7 @@ class FindVolumeTests(TestCase):
     def test_includes_deleting_volume_only_when_requested(self):
         deleting = {"id": "vol_old", "state": "scheduling_destroy"}
 
-        with patch.object(volumes, "get_resource", return_value=deleting):
+        with patch.object(flyio_utils, "get_resource", return_value=deleting):
             self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old"))
             self.assertEqual(
                 volumes.find_volume(
@@ -169,7 +170,7 @@ class FindVolumeTests(TestCase):
             with self.subTest(state=state):
                 deleting = {"id": "vol_old", "state": state}
 
-                with patch.object(volumes, "get_resource", return_value=deleting):
+                with patch.object(flyio_utils, "get_resource", return_value=deleting):
                     self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old"))
                     self.assertEqual(
                         volumes.find_volume(
@@ -246,7 +247,7 @@ class FindVolumeTests(TestCase):
                 )
 
                 with (
-                    patch.object(volumes, "get_resource", return_value=current),
+                    patch.object(flyio_utils, "get_resource", return_value=current),
                     patch.object(volumes, "delete_result") as delete,
                     self.assertRaises(ModuleExit) as raised,
                 ):
@@ -373,7 +374,7 @@ class FindVolumeTests(TestCase):
         )
 
         with (
-            patch.object(volumes, "get_resource", return_value={"id": "vol_one", "state": "created"}),
+            patch.object(flyio_utils, "get_resource", return_value={"id": "vol_one", "state": "created"}),
             patch.object(volumes, "delete_result", side_effect=FlyioApiError("gone", status_code=404)),
             patch.object(volumes, "wait_for_volume") as wait,
             self.assertRaises(ModuleExit) as raised,
@@ -399,7 +400,7 @@ class FindVolumeTests(TestCase):
         deleted = None
 
         with (
-            patch.object(volumes, "get_resource", return_value=current),
+            patch.object(flyio_utils, "get_resource", return_value=current),
             patch.object(
                 volumes,
                 "delete_result",

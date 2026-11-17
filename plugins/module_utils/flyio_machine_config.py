@@ -311,11 +311,6 @@ def normalize_config_comparison(config, requested):
         requested.get("guest"),
         {"kernel_args": []},
     )
-    normalize_requested_defaults(
-        config.get("restart"),
-        requested.get("restart"),
-        {"max_retries": 0},
-    )
     if requested.get("mounts"):
         normalize_requested_defaults(
             matching_mount(config, requested),

@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_utils
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import machines_exec
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
@@ -38,7 +39,7 @@ class MachinesExecTests(TestCase):
 
     def test_check_mode_does_not_execute(self):
         with (
-            patch.object(machines_exec, "get_resource", return_value={"id": "machine-one", "state": "started"}),
+            patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": "started"}),
             patch.object(machines_exec, "post_result") as request,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -49,7 +50,7 @@ class MachinesExecTests(TestCase):
 
     def test_check_mode_fails_for_missing_machine(self):
         with (
-            patch.object(machines_exec, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             patch.object(machines_exec, "post_result") as request,
             self.assertRaises(ModuleFail) as raised,
         ):
@@ -62,7 +63,7 @@ class MachinesExecTests(TestCase):
         for state in ("destroyed", "replaced", "migrated"):
             with (
                 self.subTest(state=state),
-                patch.object(machines_exec, "get_resource", return_value={"id": "machine-one", "state": state}),
+                patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": state}),
                 patch.object(machines_exec, "post_result") as request,
                 self.assertRaises(ModuleFail) as raised,
             ):
@@ -76,7 +77,7 @@ class MachinesExecTests(TestCase):
             machine = {"id": "machine-one", "state": state}
             with (
                 self.subTest(state=state),
-                patch.object(machines_exec, "get_resource", return_value=machine),
+                patch.object(flyio_utils, "get_resource", return_value=machine),
                 patch.object(machines_exec, "post_result") as request,
                 self.assertRaises(ModuleFail) as raised,
             ):
@@ -210,6 +211,22 @@ class MachinesExecTests(TestCase):
         self.assertEqual(raised.exception.values["status_code"], 408)
         self.assertEqual(raised.exception.values["response"], response)
         self.assertIn("Machine 'machine-one' for app 'example' timed out", raised.exception.values["msg"])
+
+    def test_reports_change_when_response_is_lost(self):
+        error = FlyioApiError("POST /apps/example/machines/machine-one/exec failed: timed out", write_sent=True)
+
+        with (
+            patch.object(machines_exec, "post_result", side_effect=error),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines_exec.exec_command(module(), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Executing a command on Machine 'machine-one' for app 'example' lost its response "
+            "(POST /apps/example/machines/machine-one/exec failed: timed out); the command may have run",
+        )
 
     def test_reraises_other_api_errors(self):
         for status_code, response in (

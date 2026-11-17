@@ -121,7 +121,7 @@ secret:
       returned: when available
 version:
   description: App secret version after a change request.
-  returned: when available
+  returned: when the secret is set or removed, except in check mode
   type: int
 message:
   returned: always
@@ -185,12 +185,10 @@ def ensure_present(module, client):
         "changed": changed,
         "message": "Secret set" if changed else "Secret value unchanged",
         "secret": result,
+        "version": result["version"],
     }
     if changed:
         values.update(diff_result(module, before, select_fields(result, DIFF_FIELDS)))
-
-    if result.get("version") is not None:
-        values["version"] = result["version"]
 
     module.exit_json(**values)
 
@@ -219,14 +217,13 @@ def ensure_absent(module, client):
 
         module.exit_json(changed=False, message="Secret already absent")
 
-    if result is None:
-        result = {}
-
-    values = {"changed": True, "message": "Secret removed", "secret": current, **diff}
-    if result.get("version") is not None:
-        values["version"] = result["version"]
-
-    module.exit_json(**values)
+    module.exit_json(
+        changed=True,
+        message="Secret removed",
+        secret=current,
+        version=result["version"],
+        **diff,
+    )
 
 
 def main():

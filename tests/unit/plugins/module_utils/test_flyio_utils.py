@@ -5,7 +5,7 @@ import json
 from io import BytesIO
 from unittest import TestCase
 from unittest.mock import Mock, patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from ansible.module_utils.common.arg_spec import ArgumentSpecValidator
 from ansible.module_utils.urls import ConnectionError as AnsibleConnectionError
@@ -661,6 +661,124 @@ class FlyioUtilsTests(TestCase):
 
         module.fail_json.assert_not_called()
         self.assertEqual(client["headers"]["Authorization"], "Bearer abc123")
+
+    def test_lost_write_response_marks_write_sent(self):
+        writes = (
+            lambda: api_request({"headers": {}}, "post", "/apps/example/machines", {}),
+            lambda: api_request({"headers": {}}, "delete", "/apps/example"),
+            lambda: api_request({"headers": {}}, "put", "/apps/example/volumes/vol_one/extend", {}),
+            lambda: graphql_request({"headers": {}}, "mutation { x }", mutation=True),
+        )
+        # urllib raises these raw from getresponse(), after the request was sent.
+        for error in (
+            TimeoutError("timed out"),
+            ConnectionResetError("reset"),
+            http.client.RemoteDisconnected("closed"),
+            http.client.BadStatusLine("bad"),
+        ):
+            for request in writes:
+                with (
+                    self.subTest(error=error, request=request),
+                    patch(f"{FLYIO_UTILS}.open_url", side_effect=error),
+                    self.assertRaises(FlyioApiError) as raised,
+                ):
+                    request()
+
+                self.assertTrue(raised.exception.write_sent)
+
+        for content in (TimeoutError("read timed out"), b"not json"):
+            for request in writes:
+                with (
+                    self.subTest(content=content, request=request),
+                    patch(f"{FLYIO_UTILS}.open_url") as open_url,
+                    self.assertRaises(FlyioApiError) as raised,
+                ):
+                    if isinstance(content, bytes):
+                        open_url.return_value.read.return_value = content
+                    else:
+                        open_url.return_value.read.side_effect = content
+
+                    request()
+
+                self.assertTrue(raised.exception.write_sent)
+
+    def test_lost_read_response_does_not_mark_write_sent(self):
+        for request in (
+            lambda: api_request({"headers": {}}, "get", "/apps/example"),
+            lambda: graphql_request({"headers": {}}, "query { viewer { id } }"),
+        ):
+            with (
+                self.subTest(request=request),
+                patch(f"{FLYIO_UTILS}.open_url", side_effect=TimeoutError("timed out")),
+                self.assertRaises(FlyioApiError) as raised,
+            ):
+                request()
+
+            self.assertFalse(raised.exception.write_sent)
+
+    def test_unsent_write_does_not_mark_write_sent(self):
+        # urllib wraps failures raised while sending the request in URLError.
+        for error in (
+            URLError(ConnectionRefusedError("refused")),
+            URLError(TimeoutError("timed out")),
+            AnsibleConnectionError("TLS setup failed"),
+        ):
+            with (
+                self.subTest(error=error),
+                patch(f"{FLYIO_UTILS}.open_url", side_effect=error),
+                self.assertRaises(FlyioApiError) as raised,
+            ):
+                api_request({"headers": {}}, "post", "/apps", {})
+
+            self.assertFalse(raised.exception.write_sent)
+
+    def test_rejected_write_does_not_mark_write_sent(self):
+        error = HTTPError("https://api.machines.dev/v1/apps", 422, "Unprocessable Entity", {}, BytesIO(b"{}"))
+        with (
+            patch(f"{FLYIO_UTILS}.open_url", side_effect=error),
+            self.assertRaises(FlyioApiError) as raised,
+        ):
+            api_request({"headers": {}}, "post", "/apps", {})
+
+        self.assertFalse(raised.exception.write_sent)
+
+    def test_client_reports_lost_write_as_changed(self):
+        module = Mock(params={"api_token": "token"})
+        fail_json = module.fail_json
+        fail_json.side_effect = RuntimeError
+
+        with self.assertRaises(RuntimeError), flyio_client(module):
+            raise FlyioApiError("POST /apps failed: timed out", write_sent=True)
+
+        fail_json.assert_called_once_with(
+            changed=True,
+            msg="POST /apps failed: timed out",
+            error="POST /apps failed: timed out",
+            status_code=None,
+            response=None,
+        )
+
+    def test_http_error_message_includes_fly_reason(self):
+        prefix = "POST /apps/example/volumes failed: HTTP Error 400: Bad Request"
+        for content, expected in (
+            (b'{"error": "size_gb must be set"}', f"{prefix}: size_gb must be set"),
+            (b"invalid region\n", f"{prefix}: invalid region"),
+            (b'{"error": ""}', prefix),
+            (b'{"status": "bad"}', prefix),
+            (b"", prefix),
+        ):
+            error = HTTPError(
+                "https://api.machines.dev/v1/apps/example/volumes", 400, "Bad Request", {}, BytesIO(content)
+            )
+            with (
+                self.subTest(content=content),
+                patch(f"{FLYIO_UTILS}.open_url", side_effect=error),
+                self.assertRaises(FlyioApiError) as raised,
+            ):
+                api_request({"headers": {}}, "post", "/apps/example/volumes", {})
+
+            self.assertEqual(str(raised.exception), expected)
+            self.assertEqual(raised.exception.status_code, 400)
 
     def test_graphql_not_found_uses_error_code(self):
         exc = FlyioApiError("failed", response_body=[{"message": "nope", "extensions": {"code": "NOT_FOUND"}}])

@@ -45,7 +45,7 @@ class SecretsTests(TestCase):
     def test_identical_secret_is_unchanged(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
         current = {"name": "APP_SECRET", "digest": "same"}
-        response = {"name": "APP_SECRET", "digest": "same"}
+        response = {"name": "APP_SECRET", "value": "secret", "digest": "same", "version": 4, "Version": 4}
 
         with (
             patch.object(secrets, "get_resource", return_value=current),
@@ -56,11 +56,12 @@ class SecretsTests(TestCase):
 
         post.assert_called_once_with({}, "/apps/example/secrets/APP_SECRET", {"value": "secret"})
         self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["version"], 4)
 
     def test_changed_secret_is_set(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
         current = {"name": "APP_SECRET", "digest": "old"}
-        response = {"name": "APP_SECRET", "digest": "new"}
+        response = {"name": "APP_SECRET", "value": "secret", "digest": "new", "version": 5, "Version": 5}
 
         with (
             patch.object(secrets, "get_resource", return_value=current),
@@ -143,7 +144,7 @@ class SecretsTests(TestCase):
 
         with (
             patch.object(secrets, "get_resource", return_value=current),
-            patch.object(secrets, "delete_result", return_value={"version": 3}) as delete,
+            patch.object(secrets, "delete_result", return_value={"version": 3, "Version": 3}) as delete,
             self.assertRaises(ModuleExit) as raised,
         ):
             secrets.ensure_absent(module, {})
