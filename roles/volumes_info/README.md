@@ -13,6 +13,13 @@ None
     volumes_info_api_token: null
     volumes_info_app_name: null
 
+| Variable | Purpose |
+| --- | --- |
+| `volumes_info_api_token` | Fly.io API token. |
+| `volumes_info_app_name` | App whose volumes to list. |
+
+When `volumes_info_api_token` or `volumes_info_app_name` is `null`, the role skips the query and publishes empty facts.
+
 ## Dependencies
 
 None

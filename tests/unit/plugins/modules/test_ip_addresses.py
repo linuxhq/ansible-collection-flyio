@@ -72,6 +72,7 @@ class IpAddressesTests(TestCase):
             {"input": {"appId": "example", "type": "shared_v4"}},
         )
         self.assertIn("created_at: createdAt", query.call_args.args[1])
+        self.assertTrue(query.call_args.kwargs["mutation"])
         self.assertEqual(
             raised.exception.values["ip_address"],
             {"address": "1.2.3.4", "region": "", "type": "shared_v4"},
@@ -281,6 +282,7 @@ class IpAddressesTests(TestCase):
         )
         self.assertIn("clientMutationId", query.call_args.args[1])
         self.assertNotIn("app {", query.call_args.args[1])
+        self.assertTrue(query.call_args.kwargs["mutation"])
         self.assertTrue(raised.exception.values["changed"])
 
     def test_address_released_after_lookup_is_unchanged(self):

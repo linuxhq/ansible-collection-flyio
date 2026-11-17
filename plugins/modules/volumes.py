@@ -238,7 +238,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     diff_result,
     flyio_client,
     flyio_path,
-    get_resource,
+    get_volume,
     list_all,
     mark_changed,
     post_result,
@@ -294,12 +294,7 @@ def find_volume(
     missing_ok=False,
 ):
     if volume_id is not None:
-        volume = get_resource(
-            client,
-            flyio_path("apps", app_name, "volumes", volume_id),
-            ok_statuses=[404],
-            expected={"id": volume_id},
-        )
+        volume = get_volume(client, app_name, volume_id)
         if is_live(volume) or (include_deleting and volume is not None and volume.get("state") in DELETING_STATES):
             return volume
 

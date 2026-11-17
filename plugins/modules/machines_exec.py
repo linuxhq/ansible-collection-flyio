@@ -18,7 +18,8 @@ description:
     could not return its output because the output exceeded the maximum
     response size.
   - The task fails and reports a change when Fly.io reports that the command
-    exceeded O(timeout), because the command may have run.
+    exceeded O(timeout), or when the response to the request is lost, because
+    the command may have run.
   - Results include every field of the Fly.io exec response as Fly.io
     reports it. The documented fields default to C(0) or an empty string
     when Fly.io omits them.
@@ -111,18 +112,16 @@ stdout:
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    MACHINE_TERMINAL_STATES,
     FlyioApiError,
     api_token_option,
     flyio_client,
     flyio_path,
-    get_resource,
+    get_machine,
     post_result,
     require_nonempty,
     require_positive,
 )
-
-# Machines in these states are gone and cannot run commands.
-TERMINAL_STATES = {"destroyed", "replaced", "migrated"}
 
 
 def exec_command(module, client):
@@ -131,13 +130,8 @@ def exec_command(module, client):
     machine_id = module.params["id"]
     if module.check_mode:
         # Predict the real run's failure for a missing app or Machine instead of a change.
-        machine = get_resource(
-            client,
-            flyio_path("apps", app_name, "machines", machine_id),
-            ok_statuses=[404],
-            expected={"id": machine_id},
-        )
-        if machine is None or machine["state"] in TERMINAL_STATES:
+        machine = get_machine(client, app_name, machine_id)
+        if machine is None or machine["state"] in MACHINE_TERMINAL_STATES:
             module.fail_json(msg=f"Machine '{machine_id}' not found in app '{app_name}'")
 
         # Fly.io rejects exec with HTTP 412 unless the Machine is running.
@@ -172,6 +166,17 @@ def exec_command(module, client):
                 msg=(
                     f"Executing a command on Machine '{machine_id}' for app '{app_name}' timed out; "
                     "the command may have run"
+                ),
+                changed=True,
+                status_code=exc.status_code,
+                response=response,
+            )
+
+        if exc.write_sent:
+            module.fail_json(
+                msg=(
+                    f"Executing a command on Machine '{machine_id}' for app '{app_name}' lost its response "
+                    f"({exc}); the command may have run"
                 ),
                 changed=True,
                 status_code=exc.status_code,

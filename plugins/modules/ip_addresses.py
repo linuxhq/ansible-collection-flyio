@@ -34,8 +34,8 @@ options:
       - When O(state=absent), O(type) and O(region) select the address to
         release; the task fails if more than one address matches, so use
         O(address) instead.
-      - When O(type=private_v6), only private addresses on the app's default
-        network are matched and allocated. Private addresses on other
+      - When O(type=private_v6), only private addresses on the organization's
+        default network are matched and allocated. Private addresses on other
         networks are ignored; use O(address) to release one.
       - Mutually exclusive with O(address).
   region:
@@ -172,7 +172,7 @@ ip_address:
         name:
           description:
             - Network name.
-            - Empty for the app's default network.
+            - Empty for the organization's default network.
           returned: when available
           type: str
 message:
@@ -213,7 +213,7 @@ def validate_region(module, ip_type, region):
 
 
 def on_default_network(addr):
-    # Fly.io reports an empty network name for the app's default network.
+    # Fly.io reports an empty network name for the organization's default network.
     return not (addr.get("network") or {}).get("name")
 
 
@@ -289,6 +289,7 @@ def ensure_present(module, client):
         query,
         {"input": mutation_input},
         operation=f"Allocate an IP address for app '{app_name}'",
+        mutation=True,
     )
     result = data["allocateIpAddress"]
     ip_address = result["ipAddress"]
@@ -365,6 +366,7 @@ def ensure_absent(module, client):
             query,
             variables,
             operation=f"Release IP address '{release_address}' from app '{app_name}'",
+            mutation=True,
         )
     except FlyioApiError as exc:
         # Released elsewhere between the lookup and the release.

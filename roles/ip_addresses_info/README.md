@@ -13,6 +13,13 @@ None
     ip_addresses_info_api_token: null
     ip_addresses_info_app_name: null
 
+| Variable | Purpose |
+| --- | --- |
+| `ip_addresses_info_api_token` | Fly.io API token. |
+| `ip_addresses_info_app_name` | App whose IP addresses to list. |
+
+When `ip_addresses_info_api_token` or `ip_addresses_info_app_name` is `null`, the role skips the query and publishes empty facts.
+
 ## Dependencies
 
 None

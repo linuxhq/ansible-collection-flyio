@@ -13,6 +13,13 @@ None
     apps_info_api_token: null
     apps_info_org_slug: null
 
+| Variable | Purpose |
+| --- | --- |
+| `apps_info_api_token` | Fly.io API token. |
+| `apps_info_org_slug` | Organization whose apps to list. |
+
+When `apps_info_api_token` or `apps_info_org_slug` is `null`, the role skips the query and publishes empty facts.
+
 ## Dependencies
 
 None

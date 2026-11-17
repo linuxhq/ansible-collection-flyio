@@ -140,7 +140,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_token_option,
     flyio_client,
     flyio_path,
-    get_resource,
+    get_machine,
     list_all,
     require_nonempty,
 )
@@ -160,12 +160,7 @@ def list_resources(module, client):
 
 
 def info(module, client):
-    machine = get_resource(
-        client,
-        flyio_path("apps", module.params["app_name"], "machines", module.params["id"]),
-        ok_statuses=[404],
-        expected={"id": module.params["id"]},
-    )
+    machine = get_machine(client, module.params["app_name"], module.params["id"])
 
     if machine is None:
         module.fail_json(msg=f"Machine '{module.params['id']}' not found in app '{module.params['app_name']}'")

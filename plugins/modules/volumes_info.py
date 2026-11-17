@@ -163,7 +163,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     api_token_option,
     flyio_client,
     flyio_path,
-    get_resource,
+    get_volume,
     list_all,
     require_nonempty,
 )
@@ -180,12 +180,7 @@ def list_resources(module, client):
 
 
 def info(module, client):
-    volume = get_resource(
-        client,
-        flyio_path("apps", module.params["app_name"], "volumes", module.params["id"]),
-        ok_statuses=[404],
-        expected={"id": module.params["id"]},
-    )
+    volume = get_volume(client, module.params["app_name"], module.params["id"])
 
     if volume is None:
         module.fail_json(msg=f"Volume '{module.params['id']}' not found in app '{module.params['app_name']}'")

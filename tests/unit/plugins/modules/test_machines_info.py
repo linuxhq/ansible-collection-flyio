@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_utils
 from ansible_collections.linuxhq.flyio.plugins.modules import machines_info
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -25,7 +26,7 @@ class MachinesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "machine-one"})
 
         with (
-            patch.object(machines_info, "get_resource", return_value=machine) as get,
+            patch.object(flyio_utils, "get_resource", return_value=machine) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             machines_info.info(module, {})
@@ -42,7 +43,7 @@ class MachinesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "missing"})
 
         with (
-            patch.object(machines_info, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleFail) as raised,
         ):
             machines_info.info(module, {})

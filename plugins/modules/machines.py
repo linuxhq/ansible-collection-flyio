@@ -448,7 +448,8 @@ options:
         type: int
         description:
           - Maximum restart attempts (only for C(on-failure) policy).
-          - Must not be negative.
+          - Must be at least C(1). Fly.io replaces C(0) and negative values
+            with its default.
   metadata:
     type: dict
     description:
@@ -520,6 +521,10 @@ options:
         suspended Machine loses its suspend snapshot.
       - C(started) ensures the Machine is running.
       - C(stopped) ensures the Machine is stopped.
+      - With O(state=stopped), a C(created) Machine that has never been
+        started is left as it is and the task reports no change.
+      - With O(state=stopped), stopping a C(suspended) Machine discards its
+        suspend snapshot.
       - C(absent) destroys the Machine. A running Machine is stopped forcibly
         before it is destroyed.
 requirements:
@@ -732,13 +737,14 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_machine_config
     mounts_differ,
 )
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    MACHINE_TERMINAL_STATES,
     FlyioApiError,
     api_token_option,
     delete_result,
     diff_result,
     flyio_client,
     flyio_path,
-    get_resource,
+    get_machine,
     list_all,
     mark_changed,
     nonempty_string,
@@ -781,17 +787,17 @@ MOVED_ON_STATES = TRANSITIONAL_STATES - {"destroying", "launch_failed"}
 SELF_DESTROYED_STATES = {"destroying", "destroyed"}
 # States headed for destruction; lookups treat these as not live.
 DESTROYING_STATES = {"destroying", "launch_failed"}
-TERMINAL_STATES = {"destroyed", "replaced", "migrated"}
 PRESENT_STATES = {"created", "started", "stopped", "suspended"}
 
 
 def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False, include_destroying=False):
     """Find a live Machine; with include_destroying, fall back to one that is being destroyed."""
     if machine_id is not None:
-        machine = get_machine(client, app_name, machine_id, missing_ok=True)
+        machine = get_machine(client, app_name, machine_id)
         # Match the name lookup: terminal Machines are gone, and destroying ones count only when asked.
         if machine is not None and (
-            machine["state"] in TERMINAL_STATES or (machine["state"] in DESTROYING_STATES and not include_destroying)
+            machine["state"] in MACHINE_TERMINAL_STATES
+            or (machine["state"] in DESTROYING_STATES and not include_destroying)
         ):
             return None
 
@@ -803,7 +809,11 @@ def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False,
         ok_statuses=[404] if missing_ok else None,
     )
 
-    named = [machine for machine in machines if machine.get("name") == name and machine["state"] not in TERMINAL_STATES]
+    named = [
+        machine
+        for machine in machines
+        if machine.get("name") == name and machine["state"] not in MACHINE_TERMINAL_STATES
+    ]
     live = [machine for machine in named if machine["state"] not in DESTROYING_STATES]
     # Only live matches are ambiguous; any one Machine being destroyed satisfies an absent request.
     if len(live) > 1:
@@ -959,8 +969,8 @@ def validate_mounts(module, mounts):
 
 
 def validate_restart(module, restart):
-    # Fly.io replaces a negative max_retries with its default.
-    validate_minimum(module, (restart or {}).get("max_retries"), "restart.max_retries", 0)
+    # Fly.io replaces a max_retries below 1 with its default.
+    validate_minimum(module, (restart or {}).get("max_retries"), "restart.max_retries", 1)
 
 
 def validate_config(module, config):
@@ -1019,15 +1029,6 @@ def validate_waited_machine(module, machine_id, current, expected_state):
         )
 
 
-def get_machine(client, app_name, machine_id, missing_ok=False):
-    return get_resource(
-        client,
-        flyio_path("apps", app_name, "machines", machine_id),
-        ok_statuses=[404] if missing_ok else None,
-        expected={"id": machine_id},
-    )
-
-
 def wait_until_settled(module, client, machine, deadline):
     """Wait server-side until the Machine version just written leaves its transitional states."""
     app_name = module.params["app_name"]
@@ -1039,7 +1040,7 @@ def wait_until_settled(module, client, machine, deadline):
         deadline,
         version=machine.get("version"),
     )
-    current = get_machine(client, app_name, machine["id"], missing_ok=True)
+    current = get_machine(client, app_name, machine["id"])
     if auto_destroys(module, machine) and (current is None or current.get("state") in SELF_DESTROYED_STATES):
         # The Machine ran to completion and destroyed itself; there is nothing left to verify.
         return None
@@ -1136,13 +1137,13 @@ def settle_machine(module, client, current, desired_state, deadline):
         version=current["version"] if wait_state == "stopped" else None,
     )
     # The wait succeeded; the checks below reject only Machines that are gone, unmanaged, or still moving.
-    current = get_machine(client, app_name, machine_id, missing_ok=True)
+    current = get_machine(client, app_name, machine_id)
 
     # The settled wait also matches archived Machines.
     if current is not None and current.get("state") in UNMANAGED_STATES:
         reject_unmanaged(module, current)
 
-    if current is None or current.get("state") in TERMINAL_STATES | DESTROYING_STATES:
+    if current is None or current.get("state") in MACHINE_TERMINAL_STATES | DESTROYING_STATES:
         module.fail_json(
             msg=f"Machine '{machine_id}' in app '{app_name}' is no longer available",
             machine=current,
@@ -1375,7 +1376,7 @@ def wait_until_machine_destroyed(module, client, machine, deadline):
         "destroyed",
         seconds_left(deadline),
     )
-    current = get_machine(client, app_name, machine_id, missing_ok=True)
+    current = get_machine(client, app_name, machine_id)
     validate_waited_machine(module, machine_id, current, "destroyed")
     return current
 
@@ -1495,7 +1496,7 @@ def ensure_power_state(module, client, desired_state):
     )
 
     requested = current
-    current = get_machine(client, app_name, current["id"], missing_ok=True)
+    current = get_machine(client, app_name, current["id"])
     if (current is None or current.get("state") in SELF_DESTROYED_STATES) and auto_destroys(module, requested):
         exit_self_destroyed(module, requested, f"{action} requested", diff)
 

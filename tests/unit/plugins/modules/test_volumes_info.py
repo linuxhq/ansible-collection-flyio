@@ -3,6 +3,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_utils
 from ansible_collections.linuxhq.flyio.plugins.modules import volumes_info
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -19,7 +20,7 @@ class VolumesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "vol_one"})
 
         with (
-            patch.object(volumes_info, "get_resource", return_value=volume) as get,
+            patch.object(flyio_utils, "get_resource", return_value=volume) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             volumes_info.info(module, {})
@@ -36,7 +37,7 @@ class VolumesInfoTests(TestCase):
         module = FakeModule({"app_name": "example", "id": "missing"})
 
         with (
-            patch.object(volumes_info, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleFail) as raised,
         ):
             volumes_info.info(module, {})

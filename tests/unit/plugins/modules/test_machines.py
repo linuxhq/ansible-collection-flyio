@@ -6,6 +6,7 @@ from unittest.mock import patch
 from ansible.module_utils.common.parameters import _list_no_log_values, remove_values
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_machine_config as machine_config
+from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_utils
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import FlyioApiError
 from ansible_collections.linuxhq.flyio.plugins.modules import machines
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
@@ -118,12 +119,6 @@ class MachinesTests(TestCase):
         ):
             cases.append(({field: value}, {field: None}))
 
-        cases.append(
-            (
-                {"restart": {"policy": "on-failure", "max_retries": 0}},
-                {"restart": {"policy": "on-failure"}},
-            )
-        )
         for values in (
             {"extend_threshold_percent": 0, "add_size_gb": 0},
             {"size_gb_limit": 0},
@@ -172,7 +167,7 @@ class MachinesTests(TestCase):
                         patch.object(machines, "find_machine", return_value=current),
                         patch.object(machines, "post_result", return_value=result) as post,
                         patch.object(machines, "wait_for_machine"),
-                        patch.object(machines, "get_resource", return_value=result),
+                        patch.object(flyio_utils, "get_resource", return_value=result),
                         self.assertRaises(ModuleExit) as raised,
                     ):
                         machines.ensure_present(module, {})
@@ -281,7 +276,7 @@ class MachinesTests(TestCase):
                         )
                     )
 
-        for before, after in (({"max_retries": 3}, {"max_retries": 0}), ({}, {"max_retries": 3})):
+        for before, after in (({"max_retries": 3}, {"max_retries": 1}), ({}, {"max_retries": 3})):
             self.assertTrue(
                 machine_config.machine_config_changed(
                     {"image": "example:latest", "restart": {"policy": "on-failure", **before}},
@@ -460,7 +455,11 @@ class MachinesTests(TestCase):
             ),
             (
                 {"restart": {"max_retries": -1, "policy": "on-failure"}},
-                "restart.max_retries must be at least 0",
+                "restart.max_retries must be at least 1",
+            ),
+            (
+                {"restart": {"max_retries": 0, "policy": "on-failure"}},
+                "restart.max_retries must be at least 1",
             ),
             (
                 {
@@ -914,7 +913,7 @@ class MachinesTests(TestCase):
         with (
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=stopped),
+            patch.object(flyio_utils, "get_resource", return_value=stopped),
             patch.object(machines, "post_result") as post,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -952,7 +951,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result", return_value=updated) as post,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=started),
+            patch.object(flyio_utils, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(module, {})
@@ -1045,7 +1044,7 @@ class MachinesTests(TestCase):
             ),
             patch.object(machines, "wait_for_machine") as wait,
             patch.object(
-                machines,
+                flyio_utils,
                 "get_resource",
                 return_value={
                     "config": {"image": "example:latest"},
@@ -1539,7 +1538,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result", return_value=updated) as post,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=updated),
+            patch.object(flyio_utils, "get_resource", return_value=updated),
             self.assertRaises(ModuleExit),
         ):
             machines.ensure_present(module, {})
@@ -1648,7 +1647,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=None),
             patch.object(machines, "post_result", return_value=created),
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=started) as get,
+            patch.object(flyio_utils, "get_resource", return_value=started) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(module, {})
@@ -1742,7 +1741,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "wait_for_machine") as wait,
             patch.object(machines, "delete_result", return_value=None) as delete,
-            patch.object(machines, "get_resource", return_value=None) as get,
+            patch.object(flyio_utils, "get_resource", return_value=None) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_absent(module, {})
@@ -1766,7 +1765,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "wait_for_machine"),
             patch.object(machines, "delete_result", return_value=None),
-            patch.object(machines, "get_resource", return_value=current),
+            patch.object(flyio_utils, "get_resource", return_value=current),
             self.assertRaises(ModuleFail) as raised,
         ):
             machines.ensure_absent(module, {})
@@ -1802,7 +1801,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "delete_result") as delete,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_absent(module, {})
@@ -1820,7 +1819,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "delete_result") as delete,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource") as get,
+            patch.object(flyio_utils, "get_resource") as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_absent(module, {})
@@ -1847,7 +1846,7 @@ class MachinesTests(TestCase):
                 return_value=None,
             ) as request,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=started),
+            patch.object(flyio_utils, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_power_state(module, {}, "started")
@@ -1882,7 +1881,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result"),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleFail) as raised,
         ):
             machines.ensure_power_state(FakeModule(params(image=None)), {}, "stopped")
@@ -1904,7 +1903,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result") as request,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=started),
+            patch.object(flyio_utils, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_power_state(module, {}, "started")
@@ -1931,7 +1930,7 @@ class MachinesTests(TestCase):
             with (
                 self.subTest(state=state),
                 patch.object(machines, "wait_for_machine") as wait,
-                patch.object(machines, "get_resource") as get,
+                patch.object(flyio_utils, "get_resource") as get,
                 self.assertRaises(ModuleExit) as raised,
             ):
                 machines.settle_machine(module, {}, current, desired_state, 60)
@@ -1990,7 +1989,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result") as request,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=started),
+            patch.object(flyio_utils, "get_resource", return_value=started),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_power_state(module, {}, "started")
@@ -2021,7 +2020,7 @@ class MachinesTests(TestCase):
         with (
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=current),
+            patch.object(flyio_utils, "get_resource", return_value=current),
             patch.object(machines, "post_result") as request,
             self.assertRaises(ModuleFail) as raised,
         ):
@@ -2039,7 +2038,7 @@ class MachinesTests(TestCase):
                 self.subTest(state=state),
                 patch.object(machines, "find_machine", return_value={"id": "machine-one", "state": "creating"}),
                 patch.object(machines, "wait_for_machine"),
-                patch.object(machines, "get_resource", return_value={"id": "machine-one", "state": state}),
+                patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": state}),
                 patch.object(machines, "post_result") as request,
                 self.assertRaises(ModuleFail) as raised,
             ):
@@ -2067,7 +2066,7 @@ class MachinesTests(TestCase):
                 return_value=None,
             ) as request,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=stopped),
+            patch.object(flyio_utils, "get_resource", return_value=stopped),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_power_state(module, {}, "stopped")
@@ -2125,7 +2124,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result") as request,
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=stopped),
+            patch.object(flyio_utils, "get_resource", return_value=stopped),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_power_state(module, {}, "stopped")
@@ -2243,7 +2242,7 @@ class MachinesTests(TestCase):
         with (
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "wait_for_machine") as wait,
-            patch.object(machines, "get_resource", return_value=started),
+            patch.object(flyio_utils, "get_resource", return_value=started),
             self.assertRaises(ModuleExit),
         ):
             machines.ensure_present(FakeModule(params()), {})
@@ -2287,7 +2286,7 @@ class MachinesTests(TestCase):
         for state in ("destroyed", "replaced", "migrated"):
             with (
                 self.subTest(state=state),
-                patch.object(machines, "get_resource", return_value={"id": "machine-one", "state": state}),
+                patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": state}),
             ):
                 self.assertIsNone(
                     machines.find_machine({}, "example", machine_id="machine-one", include_destroying=True)
@@ -2297,7 +2296,7 @@ class MachinesTests(TestCase):
         module = FakeModule(params(id="machine-one", name=None, state="absent"))
 
         with (
-            patch.object(machines, "get_resource", return_value={"id": "machine-one", "state": "migrated"}),
+            patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": "migrated"}),
             patch.object(machines, "delete_result") as delete,
             self.assertRaises(ModuleExit) as raised,
         ):
@@ -2318,7 +2317,7 @@ class MachinesTests(TestCase):
             self.assertIsNone(machines.find_machine({}, "example", name="worker"))
             self.assertEqual(machines.find_machine({}, "example", name="worker", include_destroying=True), failed)
 
-        with patch.object(machines, "get_resource", return_value=failed):
+        with patch.object(flyio_utils, "get_resource", return_value=failed):
             self.assertIsNone(machines.find_machine({}, "example", machine_id="machine-old"))
 
     def test_negative_soft_limit_reports_documented_minimum(self):
@@ -2337,7 +2336,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=None),
             patch.object(machines, "post_result", return_value=created),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(module, {})
@@ -2353,7 +2352,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=None),
             patch.object(machines, "post_result", return_value=created),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value={**created, "state": "destroyed"}),
+            patch.object(flyio_utils, "get_resource", return_value={**created, "state": "destroyed"}),
             self.assertRaises(ModuleFail),
         ):
             machines.ensure_present(FakeModule(params()), {})
@@ -2410,7 +2409,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result"),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_power_state(FakeModule(params(image=None)), {}, "stopped")
@@ -2434,7 +2433,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result", return_value=updated),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(FakeModule(params()), {})
@@ -2444,7 +2443,7 @@ class MachinesTests(TestCase):
     def test_id_lookup_skips_destroying_machine_except_for_absent(self):
         destroying = {"id": "machine-one", "state": "destroying"}
 
-        with patch.object(machines, "get_resource", return_value=destroying):
+        with patch.object(flyio_utils, "get_resource", return_value=destroying):
             self.assertIsNone(machines.find_machine({}, "example", machine_id="machine-one"))
             self.assertEqual(
                 machines.find_machine({}, "example", machine_id="machine-one", include_destroying=True),
@@ -2515,7 +2514,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "post_result", return_value=updated),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=unreachable),
+            patch.object(flyio_utils, "get_resource", return_value=unreachable),
             self.assertRaises(ModuleFail) as raised,
         ):
             machines.ensure_present(FakeModule(params()), {})
@@ -2535,7 +2534,7 @@ class MachinesTests(TestCase):
                 patch.object(machines, "find_machine", return_value=current),
                 patch.object(machines, "post_result"),
                 patch.object(machines, "wait_for_machine", side_effect=FlyioApiError("gone", status_code=status)),
-                patch.object(machines, "get_resource", return_value=None),
+                patch.object(flyio_utils, "get_resource", return_value=None),
                 self.assertRaises(ModuleExit) as raised,
             ):
                 machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
@@ -2555,6 +2554,19 @@ class MachinesTests(TestCase):
             self.assertRaises(FlyioApiError),
         ):
             machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
+
+    def test_zero_restart_retries_rejected_before_check_mode_lookup(self):
+        # Fly.io stores max_retries=0 as its default of 3, so the request could never converge.
+        module = FakeModule(params(restart={"policy": "on-failure", "max_retries": 0}), check_mode=True)
+
+        with (
+            patch.object(machines, "find_machine") as find,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        find.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "restart.max_retries must be at least 1")
 
     def test_restart_retries_rejected_for_other_policy_without_current_restart(self):
         current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "started"}
@@ -2576,7 +2588,7 @@ class MachinesTests(TestCase):
         with (
             patch.object(machines, "find_machine", return_value=current),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=archived),
+            patch.object(flyio_utils, "get_resource", return_value=archived),
             patch.object(machines, "post_result") as post,
             self.assertRaises(ModuleFail) as raised,
         ):
@@ -2686,7 +2698,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=None),
             patch.object(machines, "post_result", return_value=created),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=stopping),
+            patch.object(flyio_utils, "get_resource", return_value=stopping),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(FakeModule(params()), {})
@@ -2708,7 +2720,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=None),
             patch.object(machines, "post_result", return_value=created),
             patch.object(machines, "wait_for_machine", side_effect=FlyioApiError("timeout", status_code=408)),
-            patch.object(machines, "get_resource", return_value=starting),
+            patch.object(flyio_utils, "get_resource", return_value=starting),
             self.assertRaises(ModuleFail) as raised,
         ):
             machines.ensure_present(FakeModule(params(auto_destroy=True)), {})
@@ -2818,7 +2830,7 @@ class MachinesTests(TestCase):
                 patch.object(machines, "find_machine", return_value=current),
                 patch.object(machines, "post_result"),
                 patch.object(machines, "wait_for_machine"),
-                patch.object(machines, "get_resource", return_value={**current, "state": reread}),
+                patch.object(flyio_utils, "get_resource", return_value={**current, "state": reread}),
                 self.assertRaises(ModuleExit) as raised,
             ):
                 machines.ensure_power_state(FakeModule(params(image=None)), {}, desired_state)
@@ -2834,7 +2846,7 @@ class MachinesTests(TestCase):
                 patch.object(machines, "find_machine", return_value=current),
                 patch.object(machines, "post_result"),
                 patch.object(machines, "wait_for_machine"),
-                patch.object(machines, "get_resource", return_value={**current, "state": state}),
+                patch.object(flyio_utils, "get_resource", return_value={**current, "state": state}),
                 self.assertRaises(ModuleFail),
             ):
                 machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
@@ -2852,7 +2864,7 @@ class MachinesTests(TestCase):
                 patch.object(machines, "find_machine", return_value=None),
                 patch.object(machines, "post_result", return_value=created),
                 patch.object(machines, "wait_for_machine"),
-                patch.object(machines, "get_resource", return_value=reread),
+                patch.object(flyio_utils, "get_resource", return_value=reread),
                 self.assertRaises(ModuleFail),
             ):
                 machines.ensure_present(FakeModule(params()), {})
@@ -2869,7 +2881,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=None),
             patch.object(machines, "post_result", return_value=created),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=reread),
+            patch.object(flyio_utils, "get_resource", return_value=reread),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(FakeModule(params(auto_destroy=True)), {})
@@ -2928,7 +2940,7 @@ class MachinesTests(TestCase):
                 patch.object(machines, "find_machine", return_value=current),
                 patch.object(machines, "post_result"),
                 patch.object(machines, "wait_for_machine"),
-                patch.object(machines, "get_resource", return_value={**current, "state": reread}),
+                patch.object(flyio_utils, "get_resource", return_value={**current, "state": reread}),
                 self.assertRaises(ModuleExit) as raised,
             ):
                 machines.ensure_power_state(FakeModule(params(image=None)), {}, desired_state)
@@ -2942,7 +2954,7 @@ class MachinesTests(TestCase):
 
         with (
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=stopped),
+            patch.object(flyio_utils, "get_resource", return_value=stopped),
         ):
             result = machines.settle_machine(FakeModule(params(image=None)), {}, current, "stopped", 60)
 
@@ -3134,7 +3146,7 @@ class MachinesTests(TestCase):
             patch.object(machines, "find_machine", return_value=None),
             patch.object(machines, "post_result", return_value=created),
             patch.object(machines, "wait_for_machine"),
-            patch.object(machines, "get_resource", return_value=None),
+            patch.object(flyio_utils, "get_resource", return_value=None),
             self.assertRaises(ModuleExit) as raised,
         ):
             machines.ensure_present(module, {})

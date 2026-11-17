@@ -18,6 +18,8 @@ from ansible.module_utils.urls import open_url
 GRAPHQL_API_URL = "https://api.fly.io/graphql"
 MACHINES_API_URL = "https://api.machines.dev/v1"
 _MISSING = object()
+# Machines in these states are gone.
+MACHINE_TERMINAL_STATES = {"destroyed", "replaced", "migrated"}
 # Region groups accepted by Fly.io create requests; Fly.io picks the actual region.
 REGION_GROUPS = {
     "africa",
@@ -75,6 +77,9 @@ def flyio_client(module):
     try:
         yield client
     except FlyioApiError as exc:
+        if exc.write_sent:
+            mark_changed(module)
+
         module.fail_json(
             msg=str(exc),
             error=str(exc),
@@ -94,10 +99,12 @@ def mark_changed(module):
 
 
 class FlyioApiError(Exception):
-    def __init__(self, message, status_code=None, response_body=None):
+    def __init__(self, message, status_code=None, response_body=None, write_sent=False):
         super().__init__(message)
         self.status_code = status_code
         self.response_body = response_body
+        # A write reached Fly.io but its response was lost, so it may have been applied.
+        self.write_sent = write_sent
 
 
 def _error_response(exc):
@@ -118,7 +125,18 @@ def _error_response(exc):
         return str(content)
 
 
-def _send(client, method, url, body, timeout, operation, ok_statuses=()):
+def _error_reason(response_body):
+    """Return Fly.io's reason from an error response: its error message or plain-text body."""
+    if isinstance(response_body, dict) and isinstance(response_body.get("error"), str):
+        return response_body["error"].strip()
+
+    if isinstance(response_body, str):
+        return response_body.strip()
+
+    return ""
+
+
+def _send(client, method, url, body, timeout, operation, ok_statuses=(), write=False):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     try:
         response = open_url(
@@ -128,21 +146,31 @@ def _send(client, method, url, body, timeout, operation, ok_statuses=()):
             headers=client["headers"],
             timeout=timeout,
         )
-        content = response.read()
-        return json.loads(content) if content else None
     except urllib.error.HTTPError as exc:
         if exc.code in ok_statuses:
             return _MISSING
 
+        response_body = _error_response(exc)
+        reason = _error_reason(response_body)
         raise FlyioApiError(
-            f"{operation} failed: {exc}",
+            f"{operation} failed: {exc}" + (f": {reason}" if reason else ""),
             status_code=exc.code,
-            response_body=_error_response(exc),
+            response_body=response_body,
         ) from exc
-    except (OSError, http.client.HTTPException, AnsibleConnectionError) as exc:
+    except (urllib.error.URLError, AnsibleConnectionError, ValueError) as exc:
+        # urllib wraps only failures raised before the request was sent; ValueError rejects the request itself.
         raise FlyioApiError(f"{operation} failed: {exc}") from exc
+    except (OSError, http.client.HTTPException) as exc:
+        # Raised while waiting for the response, after the request was sent.
+        raise FlyioApiError(f"{operation} failed: {exc}", write_sent=write) from exc
+
+    try:
+        content = response.read()
+        return json.loads(content) if content else None
+    except (OSError, http.client.HTTPException) as exc:
+        raise FlyioApiError(f"{operation} failed: {exc}", write_sent=write) from exc
     except ValueError as exc:
-        raise FlyioApiError(f"{operation} returned invalid JSON: {exc}") from exc
+        raise FlyioApiError(f"{operation} returned invalid JSON: {exc}", write_sent=write) from exc
 
 
 def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
@@ -154,6 +182,7 @@ def api_request(client, method, path, body=None, ok_statuses=None, timeout=30):
         timeout,
         f"{method.upper()} {path}",
         ok_statuses or (),
+        write=method.upper() != "GET",
     )
 
 
@@ -245,12 +274,12 @@ def graphql_not_found(exc):
     )
 
 
-def graphql_request(client, query, variables=None, operation="GraphQL request"):
+def graphql_request(client, query, variables=None, operation="GraphQL request", mutation=False):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
 
-    result = _send(client, "POST", GRAPHQL_API_URL, payload, 30, operation)
+    result = _send(client, "POST", GRAPHQL_API_URL, payload, 30, operation, write=mutation)
     if result.get("errors"):
         errors = result["errors"]
         raise FlyioApiError(
@@ -386,6 +415,24 @@ def get_app(client, app_name, timeout=30):
         ok_statuses=[404],
         timeout=timeout,
         expected={"name": app_name},
+    )
+
+
+def get_machine(client, app_name, machine_id):
+    return get_resource(
+        client,
+        flyio_path("apps", app_name, "machines", machine_id),
+        ok_statuses=[404],
+        expected={"id": machine_id},
+    )
+
+
+def get_volume(client, app_name, volume_id):
+    return get_resource(
+        client,
+        flyio_path("apps", app_name, "volumes", volume_id),
+        ok_statuses=[404],
+        expected={"id": volume_id},
     )
 
 
