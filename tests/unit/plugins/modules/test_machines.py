@@ -1297,6 +1297,15 @@ class MachinesTests(TestCase):
             {"restart": {"policy": "always"}},
         )
 
+    def test_changing_restart_policy_to_on_failure_drops_stale_max_retries(self):
+        self.assertEqual(
+            machine_config.merge_config(
+                {"restart": {"max_retries": 3, "policy": "always"}},
+                {"restart": {"policy": "on-failure"}},
+            ),
+            {"restart": {"policy": "on-failure"}},
+        )
+
     def test_changing_restart_policy_keeps_requested_max_retries(self):
         self.assertEqual(
             machine_config.merge_config(

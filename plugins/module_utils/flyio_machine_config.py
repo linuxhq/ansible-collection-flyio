@@ -153,10 +153,7 @@ def merge_config(current, desired):
 
     requested_restart = desired.get("restart") or {}
     current_policy = (current.get("restart") or {}).get("policy")
-    if (
-        requested_restart.get("policy") not in (None, "on-failure", current_policy)
-        and "max_retries" not in requested_restart
-    ):
+    if requested_restart.get("policy") not in (None, current_policy) and "max_retries" not in requested_restart:
         # Only a policy change drops the old policy's max_retries.
         config["restart"].pop("max_retries", None)
 
