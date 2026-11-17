@@ -37,6 +37,8 @@ options:
       - When O(type=private_v6), only private addresses on the organization's
         default network are matched and allocated. Private addresses on other
         networks are ignored; use O(address) to release one.
+      - Only addresses not assigned to a service are matched. Addresses with
+        a service name are ignored; use O(address) to release one.
       - Mutually exclusive with O(address).
   region:
     type: str
@@ -175,6 +177,14 @@ ip_address:
             - Empty for the organization's default network.
           returned: when available
           type: str
+    service_name:
+      description:
+        - Name of the service the address is assigned to.
+        - Empty or null when the address belongs to the app rather than a
+          service.
+        - Absent for the shared IPv4 address.
+      returned: when available
+      type: str
 message:
   returned: always
   type: str
@@ -218,10 +228,12 @@ def on_default_network(addr):
 
 
 def ips_by_type_and_region(addresses, ip_type, region):
+    # Addresses assigned to a service belong to that service, not to the app as a whole.
     return [
         addr
         for addr in addresses
         if addr.get("type") == ip_type
+        and not addr.get("service_name")
         and (ip_type in GLOBAL_TYPES or normalize_region(addr.get("region")) == normalize_region(region))
         and (ip_type != "private_v6" or on_default_network(addr))
     ]
@@ -272,6 +284,7 @@ def ensure_present(module, client):
                     network {
                         name
                     }
+                    service_name: serviceName
                 }
             }
         }

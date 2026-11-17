@@ -28,7 +28,8 @@ class VolumesInfoTests(TestCase):
         get.assert_called_once_with(
             {},
             "/apps/example/volumes/vol_one",
-            ok_statuses=[404],
+            ok_statuses=(404,),
+            timeout=30,
             expected={"id": "vol_one"},
         )
         self.assertEqual(raised.exception.values["volumes"], [volume])

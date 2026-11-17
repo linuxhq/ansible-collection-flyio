@@ -293,13 +293,13 @@ class MachinesTests(TestCase):
         }
 
         with patch.object(machines, "list_all", return_value=[listed]):
-            result = machines.find_machine({}, "example", name="worker")
+            result = machines.find_machine(FakeModule({}), {}, "example", name="worker")
 
         self.assertEqual(result, listed)
 
     def test_missing_parent_is_tolerated_only_when_requested(self):
         with patch.object(machines, "list_all", return_value=[]) as list_all:
-            machines.find_machine({}, "example", name="worker")
+            machines.find_machine(FakeModule({}), {}, "example", name="worker")
             list_all.assert_called_once_with(
                 {},
                 "/apps/example/machines",
@@ -307,7 +307,7 @@ class MachinesTests(TestCase):
             )
 
             list_all.reset_mock()
-            machines.find_machine({}, "example", name="worker", missing_ok=True)
+            machines.find_machine(FakeModule({}), {}, "example", name="worker", missing_ok=True)
             list_all.assert_called_once_with(
                 {},
                 "/apps/example/machines",
@@ -366,6 +366,19 @@ class MachinesTests(TestCase):
             ({"region": " "}, "region must not be empty"),
             ({"metadata": {" ": "value"}}, "metadata keys must not be empty"),
             ({"env": {"": "value"}}, "env keys must not be empty"),
+            ({"env": {"LOG_LEVEL": None, "PORT": "8080"}}, "env.LOG_LEVEL must not be null"),
+            ({"metadata": {"role": None}}, "metadata.role must not be null"),
+            (
+                {
+                    "services": [
+                        {
+                            "internal_port": 8080,
+                            "ports": [{"port": 80, "http_options": {"response": {"headers": {"X-Test": None}}}}],
+                        }
+                    ]
+                },
+                "services[].ports[].http_options.response.headers.X-Test must not be null",
+            ),
             (
                 {"checks": {"health": None}},
                 "checks must map names to configuration dictionaries",
@@ -515,15 +528,16 @@ class MachinesTests(TestCase):
                 "statics[].url_prefix must not be empty",
             ),
         ):
-            with (
-                self.subTest(update=update),
-                patch.object(machines, "find_machine") as find,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(FakeModule(params(**update)), {})
+            for check_mode in (False, True):
+                with (
+                    self.subTest(update=update, check_mode=check_mode),
+                    patch.object(machines, "find_machine") as find,
+                    self.assertRaises(ModuleFail) as raised,
+                ):
+                    machines.ensure_present(FakeModule(params(**update), check_mode=check_mode), {})
 
-            find.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], message)
+                find.assert_not_called()
+                self.assertEqual(raised.exception.values["msg"], message)
 
     def test_leaves_provider_checked_values_to_fly(self):
         mount = {"path": "/data", "volume": "vol-data"}
@@ -2148,13 +2162,16 @@ class MachinesTests(TestCase):
 
         with (
             patch.object(machines, "list_all", return_value=listed),
-            self.assertRaises(FlyioApiError) as raised,
+            self.assertRaises(ModuleFail) as raised,
         ):
-            machines.find_machine({}, "example", name="worker")
+            machines.find_machine(FakeModule({}), {}, "example", name="worker")
 
         self.assertEqual(
-            str(raised.exception),
-            "Multiple Machines named 'worker' match in app 'example' (machine-one, machine-two); specify id",
+            raised.exception.values,
+            {
+                "msg": "Multiple Machines named 'worker' match in app 'example' (machine-one, machine-two); specify id",
+                "machine_ids": ["machine-one", "machine-two"],
+            },
         )
 
     def test_returned_configuration_is_not_masked_by_no_log(self):
@@ -2254,12 +2271,12 @@ class MachinesTests(TestCase):
         started = {"id": "machine-new", "name": "worker", "state": "started"}
 
         with patch.object(machines, "list_all", return_value=[destroying, started]):
-            self.assertEqual(machines.find_machine({}, "example", name="worker"), started)
+            self.assertEqual(machines.find_machine(FakeModule({}), {}, "example", name="worker"), started)
 
         with patch.object(machines, "list_all", return_value=[destroying]):
-            self.assertIsNone(machines.find_machine({}, "example", name="worker"))
+            self.assertIsNone(machines.find_machine(FakeModule({}), {}, "example", name="worker"))
             self.assertEqual(
-                machines.find_machine({}, "example", name="worker", include_destroying=True),
+                machines.find_machine(FakeModule({}), {}, "example", name="worker", include_destroying=True),
                 destroying,
             )
 
@@ -2272,13 +2289,13 @@ class MachinesTests(TestCase):
         live = [{**machine, "state": "started"} for machine in destroying]
 
         with patch.object(machines, "list_all", return_value=destroying):
-            found = machines.find_machine({}, "example", name="worker", include_destroying=True)
+            found = machines.find_machine(FakeModule({}), {}, "example", name="worker", include_destroying=True)
 
         with (
             patch.object(machines, "list_all", return_value=live),
-            self.assertRaises(FlyioApiError),
+            self.assertRaises(ModuleFail),
         ):
-            machines.find_machine({}, "example", name="worker", include_destroying=True)
+            machines.find_machine(FakeModule({}), {}, "example", name="worker", include_destroying=True)
 
         self.assertEqual(found["id"], "machine-one")
 
@@ -2289,7 +2306,9 @@ class MachinesTests(TestCase):
                 patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": state}),
             ):
                 self.assertIsNone(
-                    machines.find_machine({}, "example", machine_id="machine-one", include_destroying=True)
+                    machines.find_machine(
+                        FakeModule({}), {}, "example", machine_id="machine-one", include_destroying=True
+                    )
                 )
 
     def test_absent_by_id_reports_migrated_machine_unchanged(self):
@@ -2311,14 +2330,16 @@ class MachinesTests(TestCase):
         started = {"id": "machine-new", "name": "worker", "state": "started"}
 
         with patch.object(machines, "list_all", return_value=[failed, started]):
-            self.assertEqual(machines.find_machine({}, "example", name="worker"), started)
+            self.assertEqual(machines.find_machine(FakeModule({}), {}, "example", name="worker"), started)
 
         with patch.object(machines, "list_all", return_value=[failed]):
-            self.assertIsNone(machines.find_machine({}, "example", name="worker"))
-            self.assertEqual(machines.find_machine({}, "example", name="worker", include_destroying=True), failed)
+            self.assertIsNone(machines.find_machine(FakeModule({}), {}, "example", name="worker"))
+            self.assertEqual(
+                machines.find_machine(FakeModule({}), {}, "example", name="worker", include_destroying=True), failed
+            )
 
         with patch.object(flyio_utils, "get_resource", return_value=failed):
-            self.assertIsNone(machines.find_machine({}, "example", machine_id="machine-old"))
+            self.assertIsNone(machines.find_machine(FakeModule({}), {}, "example", machine_id="machine-old"))
 
     def test_negative_soft_limit_reports_documented_minimum(self):
         services = [{"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": -1}}]
@@ -2444,9 +2465,9 @@ class MachinesTests(TestCase):
         destroying = {"id": "machine-one", "state": "destroying"}
 
         with patch.object(flyio_utils, "get_resource", return_value=destroying):
-            self.assertIsNone(machines.find_machine({}, "example", machine_id="machine-one"))
+            self.assertIsNone(machines.find_machine(FakeModule({}), {}, "example", machine_id="machine-one"))
             self.assertEqual(
-                machines.find_machine({}, "example", machine_id="machine-one", include_destroying=True),
+                machines.find_machine(FakeModule({}), {}, "example", machine_id="machine-one", include_destroying=True),
                 destroying,
             )
 
@@ -2455,7 +2476,9 @@ class MachinesTests(TestCase):
         live = {"id": "machine-new", "name": "web", "state": "started"}
 
         with patch.object(machines, "list_all", return_value=[destroying, live]):
-            self.assertEqual(machines.find_machine({}, "example", name="web", include_destroying=True), live)
+            self.assertEqual(
+                machines.find_machine(FakeModule({}), {}, "example", name="web", include_destroying=True), live
+            )
 
     def test_archived_machine_is_not_managed(self):
         current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "archived"}

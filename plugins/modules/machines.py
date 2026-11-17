@@ -270,7 +270,7 @@ options:
                       - Header names must not be empty.
                       - Values may be strings, lists of strings, or C(false).
                         Set a header to C(false) to make Fly Proxy strip that
-                        header from responses.
+                        header from responses. Null values are rejected.
                       - Values are not treated as sensitive.
                   pristine:
                     type: bool
@@ -339,6 +339,7 @@ options:
         removed.
       - Keys must not be empty.
       - Values must be strings. Quote numbers and booleans, for example C("8080").
+        Null values are rejected; omit a key to remove it.
       - Values are not treated as sensitive. Use M(linuxhq.flyio.secrets) for
         credentials.
   files:
@@ -456,6 +457,7 @@ options:
       - Metadata key-value pairs attached to the Machine.
       - Replaces the Machine's current metadata; keys not listed are removed.
       - Values must be strings. Quote numbers and booleans, for example C("8080").
+        Null values are rejected; omit a key to remove it.
       - Fly.io uses C(fly_*) keys, such as C(fly_process_group), for routing and
         process groups. Include them to keep them on Machines created by other
         tools.
@@ -790,7 +792,7 @@ DESTROYING_STATES = {"destroying", "launch_failed"}
 PRESENT_STATES = {"created", "started", "stopped", "suspended"}
 
 
-def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False, include_destroying=False):
+def find_machine(module, client, app_name, name=None, machine_id=None, missing_ok=False, include_destroying=False):
     """Find a live Machine; with include_destroying, fall back to one that is being destroyed."""
     if machine_id is not None:
         machine = get_machine(client, app_name, machine_id)
@@ -817,8 +819,11 @@ def find_machine(client, app_name, name=None, machine_id=None, missing_ok=False,
     live = [machine for machine in named if machine["state"] not in DESTROYING_STATES]
     # Only live matches are ambiguous; any one Machine being destroyed satisfies an absent request.
     if len(live) > 1:
-        ids = ", ".join(machine["id"] for machine in live)
-        raise FlyioApiError(f"Multiple Machines named '{name}' match in app '{app_name}' ({ids}); specify id")
+        ids = [machine["id"] for machine in live]
+        module.fail_json(
+            msg=f"Multiple Machines named '{name}' match in app '{app_name}' ({', '.join(ids)}); specify id",
+            machine_ids=ids,
+        )
 
     matches = live or (named if include_destroying else [])
     return matches[0] if matches else None
@@ -830,11 +835,20 @@ def validate_minimum(module, value, name, minimum):
         module.fail_json(msg=f"{name} must be at least {minimum}")
 
 
+def validate_not_null(module, field, mapping):
+    """Reject null values in a user-keyed mapping; they would be dropped, removing or keeping the key silently."""
+    for key, value in mapping.items():
+        if value is None:
+            module.fail_json(msg=f"{field}.{key} must not be null")
+
+
 def validate_string_mappings(module, config):
     for field in ("env", "metadata"):
         value = config.get(field)
         if value is not None and not all(nonempty_string(key) for key in value):
             module.fail_json(msg=f"{field} keys must not be empty")
+
+        validate_not_null(module, field, value or {})
 
 
 def validate_check_strings(module, name, check):
@@ -918,6 +932,8 @@ def validate_services(module, services):
             headers = ((port.get("http_options") or {}).get("response") or {}).get("headers") or {}
             if not all(nonempty_string(header) for header in headers):
                 module.fail_json(msg="service HTTP response header names must not be empty")
+
+            validate_not_null(module, "services[].ports[].http_options.response.headers", headers)
 
 
 def validate_requested_strings(module, params):
@@ -1355,6 +1371,7 @@ def ensure_present(module, client):
     desired_config = build_config(params)
     deadline = wait_deadline(params["wait_timeout"])
     current = find_machine(
+        module,
         client,
         params["app_name"],
         name=params.get("name"),
@@ -1389,6 +1406,7 @@ def ensure_absent(module, client):
 
     deadline = wait_deadline(params["wait_timeout"])
     current = find_machine(
+        module,
         client,
         app_name,
         name=params.get("name"),
@@ -1451,6 +1469,7 @@ def ensure_power_state(module, client, desired_state):
 
     deadline = wait_deadline(params["wait_timeout"])
     current = find_machine(
+        module,
         client,
         app_name,
         name=params.get("name"),

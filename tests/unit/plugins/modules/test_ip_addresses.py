@@ -195,6 +195,69 @@ class IpAddressesTests(TestCase):
         self.assertFalse(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["ip_address"], default)
 
+    def test_service_address_is_not_the_app_address(self):
+        for ip_type, region in (("v4", ""), ("v6", ""), ("private_v6", ""), ("v4", "ord")):
+            service = {
+                "address": "fdaa::2",
+                "network": {"name": ""},
+                "region": region or "global",
+                "service_name": "svc1",
+                "type": ip_type,
+            }
+            response = {"allocateIpAddress": {"ipAddress": {**service, "address": "fdaa::1", "service_name": None}}}
+            module = FakeModule({"app_name": "example", "region": region, "type": ip_type})
+
+            with (
+                self.subTest(type=ip_type, region=region),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[service]),
+                patch.object(ip_addresses, "graphql_request", return_value=response) as query,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                ip_addresses.ensure_present(module, {})
+
+            self.assertIn("service_name: serviceName", query.call_args.args[1])
+            self.assertTrue(raised.exception.values["changed"])
+            self.assertEqual(raised.exception.values["ip_address"], response["allocateIpAddress"]["ipAddress"])
+
+    def test_service_address_is_not_released_by_type(self):
+        for ip_type in ("v4", "v6", "private_v6"):
+            service = {
+                "address": "fdaa::2",
+                "network": {"name": ""},
+                "region": "global",
+                "service_name": "svc1",
+                "type": ip_type,
+            }
+            module = FakeModule({"address": None, "app_name": "example", "region": "", "type": ip_type})
+
+            with (
+                self.subTest(type=ip_type),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[service]),
+                patch.object(ip_addresses, "graphql_request") as query,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                ip_addresses.ensure_absent(module, {})
+
+            query.assert_not_called()
+            self.assertEqual(raised.exception.values, {"changed": False, "message": "IP address already released"})
+
+    def test_app_address_without_service_is_matched(self):
+        for service_name in ("", None):
+            app_address = {
+                "address": "fdaa::1",
+                "network": {"name": ""},
+                "region": "global",
+                "service_name": service_name,
+                "type": "private_v6",
+            }
+            service = {**app_address, "address": "fdaa::2", "service_name": "svc1"}
+
+            with self.subTest(service_name=service_name):
+                self.assertEqual(
+                    ip_addresses.ips_by_type_and_region([service, app_address], "private_v6", ""),
+                    [app_address],
+                )
+
     def test_rejects_regional_private_address_before_lookup(self):
         for state in ("present", "absent"):
             module = FakeModule({"app_name": "example", "address": None, "region": "iad", "type": "private_v6"})
