@@ -23,7 +23,7 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
 
 # Each module's identifier options that must reject blank strings before any API call.
 NONEMPTY_OPTIONS = {
-    apps: ("name", "org_slug", "network"),
+    apps: ("name", "network"),
     apps_info: ("name",),
     machines: ("app_name", "id", "name"),
     machines_exec: ("app_name", "id", "container"),
@@ -35,6 +35,7 @@ NONEMPTY_OPTIONS = {
 }
 # Blank values these modules send to Fly.io instead of failing before the API client is created.
 PROVIDER_VALIDATED_OPTIONS = {
+    apps: ("org_slug",),
     apps_info: ("org_slug",),
     ip_addresses: ("app_name",),
     ip_addresses_info: ("app_name",),

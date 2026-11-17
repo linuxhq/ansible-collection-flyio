@@ -48,9 +48,9 @@ options:
       - Desired state of the secret.
 notes:
   - Running Machines do not pick up a changed secret on their own. Create or
-    update them, for example with a deploy, to load the new value. Creating or
-    updating a Machine after the change, for example with
-    M(linuxhq.flyio.machines), uses the app's current secrets version.
+    update them, for example with a deploy, to load the new value. A Machine
+    created or updated right after the change, for example with
+    M(linuxhq.flyio.machines), may not see the change yet.
 requirements:
   - python >= 3.9
 attributes:

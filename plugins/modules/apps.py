@@ -154,6 +154,10 @@ app:
       description: CNAME target for custom domains.
       returned: when available
       type: str
+    app_role:
+      description: App role, such as C(postgres_cluster).
+      returned: when available
+      type: str
 message:
   returned: always
   type: str
@@ -290,7 +294,7 @@ def main():
         supports_check_mode=True,
     )
 
-    require_nonempty(module, "name", "org_slug", "network")
+    require_nonempty(module, "name", "network")
 
     with flyio_client(module) as client:
         if module.params["state"] == "present":
