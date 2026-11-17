@@ -1,0 +1,9 @@
+---
+bugfixes:
+  - machines - accept a numeric check ``grace_period`` or ``timeout`` of ``0``,
+    which Fly.io accepts and stores as ``0s``, instead of failing with "must
+    be at least 1". A numeric ``interval`` must still be at least ``1``.
+  - machines - omit the Machine's inherited ``guest.max_memory_mb`` when the
+    requested ``guest.memory_mb`` exceeds it, so Fly.io applies its default
+    instead of rejecting every update with "invalid
+    config.guest.max_memory_mb, must be >= memory_mb".

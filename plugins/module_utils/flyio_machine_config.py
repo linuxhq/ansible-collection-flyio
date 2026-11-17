@@ -151,6 +151,12 @@ def merge_config(current, desired):
             if field not in requested:
                 merged.pop(field, None)
 
+    requested_memory = (desired.get("guest") or {}).get("memory_mb")
+    max_memory = (config.get("guest") or {}).get("max_memory_mb")
+    if requested_memory is not None and max_memory is not None and requested_memory > max_memory:
+        # Fly.io rejects a max_memory_mb below memory_mb; omit the inherited one so Fly.io applies its default.
+        config["guest"].pop("max_memory_mb")
+
     requested_restart = desired.get("restart") or {}
     current_policy = (current.get("restart") or {}).get("policy")
     if requested_restart.get("policy") not in (None, current_policy) and "max_retries" not in requested_restart:
