@@ -143,6 +143,17 @@ class MachinesTests(TestCase):
                     )
                 )
 
+        # Fly.io accepts a zero grace_period or timeout and stores it as "0s".
+        for requested_duration in (0, 0.5, "0s"):
+            for field in ("timeout", "grace_period"):
+                check = {"port": 8080, "type": "tcp"}
+                cases.append(
+                    (
+                        {"checks": {"health": {**check, field: requested_duration}}},
+                        {"checks": {"health": {**check, field: "0s"}}},
+                    )
+                )
+
         for requested, returned in cases:
             for operation in ("create", "update", "unchanged"):
                 with self.subTest(requested=requested, operation=operation):
@@ -404,14 +415,6 @@ class MachinesTests(TestCase):
             (
                 {"checks": {"health": {"interval": 0.5}}},
                 "checks.health.interval must be at least 1",
-            ),
-            (
-                {"checks": {"health": {"timeout": 0.5}}},
-                "checks.health.timeout must be at least 1",
-            ),
-            (
-                {"checks": {"health": {"grace_period": 0.5}}},
-                "checks.health.grace_period must be at least 1",
             ),
             (
                 {"checks": {"health": {"headers": {"X-Test": ["value"]}}}},
@@ -2747,6 +2750,25 @@ class MachinesTests(TestCase):
                 raised.exception.values["msg"],
                 "Spot Machine 'machine-one' in app 'example' must be running to be updated; start it first",
             )
+
+    def test_memory_above_inherited_max_memory_drops_max_memory(self):
+        current = {"guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 512}}
+        desired = {"guest": {"memory_mb": 1024}}
+
+        guest = machine_config.merge_config(current, desired)["guest"]
+
+        self.assertEqual(guest, {"cpu_kind": "shared", "cpus": 1, "memory_mb": 1024})
+
+    def test_memory_within_inherited_max_memory_keeps_max_memory(self):
+        current = {"guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 1024}}
+        for memory_mb in (512, 1024):
+            with self.subTest(memory_mb=memory_mb):
+                guest = machine_config.merge_config(current, {"guest": {"memory_mb": memory_mb}})["guest"]
+
+                self.assertEqual(guest["max_memory_mb"], 1024)
+                self.assertEqual(guest["memory_mb"], memory_mb)
+
+        self.assertEqual(machine_config.merge_config(current, {"guest": {"cpus": 2}})["guest"]["max_memory_mb"], 1024)
 
     def test_add_size_gb_replaces_percentage_extension(self):
         current = {
