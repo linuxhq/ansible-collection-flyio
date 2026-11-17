@@ -17,6 +17,8 @@ description:
   - The task fails and reports a change when the command ran but Fly.io
     could not return its output because the output exceeded the maximum
     response size.
+  - The task fails and reports a change when Fly.io reports that the command
+    exceeded O(timeout), because the command may have run.
   - Results include every field of the Fly.io exec response as Fly.io
     reports it. The documented fields default to C(0) or an empty string
     when Fly.io omits them.
@@ -60,6 +62,8 @@ options:
     description:
       - Command timeout in seconds.
       - Must be greater than zero.
+      - When the command exceeds the timeout, the task fails and reports a
+        change because the command may have run.
       - Fly.io accepts at most C(600).
 requirements:
   - python >= 3.9
@@ -162,6 +166,18 @@ def exec_command(module, client):
         )
     except FlyioApiError as exc:
         response = exc.response_body
+        if exc.status_code == 408:
+            # Fly.io started the command before the timeout expired.
+            module.fail_json(
+                msg=(
+                    f"Executing a command on Machine '{machine_id}' for app '{app_name}' timed out; "
+                    "the command may have run"
+                ),
+                changed=True,
+                status_code=exc.status_code,
+                response=response,
+            )
+
         if (
             exc.status_code != 413
             or not isinstance(response, dict)

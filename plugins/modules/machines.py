@@ -264,11 +264,13 @@ options:
                     type: dict
                     description:
                       - Response headers added by Fly Proxy.
-                      - Header names not listed keep their current values. Set a
-                        header to C(false) to remove it.
+                      - Header names not listed keep their current values. Once
+                        configured, a header name cannot be removed by this
+                        module.
                       - Header names must not be empty.
-                      - Values may be strings, lists of strings, or C(false) to
-                        remove a header.
+                      - Values may be strings, lists of strings, or C(false).
+                        Set a header to C(false) to make Fly Proxy strip that
+                        header from responses.
                       - Values are not treated as sensitive.
                   pristine:
                     type: bool

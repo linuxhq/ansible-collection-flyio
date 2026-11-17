@@ -15,9 +15,13 @@ None
     secrets_batch: 10
     secrets_delay: 3
     secrets_list: []
-    secrets_no_log: false
+    secrets_no_log: true
     secrets_poll: 0
     secrets_retries: 100
+
+`secrets_no_log` hides the role's task output, which includes the plaintext
+secret value of each loop item. Set it to `false` only to debug, because task
+output then shows the secret values.
 
 ## Dependencies
 

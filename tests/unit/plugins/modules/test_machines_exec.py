@@ -193,11 +193,30 @@ class MachinesExecTests(TestCase):
         self.assertEqual(raised.exception.values["response"], response)
         self.assertIn("Machine 'machine-one' for app 'example'", raised.exception.values["msg"])
 
+    def test_reports_change_when_command_times_out(self):
+        response = {
+            "error": 'deadline_exceeded: Post "http://unix/v1/exec": context deadline exceeded '
+            "(Client.Timeout exceeded while awaiting headers)"
+        }
+        error = FlyioApiError("POST failed", status_code=408, response_body=response)
+
+        with (
+            patch.object(machines_exec, "post_result", side_effect=error),
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            machines_exec.exec_command(module(), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["status_code"], 408)
+        self.assertEqual(raised.exception.values["response"], response)
+        self.assertIn("Machine 'machine-one' for app 'example' timed out", raised.exception.values["msg"])
+
     def test_reraises_other_api_errors(self):
         for status_code, response in (
             (413, {"error": "exec request rejected: payload too large", "status": "exec_request_too_large"}),
             (413, "output too large"),
             (412, {"error": "machine not running", "status": "exec_output_too_large"}),
+            (None, None),
         ):
             error = FlyioApiError("POST failed", status_code=status_code, response_body=response)
             with (

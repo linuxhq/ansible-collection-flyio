@@ -197,6 +197,9 @@ def get_ip_addresses(client, app_name, missing_ok=False):
                         type
                         region
                         created_at: createdAt
+                        network {
+                            name
+                        }
                     }
                 }
             }
