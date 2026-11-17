@@ -1,0 +1,19 @@
+---
+bugfixes:
+  - ip_addresses - match and release addresses by ``type`` only when they are
+    not assigned to a service, so an address allocated for a service is no
+    longer reported as the app's address or released in its place.
+  - ip_addresses, ip_addresses_info - return the ``service_name`` an address
+    is assigned to.
+  - machines - fail before any change, including in check mode, when ``env``,
+    ``metadata``, or ``services[].ports[].http_options.response.headers``
+    contains a null value, which was silently dropped and removed or kept the
+    key instead.
+  - machines_exec - include ``error`` in failures for timed-out commands,
+    output that is too large, and lost responses, like other API failures.
+trivial:
+  - machines - return the matching ``machine_ids`` when more than one live
+    Machine has the requested name, like volumes returns ``volume_ids``.
+  - volumes - say that only live volumes with the name in ``region`` make a
+    name lookup ambiguous.
+  - volumes - reuse the volume lookup when waiting for a volume.

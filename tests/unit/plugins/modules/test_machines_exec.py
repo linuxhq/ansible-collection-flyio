@@ -191,6 +191,7 @@ class MachinesExecTests(TestCase):
 
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["status_code"], 413)
+        self.assertEqual(raised.exception.values["error"], "POST failed")
         self.assertEqual(raised.exception.values["response"], response)
         self.assertIn("Machine 'machine-one' for app 'example'", raised.exception.values["msg"])
 
@@ -209,6 +210,7 @@ class MachinesExecTests(TestCase):
 
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["status_code"], 408)
+        self.assertEqual(raised.exception.values["error"], "POST failed")
         self.assertEqual(raised.exception.values["response"], response)
         self.assertIn("Machine 'machine-one' for app 'example' timed out", raised.exception.values["msg"])
 
@@ -227,6 +229,7 @@ class MachinesExecTests(TestCase):
             "Executing a command on Machine 'machine-one' for app 'example' lost its response "
             "(POST /apps/example/machines/machine-one/exec failed: timed out); the command may have run",
         )
+        self.assertEqual(raised.exception.values["error"], str(error))
 
     def test_reraises_other_api_errors(self):
         for status_code, response in (

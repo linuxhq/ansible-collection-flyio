@@ -86,6 +86,14 @@ ip_addresses:
             - Empty for the organization's default network.
           returned: when available
           type: str
+    service_name:
+      description:
+        - Name of the service the address is assigned to.
+        - Empty or null when the address belongs to the app rather than a
+          service.
+        - Absent for the shared IPv4 address.
+      returned: when available
+      type: str
 
 """
 

@@ -168,6 +168,7 @@ def exec_command(module, client):
                     "the command may have run"
                 ),
                 changed=True,
+                error=str(exc),
                 status_code=exc.status_code,
                 response=response,
             )
@@ -179,6 +180,7 @@ def exec_command(module, client):
                     f"({exc}); the command may have run"
                 ),
                 changed=True,
+                error=str(exc),
                 status_code=exc.status_code,
                 response=response,
             )
@@ -197,6 +199,7 @@ def exec_command(module, client):
                 "but Fly.io could not return output that exceeded its maximum response size"
             ),
             changed=True,
+            error=str(exc),
             status_code=exc.status_code,
             response=response,
         )

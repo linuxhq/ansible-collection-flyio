@@ -141,6 +141,17 @@ class FindVolumeTests(TestCase):
 
         self.assertEqual(result, created)
 
+    def test_name_lookup_matches_only_the_requested_region(self):
+        ams = {"id": "vol_ams", "name": "data", "region": "ams", "state": "created"}
+        ord_volume = {"id": "vol_ord", "name": "data", "region": "ord", "state": "created"}
+
+        with patch.object(volumes, "list_all", return_value=[ams, ord_volume]):
+            self.assertEqual(
+                volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord"),
+                ord_volume,
+            )
+            self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", name="data", region="iad"))
+
     def test_destroyed_id_is_absent(self):
         destroyed = {"id": "vol_old", "state": "destroyed"}
 

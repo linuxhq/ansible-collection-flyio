@@ -41,7 +41,8 @@ options:
       - Requires O(region).
       - Destroyed volumes are ignored, and so are volumes being deleted, except
         that O(state=absent) considers those when no live volume has this name.
-      - The task fails when more than one live volume has this name.
+      - The task fails when more than one live volume in O(region) has this
+        name.
       - Mutually exclusive with O(id).
   region:
     type: str

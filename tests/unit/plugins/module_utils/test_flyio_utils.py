@@ -355,6 +355,7 @@ class FlyioUtilsTests(TestCase):
             ],
         )
         self.assertIn("network {", query.call_args.args[1])
+        self.assertIn("service_name: serviceName", query.call_args.args[1])
 
     def test_graphql_returns_data_as_reported(self):
         with patch(f"{FLYIO_UTILS}.open_url") as open_url:

@@ -229,6 +229,7 @@ def get_ip_addresses(client, app_name, missing_ok=False):
                         network {
                             name
                         }
+                        service_name: serviceName
                     }
                 }
             }
@@ -427,11 +428,12 @@ def get_machine(client, app_name, machine_id):
     )
 
 
-def get_volume(client, app_name, volume_id):
+def get_volume(client, app_name, volume_id, ok_statuses=(404,), timeout=30):
     return get_resource(
         client,
         flyio_path("apps", app_name, "volumes", volume_id),
-        ok_statuses=[404],
+        ok_statuses=ok_statuses,
+        timeout=timeout,
         expected={"id": volume_id},
     )
 
@@ -455,13 +457,7 @@ def wait_for_volume(
     """Poll until the volume reaches one of states, fails, or enters one of stop_states."""
 
     def fetch(request_timeout):
-        return get_resource(
-            client,
-            flyio_path("apps", app_name, "volumes", volume_id),
-            ok_statuses=ok_statuses,
-            timeout=request_timeout,
-            expected={"id": volume_id},
-        )
+        return get_volume(client, app_name, volume_id, ok_statuses=ok_statuses, timeout=request_timeout)
 
     def done(volume):
         # A failed or stopping volume will not reach the target, so stop waiting and let the caller report it.
