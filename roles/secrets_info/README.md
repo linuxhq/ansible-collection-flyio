@@ -13,13 +13,6 @@ None
     secrets_info_api_token: null
     secrets_info_app_name: null
 
-| Variable | Purpose |
-| --- | --- |
-| `secrets_info_api_token` | Fly.io API token. |
-| `secrets_info_app_name` | App whose secret names and digests to list. |
-
-When `secrets_info_api_token` or `secrets_info_app_name` is `null`, the role skips the query and publishes empty facts.
-
 ## Dependencies
 
 None

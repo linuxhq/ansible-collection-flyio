@@ -19,5 +19,3 @@ trivial:
     Machine unchanged and discards a suspended Machine's snapshot.
   - ip_addresses, ip_addresses_info - say that an empty network name means
     the organization's default network.
-  - roles - document each role variable, the list item keys, and when items
-    are skipped.

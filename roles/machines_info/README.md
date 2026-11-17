@@ -13,13 +13,6 @@ None
     machines_info_api_token: null
     machines_info_app_name: null
 
-| Variable | Purpose |
-| --- | --- |
-| `machines_info_api_token` | Fly.io API token. |
-| `machines_info_app_name` | App whose Machines to list. |
-
-When `machines_info_api_token` or `machines_info_app_name` is `null`, the role skips the query and publishes empty facts.
-
 ## Dependencies
 
 None
