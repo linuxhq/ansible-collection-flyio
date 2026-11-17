@@ -28,6 +28,7 @@ options:
     type: str
     description:
       - Organization slug.
+      - Returns an empty list when the organization does not exist.
       - Either O(name) or O(org_slug) is required.
       - Mutually exclusive with O(name).
 requirements:
@@ -57,7 +58,9 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 apps:
-  description: List of Fly.io apps.
+  description:
+    - List of Fly.io apps.
+    - Empty when O(org_slug) names an organization that does not exist.
   returned: always
   type: list
   elements: dict
@@ -127,10 +130,10 @@ from urllib.parse import urlencode
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
-    api_request,
     api_token_option,
     flyio_client,
     get_app,
+    get_resource,
     require_nonempty,
 )
 
@@ -138,7 +141,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
 def list_resources(module, client):
     org_slug = module.params["org_slug"]
     # Without a limit, Fly.io returns every app in one response.
-    result = api_request(client, "get", f"/apps?{urlencode({'org_slug': org_slug})}")
+    result = get_resource(client, f"/apps?{urlencode({'org_slug': org_slug})}", ok_statuses=[404]) or {}
     module.exit_json(changed=False, apps=result.get("apps") or [])
 
 

@@ -449,7 +449,7 @@ options:
       max_retries:
         type: int
         description:
-          - Maximum restart attempts (only for C(on-failure) policy).
+          - Maximum restart attempts.
           - Must be at least C(1). Fly.io replaces C(0) and negative values
             with its default.
   metadata:
@@ -1001,12 +1001,7 @@ def validate_config(module, config):
     validate_services(module, config.get("services") or [])
 
 
-def validate_complete_config(
-    module,
-    config,
-    existing_checks=(),
-    requested_restart=None,
-):
+def validate_complete_config(module, config, existing_checks=()):
     for name, check in config.get("checks", {}).items():
         if name in existing_checks:
             continue
@@ -1016,15 +1011,8 @@ def validate_complete_config(
             module.fail_json(msg=f"check '{name}' requires {' and '.join(sorted(missing))}")
 
     restart = config.get("restart")
-    if restart is not None:
-        if requested_restart is None:
-            requested_restart = restart
-
-        if "policy" not in restart:
-            module.fail_json(msg="restart.policy is required")
-
-        if "max_retries" in requested_restart and restart["policy"] != "on-failure":
-            module.fail_json(msg="restart.max_retries is valid only with policy=on-failure")
+    if restart is not None and "policy" not in restart:
+        module.fail_json(msg="restart.policy is required")
 
 
 def validate_waited_machine(module, machine_id, current, expected_state):
@@ -1254,7 +1242,6 @@ def update_machine(module, client, current, desired_config, deadline):
         module,
         {field: config[field] for field in ("checks", "restart") if field in desired_config},
         existing_checks,
-        requested_restart=desired_config.get("restart"),
     )
 
     if not machine_config_changed(current_config, desired_config):

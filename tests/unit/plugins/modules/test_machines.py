@@ -695,26 +695,52 @@ class MachinesTests(TestCase):
         self.assertEqual(post.call_args.args[2]["config"]["services"], [{"internal_port": 8080}])
         self.assertTrue(raised.exception.values["changed"])
 
-    def test_create_rejects_invalid_restart_policy_configuration(self):
-        for restart, message in (
-            ({"max_retries": 1}, "restart.policy is required"),
-            (
-                {"max_retries": 1, "policy": "always"},
-                "restart.max_retries is valid only with policy=on-failure",
-            ),
+    def test_create_requires_restart_policy(self):
+        # Fly.io stores a policy-less restart as on-failure with its default retries, which never converges.
+        module = FakeModule(params(restart={"max_retries": 1}))
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
         ):
-            module = FakeModule(params(restart=restart))
+            machines.ensure_present(module, {})
 
-            with (
-                self.subTest(restart=restart),
-                patch.object(machines, "find_machine", return_value=None),
-                patch.object(machines, "post_result") as post,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(module, {})
+        post.assert_not_called()
+        self.assertEqual(raised.exception.values["msg"], "restart.policy is required")
 
-            post.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], message)
+    def test_create_sends_restart_retries_with_always_policy(self):
+        # Fly.io accepts and stores max_retries with policy=always.
+        restart = {"max_retries": 3, "policy": "always"}
+        created = {
+            "config": {"image": "example:latest", "restart": restart},
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "created",
+        }
+        module = FakeModule(params(restart=restart, wait=False))
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        self.assertEqual(post.call_args.args[2]["config"]["restart"], restart)
+        self.assertTrue(raised.exception.values["changed"])
+
+        module = FakeModule(params(restart=restart, wait=False))
+        with (
+            patch.object(machines, "find_machine", return_value=created),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(module, {})
+
+        post.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
 
     def test_update_sends_unmatched_service_without_protocol(self):
         current = {
@@ -1247,6 +1273,15 @@ class MachinesTests(TestCase):
                 {"restart": {"policy": "always"}},
             ),
             {"restart": {"policy": "always"}},
+        )
+
+    def test_changing_restart_policy_keeps_requested_max_retries(self):
+        self.assertEqual(
+            machine_config.merge_config(
+                {"restart": {"max_retries": 10, "policy": "on-failure"}},
+                {"restart": {"max_retries": 3, "policy": "always"}},
+            ),
+            {"restart": {"max_retries": 3, "policy": "always"}},
         )
 
     def test_existing_nested_service_data_is_not_validated(self):
@@ -2605,18 +2640,26 @@ class MachinesTests(TestCase):
         find.assert_not_called()
         self.assertEqual(raised.exception.values["msg"], "restart.max_retries must be at least 1")
 
-    def test_restart_retries_rejected_for_other_policy_without_current_restart(self):
-        current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "started"}
-        module = FakeModule(params(restart={"policy": "always", "max_retries": 3}, wait=False), check_mode=True)
+    def test_update_sends_restart_retries_with_always_policy(self):
+        restart = {"max_retries": 3, "policy": "always"}
+        for current_restart in (None, {"max_retries": 10, "policy": "on-failure"}):
+            current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "started"}
+            if current_restart is not None:
+                current["config"]["restart"] = current_restart
 
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
+            updated = {**current, "config": {"image": "example:latest", "restart": restart}}
+            module = FakeModule(params(restart=restart, wait=False))
 
-        self.assertEqual(raised.exception.values["msg"], "restart.max_retries is valid only with policy=on-failure")
-        self.assertEqual(module.params["restart"], {"policy": "always", "max_retries": 3})
+            with (
+                self.subTest(current_restart=current_restart),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result", return_value=updated) as post,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                machines.ensure_present(module, {})
+
+            self.assertEqual(post.call_args.args[2]["config"]["restart"], restart)
+            self.assertTrue(raised.exception.values["changed"])
 
     def test_machine_archived_after_wait_is_rejected(self):
         current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "pending"}

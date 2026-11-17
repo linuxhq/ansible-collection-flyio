@@ -152,7 +152,7 @@ def merge_config(current, desired):
                 merged.pop(field, None)
 
     requested_restart = desired.get("restart") or {}
-    if requested_restart.get("policy") not in (None, "on-failure"):
+    if requested_restart.get("policy") not in (None, "on-failure") and "max_retries" not in requested_restart:
         config["restart"].pop("max_retries", None)
 
     for field in PURGE_CONFIG_FIELDS:

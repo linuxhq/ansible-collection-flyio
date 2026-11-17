@@ -1,8 +1,11 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
+from io import BytesIO
 from unittest import TestCase
 from unittest.mock import patch
+from urllib.error import HTTPError
 
+from ansible_collections.linuxhq.flyio.plugins.module_utils import flyio_utils
 from ansible_collections.linuxhq.flyio.plugins.modules import apps_info
 from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     FakeModule,
@@ -41,12 +44,12 @@ class AppsInfoTests(TestCase):
         module = FakeModule({"org_slug": "linux&hq"})
 
         with (
-            patch.object(apps_info, "api_request", return_value={"apps": listed}) as get,
+            patch.object(apps_info, "get_resource", return_value={"apps": listed}) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             apps_info.list_resources(module, {})
 
-        get.assert_called_once_with({}, "get", "/apps?org_slug=linux%26hq")
+        get.assert_called_once_with({}, "/apps?org_slug=linux%26hq", ok_statuses=[404])
         self.assertEqual(raised.exception.values["apps"], listed)
 
     def test_lists_apps_in_one_request(self):
@@ -55,12 +58,12 @@ class AppsInfoTests(TestCase):
         response = {"apps": listed, "next_cursor": "ignored", "total_apps": 2}
 
         with (
-            patch.object(apps_info, "api_request", return_value=response) as get,
+            patch.object(apps_info, "get_resource", return_value=response) as get,
             self.assertRaises(ModuleExit) as raised,
         ):
             apps_info.list_resources(module, {})
 
-        get.assert_called_once_with({}, "get", "/apps?org_slug=linuxhq")
+        get.assert_called_once_with({}, "/apps?org_slug=linuxhq", ok_statuses=[404])
         self.assertEqual(raised.exception.values["apps"], listed)
 
     def test_returns_listed_apps_as_reported(self):
@@ -69,9 +72,29 @@ class AppsInfoTests(TestCase):
         for response, expected in (({}, []), ({"apps": None}, []), ({"apps": [{"name": " "}]}, [{"name": " "}])):
             with (
                 self.subTest(response=response),
-                patch.object(apps_info, "api_request", return_value=response),
+                patch.object(apps_info, "get_resource", return_value=response),
                 self.assertRaises(ModuleExit) as raised,
             ):
                 apps_info.list_resources(module, {})
 
             self.assertEqual(raised.exception.values["apps"], expected)
+
+    def test_missing_org_returns_no_apps(self):
+        # Fly.io answers 404 "organization not found" for an unknown org_slug.
+        error = HTTPError(
+            "https://api.machines.dev/v1/apps?org_slug=missing",
+            404,
+            "Not Found",
+            {},
+            BytesIO(b'{"error":"organization not found"}'),
+        )
+        module = FakeModule({"org_slug": "missing"})
+
+        with (
+            patch.object(flyio_utils, "open_url", side_effect=error),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            apps_info.list_resources(module, {"headers": {}})
+
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["apps"], [])
