@@ -1,0 +1,6 @@
+---
+bugfixes:
+  - machines - keep the current ``restart.max_retries`` on an update that
+    requests the current ``restart.policy`` without ``max_retries``, instead
+    of removing it. A policy change without a requested ``max_retries`` still
+    drops the stale value.
