@@ -1306,6 +1306,15 @@ class MachinesTests(TestCase):
             {"restart": {"max_retries": 3, "policy": "always"}},
         )
 
+    def test_unchanged_restart_policy_keeps_current_max_retries(self):
+        self.assertEqual(
+            machine_config.merge_config(
+                {"env": {"MODE": "old"}, "restart": {"max_retries": 5, "policy": "always"}},
+                {"env": {"MODE": "new"}, "restart": {"policy": "always"}},
+            ),
+            {"env": {"MODE": "new"}, "restart": {"max_retries": 5, "policy": "always"}},
+        )
+
     def test_existing_nested_service_data_is_not_validated(self):
         current = {
             "config": {
