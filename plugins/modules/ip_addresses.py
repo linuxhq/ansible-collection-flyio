@@ -34,6 +34,9 @@ options:
       - When O(state=absent), O(type) and O(region) select the address to
         release; the task fails if more than one address matches, so use
         O(address) instead.
+      - When O(type=private_v6), only private addresses on the app's default
+        network are matched and allocated. Private addresses on other
+        networks are ignored; use O(address) to release one.
       - Mutually exclusive with O(address).
   region:
     type: str
@@ -159,6 +162,19 @@ ip_address:
         - Absent for the shared IPv4 address.
       returned: when available
       type: str
+    network:
+      description:
+        - Network the address belongs to.
+        - Absent for the shared IPv4 address.
+      returned: when available
+      type: dict
+      contains:
+        name:
+          description:
+            - Network name.
+            - Empty for the app's default network.
+          returned: when available
+          type: str
 message:
   returned: always
   type: str
@@ -196,12 +212,18 @@ def validate_region(module, ip_type, region):
         module.fail_json(msg=f"region must be global for type={ip_type}")
 
 
+def on_default_network(addr):
+    # Fly.io reports an empty network name for the app's default network.
+    return not (addr.get("network") or {}).get("name")
+
+
 def ips_by_type_and_region(addresses, ip_type, region):
     return [
         addr
         for addr in addresses
         if addr.get("type") == ip_type
         and (ip_type in GLOBAL_TYPES or normalize_region(addr.get("region")) == normalize_region(region))
+        and (ip_type != "private_v6" or on_default_network(addr))
     ]
 
 
@@ -247,6 +269,9 @@ def ensure_present(module, client):
                     type
                     region
                     created_at: createdAt
+                    network {
+                        name
+                    }
                 }
             }
         }

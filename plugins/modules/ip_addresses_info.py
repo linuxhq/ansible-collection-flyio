@@ -73,6 +73,19 @@ ip_addresses:
         - Absent for the shared IPv4 address.
       returned: when available
       type: str
+    network:
+      description:
+        - Network the address belongs to.
+        - Absent for the shared IPv4 address.
+      returned: when available
+      type: dict
+      contains:
+        name:
+          description:
+            - Network name.
+            - Empty for the app's default network.
+          returned: when available
+          type: str
 
 """
 

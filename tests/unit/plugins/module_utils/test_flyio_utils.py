@@ -336,12 +336,13 @@ class FlyioUtilsTests(TestCase):
                                 "type": "v6",
                             },
                             {"address": "2001:db8::2", "id": "", "type": "private_v6"},
+                            {"address": "fdaa::2", "network": {"name": "custom-net"}, "type": "private_v6"},
                         ]
                     },
                     "sharedIpAddress": None,
                 }
             },
-        ):
+        ) as query:
             addresses = get_ip_addresses({}, "example")
 
         self.assertEqual(
@@ -350,8 +351,10 @@ class FlyioUtilsTests(TestCase):
                 {"address": "1.2.3.4", "created_at": None, "id": None, "region": None, "type": "v4"},
                 {"address": "2001:db8::1", "region": "global", "type": "v6"},
                 {"address": "2001:db8::2", "id": "", "type": "private_v6"},
+                {"address": "fdaa::2", "network": {"name": "custom-net"}, "type": "private_v6"},
             ],
         )
+        self.assertIn("network {", query.call_args.args[1])
 
     def test_graphql_returns_data_as_reported(self):
         with patch(f"{FLYIO_UTILS}.open_url") as open_url:

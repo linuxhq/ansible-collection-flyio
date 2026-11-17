@@ -121,6 +121,79 @@ class IpAddressesTests(TestCase):
         self.assertFalse(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["ip_address"], current)
 
+    def test_private_address_on_custom_network_is_not_the_default_address(self):
+        custom = {"address": "fdaa::2", "network": {"name": "custom-net"}, "region": "global", "type": "private_v6"}
+        response = {
+            "allocateIpAddress": {
+                "ipAddress": {"address": "fdaa::1", "network": {"name": ""}, "region": "global", "type": "private_v6"}
+            }
+        }
+        module = FakeModule({"app_name": "example", "region": "", "type": "private_v6"})
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[custom]),
+            patch.object(ip_addresses, "graphql_request", return_value=response) as query,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_present(module, {})
+
+        self.assertEqual(query.call_args.args[2], {"input": {"appId": "example", "type": "private_v6"}})
+        self.assertIn("network {", query.call_args.args[1])
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["ip_address"], response["allocateIpAddress"]["ipAddress"])
+
+    def test_private_address_on_custom_network_is_not_released_by_type(self):
+        custom = {"address": "fdaa::2", "network": {"name": "custom-net"}, "region": "global", "type": "private_v6"}
+        module = FakeModule({"address": None, "app_name": "example", "region": "", "type": "private_v6"})
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[custom]),
+            patch.object(ip_addresses, "graphql_request") as query,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_absent(module, {})
+
+        query.assert_not_called()
+        self.assertEqual(raised.exception.values, {"changed": False, "message": "IP address already released"})
+
+    def test_private_address_on_default_network_is_released_by_type(self):
+        for network in ({"name": ""}, {"name": None}, None):
+            default = {"address": "fdaa::1", "network": network, "region": "global", "type": "private_v6"}
+            custom = {"address": "fdaa::2", "network": {"name": "custom-net"}, "region": "global", "type": "private_v6"}
+            module = FakeModule({"address": None, "app_name": "example", "region": "", "type": "private_v6"})
+
+            with (
+                self.subTest(network=network),
+                patch.object(ip_addresses, "get_ip_addresses", return_value=[custom, default]),
+                patch.object(
+                    ip_addresses,
+                    "graphql_request",
+                    return_value={"releaseIpAddress": {"clientMutationId": None}},
+                ) as query,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                ip_addresses.ensure_absent(module, {})
+
+            self.assertEqual(query.call_args.args[2], {"input": {"appId": "example", "ip": "fdaa::1"}})
+            self.assertTrue(raised.exception.values["changed"])
+            self.assertEqual(raised.exception.values["ip_address"], default)
+
+    def test_existing_private_address_on_default_network_is_unchanged(self):
+        default = {"address": "fdaa::1", "network": {"name": ""}, "region": "global", "type": "private_v6"}
+        custom = {"address": "fdaa::2", "network": {"name": "custom-net"}, "region": "global", "type": "private_v6"}
+        module = FakeModule({"app_name": "example", "region": "", "type": "private_v6"})
+
+        with (
+            patch.object(ip_addresses, "get_ip_addresses", return_value=[custom, default]),
+            patch.object(ip_addresses, "graphql_request") as query,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            ip_addresses.ensure_present(module, {})
+
+        query.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["ip_address"], default)
+
     def test_rejects_regional_private_address_before_lookup(self):
         for state in ("present", "absent"):
             module = FakeModule({"app_name": "example", "address": None, "region": "iad", "type": "private_v6"})

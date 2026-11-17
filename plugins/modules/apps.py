@@ -41,7 +41,9 @@ options:
   force:
     type: bool
     description:
-      - Ignored. The Fly.io Machines API does not support a force option when deleting an app.
+      - Ignored and not sent to Fly.io.
+      - Fly.io deletes an app that has running Machines without a force
+        option.
       - This option will be removed in version 2.0.0 of linuxhq.flyio.
   delete_timeout:
     type: int
