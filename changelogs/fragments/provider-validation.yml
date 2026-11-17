@@ -14,7 +14,9 @@ minor_changes:
     single-mount limit, the service protocol, enum and type checks for checks,
     services, autostop, environment and metadata values, response headers, and
     port upper bounds and ranges to Fly.io, which rejects them on the only write.
-    A service may now omit ``protocol``; Fly.io uses ``tcp``.
+    A service may now omit ``protocol``; Fly.io uses ``tcp``. A null
+    ``env``, ``metadata``, or response header value still fails before any
+    change.
   - machines - send a negative ``services[].min_machines_running``,
     ``services[].concurrency.hard_limit``,
     ``mounts[].extend_threshold_percent``, ``mounts[].add_size_gb``, or
