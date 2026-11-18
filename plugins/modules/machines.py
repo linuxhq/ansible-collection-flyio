@@ -111,7 +111,7 @@ options:
       memory_mb:
         type: int
         description:
-          - Memory allocation in megabytes.
+          - Memory allocation in MiB.
           - Must be greater than zero.
           - Fly.io requires a multiple of C(256) for shared CPUs and C(1024)
             for performance CPUs.
@@ -119,8 +119,8 @@ options:
         type: int
         version_added: '1.2.0'
         description:
-          - Memory in megabytes that the Machine's memory limit can later be
-            raised to without a restart.
+          - Memory in MiB that the Machine's memory limit can later be raised
+            to without a restart.
           - Sent as given; Fly.io requires at least O(guest.memory_mb) and at
             most the per-CPU maximum.
           - Set C(0) to remove the current value; Fly.io then applies its

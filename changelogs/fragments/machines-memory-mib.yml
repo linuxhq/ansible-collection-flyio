@@ -1,0 +1,4 @@
+---
+trivial:
+  - machines - document ``guest.memory_mb`` and ``guest.max_memory_mb`` in MiB,
+    matching the Fly.io Machines API.
