@@ -1,0 +1,11 @@
+---
+minor_changes:
+  - machines - add the ``guest.max_memory_mb`` option, the memory in MiB that
+    a Machine's memory limit can later be raised to without a restart. It is
+    sent as given, and Fly.io checks it against ``guest.memory_mb`` and the
+    per-CPU maximum. ``0`` removes the current value. When it is not set, the
+    current value is kept unless the requested ``guest.memory_mb`` exceeds it,
+    in which case it is omitted and Fly.io applies its default.
+trivial:
+  - machines - state that ``restart.max_retries`` falls back to Fly.io's
+    default when ``restart.policy`` changes and ``max_retries`` is not set.

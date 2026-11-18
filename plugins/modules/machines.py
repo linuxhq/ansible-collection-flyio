@@ -115,6 +115,19 @@ options:
           - Must be greater than zero.
           - Fly.io requires a multiple of C(256) for shared CPUs and C(1024)
             for performance CPUs.
+      max_memory_mb:
+        type: int
+        version_added: '1.2.0'
+        description:
+          - Memory in megabytes that the Machine's memory limit can later be
+            raised to without a restart.
+          - Sent as given; Fly.io requires at least O(guest.memory_mb) and at
+            most the per-CPU maximum.
+          - Set C(0) to remove the current value; Fly.io then applies its
+            default.
+          - When not specified, the current value is kept unless the requested
+            O(guest.memory_mb) exceeds it, in which case it is omitted and
+            Fly.io applies its default.
       kernel_args:
         type: list
         elements: str
@@ -454,6 +467,9 @@ options:
           - Maximum restart attempts.
           - Must be at least C(1). Fly.io replaces C(0) and negative values
             with its default.
+          - When not specified, the current value is kept unless
+            O(restart.policy) changes, in which case it is omitted and Fly.io
+            applies its default.
   metadata:
     type: dict
     description:
@@ -568,6 +584,17 @@ EXAMPLES = r"""
             handlers:
               - tls
               - http
+    state: present
+
+- name: Allow raising memory without a restart
+  linuxhq.flyio.machines:
+    api_token: "{{ flyio_api_token }}"
+    app_name: my-app
+    name: web
+    image: registry.fly.io/my-app:latest
+    guest:
+      memory_mb: 256
+      max_memory_mb: 1024
     state: present
 
 - name: Deploy with health checks
@@ -1552,6 +1579,7 @@ def main():
                     "host_dedication_id": {"type": "str"},
                     "cpus": {"type": "int"},
                     "memory_mb": {"type": "int"},
+                    "max_memory_mb": {"type": "int"},
                     "kernel_args": {"type": "list", "elements": "str"},
                     "persist_rootfs": {
                         "type": "str",

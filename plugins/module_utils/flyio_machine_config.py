@@ -151,9 +151,15 @@ def merge_config(current, desired):
             if field not in requested:
                 merged.pop(field, None)
 
-    requested_memory = (desired.get("guest") or {}).get("memory_mb")
+    requested_guest = desired.get("guest") or {}
+    requested_memory = requested_guest.get("memory_mb")
     max_memory = (config.get("guest") or {}).get("max_memory_mb")
-    if requested_memory is not None and max_memory is not None and requested_memory > max_memory:
+    if (
+        "max_memory_mb" not in requested_guest
+        and requested_memory is not None
+        and max_memory is not None
+        and requested_memory > max_memory
+    ):
         # Fly.io rejects a max_memory_mb below memory_mb; omit the inherited one so Fly.io applies its default.
         config["guest"].pop("max_memory_mb")
 
@@ -322,7 +328,8 @@ def normalize_config_comparison(config, requested):
     normalize_requested_defaults(
         config.get("guest"),
         requested.get("guest"),
-        {"kernel_args": []},
+        # Fly.io accepts a max_memory_mb of 0 and omits it, as it does when unset.
+        {"kernel_args": [], "max_memory_mb": 0},
     )
     if requested.get("mounts"):
         normalize_requested_defaults(
