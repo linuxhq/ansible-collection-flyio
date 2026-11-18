@@ -1,5 +1,0 @@
----
-bugfixes:
-  - machines - accept line breaks in ``files[].raw_value``, such as wrapped
-    ``base64`` or ``openssl base64`` output, because Fly.io ignores them and
-    stores the value as given.

@@ -1,5 +1,0 @@
----
-bugfixes:
-  - machines - drop the current ``restart.max_retries`` when ``restart.policy``
-    changes to ``on-failure`` without a requested ``max_retries``, as for any
-    other policy change, instead of keeping the old policy's retry limit.

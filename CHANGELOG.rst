@@ -4,6 +4,58 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.2.0
+======
+
+Minor Changes
+-------------
+
+- all modules - accept a bare ``Bearer`` or ``FlyV1`` ``api_token`` and let Fly.io reject it, instead of failing before the request.
+- apps - send a blank ``org_slug`` to Fly.io when creating an app instead of failing before the request, and fail on an existing app as a mismatched organization.
+- apps_info - send a blank ``org_slug`` to Fly.io instead of failing before the request.
+- ip_addresses - fail on a blank ``address`` as an invalid address instead of an empty one.
+- ip_addresses - ignore ``region`` when ``address`` is set, and treat a whitespace-only ``region`` as global, instead of failing before the lookup.
+- ip_addresses, ip_addresses_info - send a blank ``app_name`` to Fly.io instead of failing before the request.
+- machines - accept a float check ``interval``, ``timeout``, or ``grace_period`` and compare it as whole nanoseconds, as Fly.io stores it, instead of failing before the request with "must be an integer or duration string". A numeric ``interval`` below ``1`` still fails before any change, including in check mode.
+- machines - add the ``guest.max_memory_mb`` option, the memory in MiB that a Machine's memory limit can later be raised to without a restart. It is sent as given, and Fly.io checks it against ``guest.memory_mb`` and the per-CPU maximum. ``0`` removes the current value. When it is not set, the current value is kept unless the requested ``guest.memory_mb`` exceeds it, in which case it is omitted and Fly.io applies its default.
+- machines - leave guest memory and CPU rules, mount extension ranges, the single-mount limit, the service protocol, enum and type checks for checks, services, autostop, environment and metadata values, response headers, and port upper bounds and ranges to Fly.io, which rejects them on the only write. A service may now omit ``protocol``; Fly.io uses ``tcp``. A null ``env``, ``metadata``, or response header value still fails before any change.
+- machines - send a negative ``services[].min_machines_running``, ``services[].concurrency.hard_limit``, ``mounts[].extend_threshold_percent``, ``mounts[].add_size_gb``, or ``mounts[].size_gb_limit`` to Fly.io instead of failing before the request.
+- machines_exec - send an empty ``command`` and a ``timeout`` above 600 to Fly.io instead of failing before the request.
+- volumes - send a non-positive ``size_gb`` when creating a volume, and a blank ``name``, to Fly.io instead of failing before the request.
+
+Breaking Changes / Porting Guide
+--------------------------------
+
+- secrets role - default ``secrets_no_log`` to ``true``, because each loop item carries the plaintext secret value and Ansible shows it in task output, such as with ``-v``. Set ``secrets_no_log`` to ``false`` to keep the previous visible output.
+
+Bugfixes
+--------
+
+- apps - report ``changed=true`` when the app was created or deleted but a later read or the deletion wait failed.
+- apps, apps_info, machines, machines_exec, machines_info, secrets, secrets_info, volumes, volumes_info - include the reason Fly.io returns with an HTTP error in the failure message.
+- apps, ip_addresses, machines, machines_exec, secrets, volumes - report ``changed=true`` when a write reached Fly.io but its response was lost, for example to a read timeout or a dropped connection, because the write may have been applied. machines_exec says that the command may have run.
+- apps_info - return an empty ``apps`` list when ``org_slug`` names an organization that does not exist, like the other info modules do for a missing parent, instead of failing with HTTP 404.
+- apps_info, ip_addresses, ip_addresses_info, machines, machines_info, secrets, secrets_info, volumes, volumes_info - read and return resources as Fly.io reports them instead of failing on fields the module does not use.
+- ip_addresses - match ``type=private_v6`` only against the organization's default network, so ``state=absent`` no longer releases, and ``state=present`` no longer reuses, a private address on a custom network.
+- ip_addresses - match and release addresses by ``type`` only when they are not assigned to a service, so an address allocated for a service is no longer reported as the app's address or released in its place.
+- ip_addresses - report a change after a successful release whatever the mutation payload.
+- ip_addresses - report a change, and return the address as Fly.io reports it, after a successful allocation; fail with ``changed=true`` only when Fly.io returns no address.
+- ip_addresses, ip_addresses_info - return the ``network`` of each address.
+- ip_addresses, ip_addresses_info - return the ``service_name`` an address is assigned to.
+- machines - accept a numeric check ``grace_period`` or ``timeout`` below ``1``, such as ``0``, which Fly.io accepts and stores, instead of failing before the request. A numeric ``interval`` must still be at least ``1``.
+- machines - accept and send ``restart.max_retries`` with any ``restart.policy``, as Fly.io does, instead of failing unless the policy is ``on-failure``.
+- machines - accept line breaks in ``files[].raw_value``, such as wrapped ``base64`` or ``openssl base64`` output, because Fly.io ignores them and stores the value as given.
+- machines - drop the current ``restart.max_retries`` when ``restart.policy`` changes to ``on-failure`` without a requested ``max_retries``, as for any other policy change, instead of keeping the old policy's retry limit.
+- machines - keep the current ``restart.max_retries`` on an update that requests the current ``restart.policy`` without ``max_retries``, instead of removing it. A policy change without a requested ``max_retries`` still drops the stale value.
+- machines - omit the Machine's inherited ``guest.max_memory_mb`` when the requested ``guest.memory_mb`` exceeds it, so Fly.io applies its default instead of rejecting every update with "invalid config.guest.max_memory_mb, must be >= memory_mb".
+- machines - report ``changed=true`` when a Machine was created, updated, started, stopped, or destroyed but a later wait, read, or verification failed.
+- machines - require ``restart.max_retries`` to be at least ``1`` before any change, including in check mode, because Fly.io stores ``0`` as its default of ``3`` and the task could never converge.
+- machines - return the create and update responses as Fly.io reports them instead of failing on fields the module does not use.
+- machines_exec - fail with ``changed=true`` when Fly.io reports that the command exceeded ``timeout`` (HTTP 408), because the command may have run.
+- machines_exec - include ``error`` in the failure for output that is too large, like other API failures.
+- machines_exec - report ``changed=true`` when the command ran but Fly.io returned a response that is not an object, and return output fields as Fly.io reports them.
+- volumes - report ``changed=true`` when a volume was created, extended, or deleted but a later wait failed, and return the create, extend, and delete responses as Fly.io reports them.
+
 v1.1.5
 ======
 

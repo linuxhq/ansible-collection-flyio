@@ -1,7 +1,0 @@
----
-minor_changes:
-  - machines - accept a float check ``interval``, ``timeout``, or
-    ``grace_period`` and compare it as whole nanoseconds, as Fly.io stores it,
-    instead of failing before the request with "must be an integer or
-    duration string". A numeric ``interval`` below ``1`` still fails before
-    any change, including in check mode.
