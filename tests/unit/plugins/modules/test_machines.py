@@ -2770,6 +2770,90 @@ class MachinesTests(TestCase):
 
         self.assertEqual(machine_config.merge_config(current, {"guest": {"cpus": 2}})["guest"]["max_memory_mb"], 1024)
 
+    def test_create_sends_max_memory(self):
+        guest = {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 512}
+        created = {
+            "config": {"guest": guest, "image": "example:latest"},
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "created",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=None),
+            patch.object(machines, "post_result", return_value=created) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(guest=guest, wait=False)), {})
+
+        self.assertEqual(post.call_args.args[2]["config"]["guest"], guest)
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_update_sends_max_memory(self):
+        current = {
+            "config": {
+                "guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 512},
+                "image": "example:latest",
+            },
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+        guest = {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 1024}
+        updated = {**current, "config": {"guest": guest, "image": "example:latest"}}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=updated) as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(guest={"max_memory_mb": 1024}, wait=False)), {})
+
+        self.assertEqual(post.call_args.args[2]["config"]["guest"], guest)
+        self.assertTrue(raised.exception.values["changed"])
+
+    def test_unchanged_max_memory_is_unchanged(self):
+        guest = {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 512}
+        current = {
+            "config": {"guest": guest, "image": "example:latest"},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "started",
+        }
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result") as post,
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(guest=guest, wait=False)), {})
+
+        post.assert_not_called()
+        self.assertFalse(raised.exception.values["changed"])
+
+    def test_requested_max_memory_below_requested_memory_is_sent(self):
+        # Fly.io rejects a max_memory_mb below memory_mb; the request is sent as given.
+        current = {"guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 512}}
+        desired = {"guest": {"memory_mb": 1024, "max_memory_mb": 512}}
+
+        guest = machine_config.merge_config(current, desired)["guest"]
+
+        self.assertEqual(guest, {"cpu_kind": "shared", "cpus": 1, "memory_mb": 1024, "max_memory_mb": 512})
+
+    def test_zero_max_memory_matches_omitted_max_memory(self):
+        # Fly.io accepts a max_memory_mb of 0 and omits it from the stored config.
+        desired = {"guest": {"memory_mb": 256, "max_memory_mb": 0}, "image": "example:latest"}
+        for current_guest, changed in (
+            ({"memory_mb": 256}, False),
+            ({"memory_mb": 256, "max_memory_mb": 512}, True),
+        ):
+            with self.subTest(current_guest=current_guest):
+                current = {"guest": current_guest, "image": "example:latest"}
+
+                self.assertEqual(machine_config.machine_config_changed(current, desired), changed)
+                self.assertEqual(machine_config.merge_config(current, desired)["guest"]["max_memory_mb"], 0)
+
     def test_add_size_gb_replaces_percentage_extension(self):
         current = {
             "mounts": [
