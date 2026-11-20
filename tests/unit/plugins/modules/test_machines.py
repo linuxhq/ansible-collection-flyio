@@ -409,14 +409,6 @@ class MachinesTests(TestCase):
                 "checks.health.port must be at least 1",
             ),
             (
-                {"checks": {"health": {"interval": 0}}},
-                "checks.health.interval must be at least 1",
-            ),
-            (
-                {"checks": {"health": {"interval": 0.5}}},
-                "checks.health.interval must be at least 1",
-            ),
-            (
                 {"checks": {"health": {"headers": {"X-Test": ["value"]}}}},
                 "checks.health.headers must contain only a non-empty name and values",
             ),
@@ -1818,6 +1810,37 @@ class MachinesTests(TestCase):
 
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["status_code"], 500)
+
+    def test_leaves_check_interval_minimum_to_fly(self):
+        error = FlyioApiError(
+            "POST failed: HTTP Error 400: Bad Request: check 'health' has an interval lower than 2s",
+            status_code=400,
+        )
+        current = {
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "started",
+            "version": "instance-one",
+            "config": {"image": "example:latest"},
+        }
+        for interval in (0, 0.5, 1, "0s", "500ms"):
+            for existing in (None, current):
+                check = {"interval": interval, "port": 8080, "type": "tcp"}
+                module = FakeModule(params(api_token="token", checks={"health": check}))
+                with (
+                    self.subTest(interval=interval, update=existing is not None),
+                    patch.object(machines, "find_machine", return_value=existing),
+                    patch.object(machines, "post_result", side_effect=error) as post,
+                    self.assertRaises(ModuleFail) as raised,
+                    machines.flyio_client(module) as client,
+                ):
+                    machines.ensure_present(module, client)
+
+                post.assert_called_once()
+                self.assertEqual(post.call_args.args[2]["config"]["checks"]["health"]["interval"], interval)
+                self.assertFalse(raised.exception.values.get("changed", False))
+                self.assertEqual(raised.exception.values["status_code"], 400)
 
     def test_machine_destroyed_elsewhere_after_read_is_unchanged(self):
         current = {"id": "machine-one", "version": "instance-one", "state": "started"}
