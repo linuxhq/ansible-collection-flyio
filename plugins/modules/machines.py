@@ -343,8 +343,8 @@ options:
       - Environment variables.
       - Replaces the Machine's current environment; variables not listed are
         removed.
-      - Values must be strings. Quote numbers and booleans, for example C("8080").
-        Null values are rejected; omit a key to remove it.
+      - Keys and values must be strings. Quote numbers and booleans, for
+        example C("8080"). Null values are rejected; omit a key to remove it.
       - Values are not treated as sensitive. Use M(linuxhq.flyio.secrets) for
         credentials.
   files:
@@ -464,8 +464,8 @@ options:
     description:
       - Metadata key-value pairs attached to the Machine.
       - Replaces the Machine's current metadata; keys not listed are removed.
-      - Values must be strings. Quote numbers and booleans, for example C("8080").
-        Null values are rejected; omit a key to remove it.
+      - Keys and values must be strings. Quote numbers and booleans, for
+        example C("8080"). Null values are rejected; omit a key to remove it.
       - Fly.io uses C(fly_*) keys, such as C(fly_process_group), for routing and
         process groups. Include them to keep them on Machines created by other
         tools.
@@ -855,7 +855,12 @@ def validate_not_null(module, field, mapping):
 
 def validate_string_mappings(module, config):
     for field in ("env", "metadata"):
-        validate_not_null(module, field, config.get(field) or {})
+        value = config.get(field) or {}
+        # JSON would change or reject other keys, so the request could not match.
+        if not all(isinstance(key, str) for key in value):
+            module.fail_json(msg=f"{field} keys must be strings")
+
+        validate_not_null(module, field, value)
 
 
 def validate_check_fields(module, name, check):
@@ -920,6 +925,9 @@ def validate_services(module, services):
         validate_minimum(module, service.get("internal_port"), "services[].internal_port", 1)
         for port in service.get("ports") or []:
             headers = ((port.get("http_options") or {}).get("response") or {}).get("headers") or {}
+            if not all(isinstance(header, str) for header in headers):
+                module.fail_json(msg="service HTTP response header names must be strings")
+
             validate_not_null(module, "services[].ports[].http_options.response.headers", headers)
 
 

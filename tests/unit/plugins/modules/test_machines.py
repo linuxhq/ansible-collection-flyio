@@ -377,6 +377,19 @@ class MachinesTests(TestCase):
         for update, message in (
             ({"image": " "}, "image must not be empty"),
             ({"region": " "}, "region must not be empty"),
+            ({"env": {1: "value"}}, "env keys must be strings"),
+            ({"metadata": {(1, 2): "value"}}, "metadata keys must be strings"),
+            (
+                {
+                    "services": [
+                        {
+                            "internal_port": 8080,
+                            "ports": [{"http_options": {"response": {"headers": {1: "x"}}}, "port": 80}],
+                        }
+                    ]
+                },
+                "service HTTP response header names must be strings",
+            ),
             ({"env": {"LOG_LEVEL": None, "PORT": "8080"}}, "env.LOG_LEVEL must not be null"),
             ({"metadata": {"role": None}}, "metadata.role must not be null"),
             (
@@ -586,7 +599,7 @@ class MachinesTests(TestCase):
                 "services": [
                     {
                         "internal_port": 8080,
-                        "ports": [{"http_options": {"response": {"headers": {"": "x"}}}}],
+                        "ports": [{"http_options": {"response": {"headers": {"": "x"}}}, "port": 80}],
                     }
                 ]
             },
