@@ -2,13 +2,16 @@
 - name: Verify
   hosts: all
 
-  pre_tasks:
-    - name: Ensure inventory lists are formatted
-      ansible.builtin.set_fact:
-        apps_list:
-          "{{ apps_list |
-              map('combine', {'state': 'absent'}) }}"
-
   roles:
-    - apps
+    - apps_info
+
+  post_tasks:
+    - name: Ensure apps are verified
+      ansible.builtin.assert:
+        that:
+          - _apps_info_dict is defined
+          - _apps_info_dict['molecule-apps'] is defined
+          - _apps_info_dict['molecule-apps'].name == 'molecule-apps'
+          - _apps_info_dict['molecule-apps-2'] is defined
+          - _apps_info_dict['molecule-apps-2'].name == 'molecule-apps-2'
 ...

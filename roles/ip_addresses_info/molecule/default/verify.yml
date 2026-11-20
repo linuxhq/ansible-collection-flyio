@@ -1,6 +1,7 @@
 ---
 - name: Verify
   hosts: all
+
   roles:
     - ip_addresses_info
 
@@ -24,22 +25,4 @@
         that:
           - _ip_addresses_info_list == []
           - _ip_addresses_info_dict == {}
-
-    - name: Ensure inventory lists are formatted
-      ansible.builtin.set_fact:
-        ip_addresses_list:
-          "{{ ip_addresses_list |
-              map('combine', {'state': 'absent'}) }}"
-        apps_list:
-          "{{ apps_list |
-              map('combine', {'state': 'absent'}) }}"
-
-    - name: Ensure roles are included
-      ansible.builtin.include_role:
-        name: "{{ _role }}"
-      loop:
-        - ip_addresses
-        - apps
-      loop_control:
-        loop_var: _role
 ...

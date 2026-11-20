@@ -1,42 +1,14 @@
 ---
-prerun: false
-
-dependency:
-  name: galaxy
-  options:
-    requirements-file: ../../requirements.yml
-
-driver:
-  name: default
-  options:
-    managed: false
-    ansible_connection_options:
-      ansible_connection: local
-      ansible_python_interpreter: "{{ ansible_playbook_python }}"
-
-platforms:
-  - name: localhost
-
 provisioner:
-  name: ansible
-  env:
-    ANSIBLE_ACTION_WARNINGS: false
-    ANSIBLE_COLLECTIONS_PATH: ${ANSIBLE_COLLECTIONS_PATH}
-    ANSIBLE_DEPRECATION_WARNINGS: false
-  log: true
-  options:
-    diff: true
   inventory:
     group_vars:
       all:
-        apps_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
         apps_list:
-          - name: molecule-test-app
-            org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
+          - name: molecule-volumes
+            org_slug: linuxhq-dev
 
-        volumes_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
         volumes_list:
-          - app_name: molecule-test-app
+          - app_name: molecule-volumes
             volumes:
               - name: molecule_data
                 region: ord
@@ -44,25 +16,4 @@ provisioner:
               - name: molecule_logs
                 region: ord
                 size_gb: 1
-
-scenario:
-  test_sequence:
-    - dependency
-    - cleanup
-    - destroy
-    - syntax
-    - create
-    - prepare
-    - check
-    - converge
-    - check
-    - idempotence
-    - verify
-    - cleanup
-    - destroy
-
-verifier:
-  name: ansible
-  options:
-    diff: true
 ...

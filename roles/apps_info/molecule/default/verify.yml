@@ -1,6 +1,7 @@
 ---
 - name: Verify
   hosts: all
+
   roles:
     - apps_info
 
@@ -9,10 +10,10 @@
       ansible.builtin.assert:
         that:
           - _apps_info_dict is defined
-          - _apps_info_dict['molecule-test-app'] is defined
-          - _apps_info_dict['molecule-test-app'].name == 'molecule-test-app'
-          - _apps_info_dict['molecule-test-app-2'] is defined
-          - _apps_info_dict['molecule-test-app-2'].name == 'molecule-test-app-2'
+          - _apps_info_dict['molecule-apps-info'] is defined
+          - _apps_info_dict['molecule-apps-info'].name == 'molecule-apps-info'
+          - _apps_info_dict['molecule-apps-info-2'] is defined
+          - _apps_info_dict['molecule-apps-info-2'].name == 'molecule-apps-info-2'
 
     - name: Ensure info is gathered without a target
       ansible.builtin.include_role:
@@ -25,29 +26,4 @@
         that:
           - _apps_info_list == []
           - _apps_info_dict == {}
-
-    - name: Ensure inventory lists are formatted
-      ansible.builtin.set_fact:
-        apps_list:
-          "{{ apps_list |
-              map('combine', {'state': 'absent'}) }}"
-
-    - name: Ensure roles are included
-      ansible.builtin.include_role:
-        name: "{{ _role }}"
-      loop:
-        - apps
-      loop_control:
-        label: "{{ _role | d(none) }}"
-        loop_var: _role
-
-    - name: Ensure info is gathered after teardown
-      ansible.builtin.include_role:
-        name: apps_info
-
-    - name: Ensure deleted apps are absent
-      ansible.builtin.assert:
-        that:
-          - _apps_info_dict['molecule-test-app'] is not defined
-          - _apps_info_dict['molecule-test-app-2'] is not defined
 ...
