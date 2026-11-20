@@ -512,34 +512,6 @@ class MachinesTests(TestCase):
     def test_leaves_provider_checked_values_to_fly(self):
         mount = {"path": "/data", "volume": "vol-data"}
         for update in (
-            # Fly.io rejects these on the first write, so nothing changes.
-            {"env": {"": "value"}},
-            {"checks": {"": {"port": 8080, "type": "tcp"}}},
-            {"checks": {"health": {"port": 0}}},
-            {"checks": {"health": {"type": ""}}},
-            {"guest": {"cpus": 0}},
-            {"guest": {"memory_mb": 0}},
-            {"guest": {"cpu_kind": ""}},
-            {"services": [{"internal_port": 8080, "ports": [{"port": 0}]}]},
-            {"services": [{"internal_port": 8080, "ports": [{"end_port": 0, "start_port": 0}]}]},
-            {"mounts": [{"path": "/data", "volume": ""}]},
-            {"files": [{"guest_path": "/etc/example.conf", "secret_name": ""}]},
-            {"statics": [{"guest_path": "", "url_prefix": "/assets"}]},
-            {"statics": [{"guest_path": "/assets", "url_prefix": ""}]},
-            # Fly.io stores these as given, so they converge.
-            {"metadata": {"": "value"}},
-            {"metadata": {" ": "value"}},
-            {"checks": {" ": {"port": 8080, "type": "tcp"}}},
-            {"checks": {"health": {"headers": [{"name": " ", "values": ["x"]}]}}},
-            {"checks": {"health": {field: "" for field in ("kind", "method", "path", "protocol", "tls_server_name")}}},
-            {
-                "services": [
-                    {
-                        "internal_port": 8080,
-                        "ports": [{"http_options": {"response": {"headers": {"": "x"}}}}],
-                    }
-                ]
-            },
             {"env": {"PORT": 8080}},
             {"metadata": {"count": 1}},
             {"checks": {"health": {"port": "8080"}}},
@@ -578,6 +550,58 @@ class MachinesTests(TestCase):
                 self.assertRaises(FlyioApiError),
             ):
                 machines.ensure_present(FakeModule(params(**update)), {})
+
+    def test_sends_values_fly_checks_in_the_create_request(self):
+        error = FlyioApiError("POST /apps/example/machines failed: HTTP Error 400: Bad Request", status_code=400)
+        for update in (
+            # Fly.io rejects these on the first write, so nothing changes.
+            {"env": {"": "value"}},
+            {"checks": {"": {"port": 8080, "type": "tcp"}}},
+            {"checks": {"health": {"port": 0, "type": "tcp"}}},
+            {"checks": {"health": {"port": 8080, "type": ""}}},
+            {"guest": {"cpus": 0}},
+            {"guest": {"memory_mb": 0}},
+            {"guest": {"cpu_kind": ""}},
+            {"services": [{"internal_port": 8080, "ports": [{"port": 0}]}]},
+            {"services": [{"internal_port": 8080, "ports": [{"end_port": 0, "start_port": 0}]}]},
+            {"mounts": [{"path": "/data", "volume": ""}]},
+            {"files": [{"guest_path": "/etc/example.conf", "secret_name": ""}]},
+            {"statics": [{"guest_path": "", "url_prefix": "/assets"}]},
+            {"statics": [{"guest_path": "/assets", "url_prefix": ""}]},
+            # Fly.io stores these as given, so they converge.
+            {"metadata": {"": "value"}},
+            {"metadata": {" ": "value"}},
+            {"checks": {" ": {"port": 8080, "type": "tcp"}}},
+            {"checks": {"health": {"headers": [{"name": " ", "values": ["x"]}], "port": 8080, "type": "http"}}},
+            {
+                "checks": {
+                    "health": {
+                        **{field: "" for field in ("kind", "method", "path", "protocol", "tls_server_name")},
+                        "port": 8080,
+                        "type": "http",
+                    }
+                }
+            },
+            {
+                "services": [
+                    {
+                        "internal_port": 8080,
+                        "ports": [{"http_options": {"response": {"headers": {"": "x"}}}}],
+                    }
+                ]
+            },
+        ):
+            with self.subTest(update=update):
+                with (
+                    patch.object(machines, "find_machine", return_value=None),
+                    patch.object(machines, "post_result", side_effect=error) as post,
+                    self.assertRaises(FlyioApiError),
+                ):
+                    machines.ensure_present(FakeModule(params(**update)), {})
+
+                config = post.call_args.args[2]["config"]
+                for field, value in update.items():
+                    self.assertEqual(config[field], value)
 
     def test_values_fly_stores_as_given_converge(self):
         desired = machine_config.build_config(
