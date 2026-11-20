@@ -1332,7 +1332,12 @@ def update_machine(module, client, current, desired_config, deadline):
     diff = diff_result(module, {"config": current_config}, {"config": config})
     if module.check_mode:
         # Check only requested values; Fly.io already accepted the current configuration.
-        predict_rejection(module, f"update Machine '{current['id']}'", desired_config, machine=current)
+        requested = desired_config
+        if "statics" in desired_config:
+            # Requested statics replace the current ones, and their merged entries keep a current tigris_bucket.
+            requested = {**desired_config, "statics": config["statics"]}
+
+        predict_rejection(module, f"update Machine '{current['id']}'", requested, machine=current)
         module.exit_json(
             changed=True,
             message="Machine would be updated",

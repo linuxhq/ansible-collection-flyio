@@ -655,6 +655,25 @@ class MachinesTests(TestCase):
                 )
                 self.assertNotIn("changed", raised.exception.values)
 
+    def test_check_mode_keeps_current_tigris_bucket_when_predicting(self):
+        static = {"guest_path": "", "tigris_bucket": "assets", "url_prefix": "/assets"}
+        current = {
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "started",
+            "config": {"image": "example:latest", "statics": [static]},
+        }
+        update = {"statics": [{"guest_path": "", "index_document": "index.html", "url_prefix": "/assets"}]}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params(**update), check_mode=True), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+
     def test_check_mode_predicts_change_for_values_fly_accepts(self):
         current = {
             "id": "machine-one",
