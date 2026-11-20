@@ -377,8 +377,6 @@ class MachinesTests(TestCase):
         for update, message in (
             ({"image": " "}, "image must not be empty"),
             ({"region": " "}, "region must not be empty"),
-            ({"metadata": {" ": "value"}}, "metadata keys must not be empty"),
-            ({"env": {"": "value"}}, "env keys must not be empty"),
             ({"env": {"LOG_LEVEL": None, "PORT": "8080"}}, "env.LOG_LEVEL must not be null"),
             ({"metadata": {"role": None}}, "metadata.role must not be null"),
             (
@@ -401,14 +399,6 @@ class MachinesTests(TestCase):
                 "checks.health field names must be strings",
             ),
             (
-                {"checks": {"health": {"method": " "}}},
-                "checks.health.method must not be empty",
-            ),
-            (
-                {"checks": {"health": {"port": 0}}},
-                "checks.health.port must be at least 1",
-            ),
-            (
                 {"checks": {"health": {"headers": {"X-Test": ["value"]}}}},
                 "checks.health.headers must contain only a non-empty name and values",
             ),
@@ -417,11 +407,15 @@ class MachinesTests(TestCase):
                 "checks.health.headers must contain only a non-empty name and values",
             ),
             (
-                {"checks": {"health": {"headers": [{"name": " ", "values": ["x"]}]}}},
+                {"checks": {"health": {"headers": [{"name": "", "values": ["x"]}]}}},
                 "checks.health.headers must contain only a non-empty name and values",
             ),
             (
-                {"checks": {" ": {"port": 8080, "type": "tcp"}}},
+                {"checks": {"health": {"headers": [{"name": 1, "values": ["x"]}]}}},
+                "checks.health.headers must contain only a non-empty name and values",
+            ),
+            (
+                {"checks": {1: {"port": 8080, "type": "tcp"}}},
                 "checks must map names to configuration dictionaries",
             ),
             (
@@ -440,15 +434,9 @@ class MachinesTests(TestCase):
                 },
                 "checks.health.headers must contain only a non-empty name and values",
             ),
-            ({"guest": {"cpus": 0}}, "guest.cpus must be at least 1"),
-            ({"guest": {"memory_mb": 0}}, "guest.memory_mb must be at least 1"),
             (
                 {"services": [{"internal_port": 0, "protocol": "tcp"}]},
                 "services[].internal_port must be at least 1",
-            ),
-            (
-                {"services": [{"internal_port": 8080, "ports": [{"port": 0}]}]},
-                "services[].ports[].port must be at least 1",
             ),
             (
                 {
@@ -485,17 +473,6 @@ class MachinesTests(TestCase):
             ),
             (
                 {
-                    "services": [
-                        {
-                            "internal_port": 8080,
-                            "ports": [{"http_options": {"response": {"headers": {"": "x"}}}}],
-                        }
-                    ]
-                },
-                "service HTTP response header names must not be empty",
-            ),
-            (
-                {
                     "files": [
                         {
                             "guest_path": "etc/example.conf",
@@ -520,22 +497,6 @@ class MachinesTests(TestCase):
                 {"mounts": [{"path": "data", "volume": "vol-data"}]},
                 "mounts[].path must be an absolute path",
             ),
-            (
-                {"mounts": [{"path": "/data", "volume": " "}]},
-                "mounts[].volume must not be empty",
-            ),
-            (
-                {"files": [{"guest_path": "/etc/example.conf", "secret_name": " "}]},
-                "files[].secret_name must not be empty",
-            ),
-            (
-                {"statics": [{"guest_path": " ", "url_prefix": "/assets"}]},
-                "statics[].guest_path must not be empty",
-            ),
-            (
-                {"statics": [{"guest_path": "/assets", "url_prefix": " "}]},
-                "statics[].url_prefix must not be empty",
-            ),
         ):
             for check_mode in (False, True):
                 with (
@@ -551,6 +512,34 @@ class MachinesTests(TestCase):
     def test_leaves_provider_checked_values_to_fly(self):
         mount = {"path": "/data", "volume": "vol-data"}
         for update in (
+            # Fly.io rejects these on the first write, so nothing changes.
+            {"env": {"": "value"}},
+            {"checks": {"": {"port": 8080, "type": "tcp"}}},
+            {"checks": {"health": {"port": 0}}},
+            {"checks": {"health": {"type": ""}}},
+            {"guest": {"cpus": 0}},
+            {"guest": {"memory_mb": 0}},
+            {"guest": {"cpu_kind": ""}},
+            {"services": [{"internal_port": 8080, "ports": [{"port": 0}]}]},
+            {"services": [{"internal_port": 8080, "ports": [{"end_port": 0, "start_port": 0}]}]},
+            {"mounts": [{"path": "/data", "volume": ""}]},
+            {"files": [{"guest_path": "/etc/example.conf", "secret_name": ""}]},
+            {"statics": [{"guest_path": "", "url_prefix": "/assets"}]},
+            {"statics": [{"guest_path": "/assets", "url_prefix": ""}]},
+            # Fly.io stores these as given, so they converge.
+            {"metadata": {"": "value"}},
+            {"metadata": {" ": "value"}},
+            {"checks": {" ": {"port": 8080, "type": "tcp"}}},
+            {"checks": {"health": {"headers": [{"name": " ", "values": ["x"]}]}}},
+            {"checks": {"health": {field: "" for field in ("kind", "method", "path", "protocol", "tls_server_name")}}},
+            {
+                "services": [
+                    {
+                        "internal_port": 8080,
+                        "ports": [{"http_options": {"response": {"headers": {"": "x"}}}}],
+                    }
+                ]
+            },
             {"env": {"PORT": 8080}},
             {"metadata": {"count": 1}},
             {"checks": {"health": {"port": "8080"}}},
@@ -589,6 +578,28 @@ class MachinesTests(TestCase):
                 self.assertRaises(FlyioApiError),
             ):
                 machines.ensure_present(FakeModule(params(**update)), {})
+
+    def test_values_fly_stores_as_given_converge(self):
+        desired = machine_config.build_config(
+            params(
+                checks={
+                    " ": {"port": 8080, "type": "tcp"},
+                    "health": {"kind": "", "method": "", "path": "", "port": 8080, "protocol": "", "type": "http"},
+                },
+                metadata={"": "value"},
+                services=[
+                    {
+                        "internal_port": 8080,
+                        "protocol": "tcp",
+                        "ports": [{"port": 80, "http_options": {"response": {"headers": {"": "x"}}}}],
+                    }
+                ],
+            )
+        )
+        stored = machine_config.merge_config({}, desired)
+
+        self.assertFalse(machine_config.machine_config_changed(stored, desired))
+        self.assertEqual(machine_config.merge_config(stored, desired), stored)
 
     def test_accepts_documented_check_durations(self):
         module = FakeModule(params())
@@ -3026,7 +3037,6 @@ class MachinesTests(TestCase):
 
     def test_rejects_empty_optional_strings(self):
         for updates, name in (
-            ({"guest": {"cpu_kind": ""}}, "guest.cpu_kind"),
             ({"guest": {"host_dedication_id": " "}}, "guest.host_dedication_id"),
             (
                 {

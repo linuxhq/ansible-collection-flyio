@@ -97,7 +97,6 @@ options:
         type: str
         description:
           - CPU reservation type.
-          - Must not be empty when specified.
       host_dedication_id:
         type: str
         description:
@@ -107,12 +106,10 @@ options:
         type: int
         description:
           - Number of CPU cores.
-          - Must be greater than zero.
       memory_mb:
         type: int
         description:
           - Memory allocation in MiB.
-          - Must be greater than zero.
           - Fly.io requires a multiple of C(256) for shared CPUs and C(1024)
             for performance CPUs.
       max_memory_mb:
@@ -226,7 +223,6 @@ options:
               - Public port.
               - Either O(services[].ports[].port) or a complete port range is
                 required.
-              - Must be between C(1) and C(65535).
               - Mutually exclusive with O(services[].ports[].start_port) and
                 O(services[].ports[].end_port).
           start_port:
@@ -236,14 +232,12 @@ options:
               - Required with O(services[].ports[].end_port).
               - Either O(services[].ports[].port) or a complete port range is
                 required.
-              - Must be between C(1) and C(65535).
               - Mutually exclusive with O(services[].ports[].port).
           end_port:
             type: int
             description:
               - Last public port in a range.
               - Required with O(services[].ports[].start_port).
-              - Must be between C(1) and C(65535).
               - Must be greater than or equal to O(services[].ports[].start_port).
               - Mutually exclusive with O(services[].ports[].port).
           handlers:
@@ -280,7 +274,6 @@ options:
                       - Header names not listed keep their current values. Once
                         configured, a header name cannot be removed by this
                         module.
-                      - Header names must not be empty.
                       - Values may be strings, lists of strings, or C(false).
                         Set a header to C(false) to make Fly Proxy strip that
                         header from responses. Null values are rejected.
@@ -323,7 +316,6 @@ options:
     description:
       - Health checks passed to the Fly.io API.
       - Each key is a check name and its value is a dictionary.
-      - Check names must not be empty.
       - Replaces the Machine's current checks; checks not listed are removed.
       - Fields omitted from a listed check keep their current values unless the
         check's C(type) changes.
@@ -338,10 +330,10 @@ options:
       - C(protocol) accepts C(http) or C(https).
       - C(headers) is a list of dictionaries containing C(name) and C(values).
         It replaces the check's current headers; headers not listed are removed.
+        A header C(name) must not be empty because Fly.io drops it.
       - C(interval), C(timeout), and C(grace_period) accept numeric nanoseconds
         or duration strings such as C(15s). Fly.io truncates fractional
         nanoseconds.
-      - C(port) must be between C(1) and C(65535).
       - Fly.io rejects an C(interval) below C(2s).
       - Values are not treated as sensitive. Do not put credentials in check
         headers.
@@ -351,7 +343,6 @@ options:
       - Environment variables.
       - Replaces the Machine's current environment; variables not listed are
         removed.
-      - Keys must not be empty.
       - Values must be strings. Quote numbers and booleans, for example C("8080").
         Null values are rejected; omit a key to remove it.
       - Values are not treated as sensitive. Use M(linuxhq.flyio.secrets) for
@@ -382,7 +373,6 @@ options:
         type: str
         description:
           - Name of a Fly.io secret whose value populates the file.
-          - Must not be empty.
           - Either O(files[].raw_value) or O(files[].secret_name) is required.
           - Mutually exclusive with O(files[].raw_value).
   mounts:
@@ -402,7 +392,6 @@ options:
         required: true
         description:
           - Volume identifier or name.
-          - Must not be empty.
       path:
         type: str
         required: true
@@ -480,7 +469,6 @@ options:
       - Fly.io uses C(fly_*) keys, such as C(fly_process_group), for routing and
         process groups. Include them to keep them on Machines created by other
         tools.
-      - Keys must not be empty.
   statics:
     type: list
     elements: dict
@@ -494,13 +482,11 @@ options:
         required: true
         description:
           - Path containing the static files.
-          - Must not be empty.
       url_prefix:
         type: str
         required: true
         description:
           - URL prefix from which files are served.
-          - Must not be empty.
       tigris_bucket:
         type: str
         description:
@@ -790,15 +776,10 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     wait_for_machine,
 )
 
-CHECK_STRING_FIELDS = (
-    "kind",
-    "method",
-    "path",
-    "protocol",
-    "tls_server_name",
-    "type",
+CHECK_FIELDS = set(
+    CHECK_DURATION_FIELDS
+    + ("headers", "kind", "method", "path", "port", "protocol", "tls_server_name", "tls_skip_verify", "type")
 )
-CHECK_FIELDS = set(CHECK_STRING_FIELDS + CHECK_DURATION_FIELDS + ("headers", "port", "tls_skip_verify"))
 # The union of the Machine states in the Fly.io Machines API specification and in the
 # Machine states documentation (https://docs.fly.io/machines/machine-states); neither
 # list is complete on its own.
@@ -874,18 +855,7 @@ def validate_not_null(module, field, mapping):
 
 def validate_string_mappings(module, config):
     for field in ("env", "metadata"):
-        value = config.get(field)
-        if value is not None and not all(nonempty_string(key) for key in value):
-            module.fail_json(msg=f"{field} keys must not be empty")
-
-        validate_not_null(module, field, value or {})
-
-
-def validate_check_strings(module, name, check):
-    for field in CHECK_STRING_FIELDS:
-        value = check.get(field)
-        if isinstance(value, str) and not value.strip():
-            module.fail_json(msg=f"checks.{name}.{field} must not be empty")
+        validate_not_null(module, field, config.get(field) or {})
 
 
 def validate_check_fields(module, name, check):
@@ -896,15 +866,16 @@ def validate_check_fields(module, name, check):
     if unsupported:
         module.fail_json(msg=f"check '{name}' contains unsupported fields: {', '.join(sorted(unsupported))}")
 
-    validate_check_strings(module, name, check)
-    validate_minimum(module, check.get("port"), f"checks.{name}.port", 1)
-
 
 def validate_check_headers(module, name, headers):
+    # Fly.io drops an empty header name, so such a header could never match.
     if headers is not None and (
         not isinstance(headers, list)
         or not all(
-            isinstance(header, dict) and set(header) == {"name", "values"} and nonempty_string(header["name"])
+            isinstance(header, dict)
+            and set(header) == {"name", "values"}
+            and isinstance(header["name"], str)
+            and header["name"] != ""
             for header in headers
         )
     ):
@@ -916,7 +887,7 @@ def validate_checks(module, checks):
         return
 
     if not isinstance(checks, dict) or not all(
-        nonempty_string(name) and isinstance(check, dict) for name, check in checks.items()
+        isinstance(name, str) and isinstance(check, dict) for name, check in checks.items()
     ):
         module.fail_json(msg="checks must map names to configuration dictionaries")
 
@@ -930,17 +901,9 @@ def validate_paths(module, config):
         if any(not item[field].startswith("/") for item in config.get(option) or []):
             module.fail_json(msg=f"{option}[].{field} must be an absolute path")
 
-    for field in ("guest_path", "url_prefix"):
-        if any(not nonempty_string(item.get(field)) for item in config.get("statics") or []):
-            module.fail_json(msg=f"statics[].{field} must not be empty")
-
 
 def validate_files(module, files):
     for file in files:
-        secret_name = file.get("secret_name")
-        if secret_name is not None and not secret_name.strip():
-            module.fail_json(msg="files[].secret_name must not be empty")
-
         raw_value = file.get("raw_value")
         if raw_value is None:
             continue
@@ -956,20 +919,14 @@ def validate_services(module, services):
     for service in services:
         validate_minimum(module, service.get("internal_port"), "services[].internal_port", 1)
         for port in service.get("ports") or []:
-            for field in ("port", "start_port", "end_port"):
-                validate_minimum(module, port.get(field), f"services[].ports[].{field}", 1)
-
             headers = ((port.get("http_options") or {}).get("response") or {}).get("headers") or {}
-            if not all(nonempty_string(header) for header in headers):
-                module.fail_json(msg="service HTTP response header names must not be empty")
-
             validate_not_null(module, "services[].ports[].http_options.response.headers", headers)
 
 
 def validate_requested_strings(module, params):
     """Reject empty optional strings; Fly.io omits them from returned config, so they could never match."""
     guest = params.get("guest") or {}
-    values = [(f"guest.{field}", guest.get(field)) for field in ("cpu_kind", "host_dedication_id")]
+    values = [("guest.host_dedication_id", guest.get("host_dedication_id"))]
     values += [
         ("services[].ports[].proxy_proto_options.version", (port.get("proxy_proto_options") or {}).get("version"))
         for service in params.get("services") or []
@@ -998,16 +955,8 @@ def validate_concurrency_limits(module, requested_services, effective_services=N
             module.fail_json(msg="services[].concurrency.soft_limit must not exceed hard_limit")
 
 
-def validate_guest(module, guest):
-    for field in ("cpus", "memory_mb"):
-        validate_minimum(module, (guest or {}).get(field), f"guest.{field}", 1)
-
-
 def validate_mounts(module, mounts):
     for mount in mounts:
-        if not nonempty_string(mount.get("volume")):
-            module.fail_json(msg="mounts[].volume must not be empty")
-
         if (mount.get("extend_threshold_percent") == 0) != (mount.get("add_size_gb") == 0):
             module.fail_json(
                 msg="mounts[].extend_threshold_percent and add_size_gb must both be zero to disable extension"
@@ -1023,7 +972,6 @@ def validate_config(module, config):
     validate_string_mappings(module, config)
     validate_checks(module, config.get("checks"))
     validate_files(module, config.get("files") or [])
-    validate_guest(module, config.get("guest"))
     validate_mounts(module, config.get("mounts") or [])
     validate_paths(module, config)
     validate_restart(module, config.get("restart"))

@@ -460,9 +460,6 @@ def create_volume(module, client, deadline):
     if params.get("id") is not None:
         module.fail_json(msg=f"Volume '{params['id']}' not found in app '{app_name}'")
 
-    if params["size_gb"] is None:
-        module.fail_json(msg="size_gb is required when creating a volume")
-
     body = {
         "name": params["name"],
         "region": params["region"],

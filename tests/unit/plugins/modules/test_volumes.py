@@ -96,9 +96,10 @@ class FindVolumeTests(TestCase):
                 ok_statuses=[404],
             )
 
-    def test_requires_size_when_creating(self):
+    def test_leaves_missing_size_to_fly_when_creating(self):
         module = FakeModule(
             {
+                "api_token": "token",
                 "app_name": "example",
                 "encrypted": None,
                 "id": None,
@@ -109,16 +110,20 @@ class FindVolumeTests(TestCase):
                 "wait_timeout": 60,
             }
         )
+        error = FlyioApiError("POST /apps/example/volumes failed: HTTP Error 400: size_gb must be set", status_code=400)
 
+        # Fly.io rejects the create before changing anything, so the failure reports no change.
         with (
             patch.object(volumes, "find_volume", return_value=None),
-            patch.object(volumes, "post_result") as post,
+            patch.object(volumes, "post_result", side_effect=error) as post,
             self.assertRaises(ModuleFail) as raised,
+            volumes.flyio_client(module) as client,
         ):
-            volumes.ensure_present(module, {})
+            volumes.ensure_present(module, client)
 
-        post.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "size_gb is required when creating a volume")
+        post.assert_called_once_with(client, "/apps/example/volumes", {"name": "data", "region": "ord"})
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["status_code"], 400)
 
     def test_skips_pending_destroy(self):
         pending = {
