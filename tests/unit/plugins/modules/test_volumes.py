@@ -125,6 +125,35 @@ class FindVolumeTests(TestCase):
         self.assertNotIn("changed", raised.exception.values)
         self.assertEqual(raised.exception.values["status_code"], 400)
 
+    def test_check_mode_predicts_fly_rejection_without_size(self):
+        module = FakeModule(
+            {
+                "app_name": "example",
+                "encrypted": None,
+                "id": None,
+                "name": "data",
+                "region": "ord",
+                "size_gb": None,
+                "wait": False,
+                "wait_timeout": 60,
+            },
+            check_mode=True,
+        )
+
+        with (
+            patch.object(volumes, "find_volume", return_value=None),
+            patch.object(volumes, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            volumes.ensure_present(module, {})
+
+        post.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Fly.io would reject the request to create volume 'data' in app 'example': size_gb must be set",
+        )
+        self.assertNotIn("changed", raised.exception.values)
+
     def test_skips_pending_destroy(self):
         pending = {
             "id": "vol_old",

@@ -540,6 +540,10 @@ attributes:
   check_mode:
     description: Supports predicting changes without applying them.
     support: full
+    details: Check mode fails, as the real run does, for requested values
+      that Fly.io is known to reject without changing anything, such as a
+      check C(port) of C(0), a check C(interval) below C(2s), or a
+      O(guest.cpus) of C(0).
   diff_mode:
     description: Determines whether the module returns change details in diff format.
     support: full
@@ -749,6 +753,7 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_machine_config import (
     CHECK_DURATION_FIELDS,
     build_config,
+    duration_nanoseconds,
     existing_check,
     machine_config_changed,
     merge_config,
@@ -984,6 +989,85 @@ def validate_config(module, config):
     validate_paths(module, config)
     validate_restart(module, config.get("restart"))
     validate_services(module, config.get("services") or [])
+
+
+def blank(value):
+    return isinstance(value, str) and not value.strip()
+
+
+def below(value, minimum):
+    return isinstance(value, int) and not isinstance(value, bool) and value < minimum
+
+
+def predicted_rejections(config):
+    """Errors Fly.io returns, changing nothing, for requested values it rejects on the first write."""
+    errors = []
+    for name, check in (config.get("checks") or {}).items():
+        if name == "":
+            errors.append("check name can't be empty")
+
+        if check.get("port") == 0:
+            errors.append(f"check '{name}' has invalid or missing port")
+
+        if blank(check.get("type")):
+            errors.append(f"check '{name}' has an Invalid type")
+
+        if below(duration_nanoseconds(check.get("interval")), 2_000_000_000):
+            errors.append(f"check '{name}' has an interval lower than 2s")
+
+    for service_index, service in enumerate(config.get("services") or []):
+        for port_index, port in enumerate(service.get("ports") or []):
+            for field, label in (("port", "Port"), ("start_port", "Start port")):
+                if below(port.get(field), 1):
+                    errors.append(
+                        f"Services [{service_index}] Ports [{port_index}] {label} must be between 1 and 65535"
+                    )
+
+    guest = config.get("guest") or {}
+    if below(guest.get("cpus"), 1):
+        errors.append("invalid config.guest.cpus, must be one of [1 2 4 6 8]")
+
+    if below(guest.get("memory_mb"), 1):
+        errors.append("invalid config.guest.memory_mb, minimum required 256 MiB")
+
+    if blank(guest.get("cpu_kind")):
+        errors.append('invalid config.guest.cpu_kind, only "shared" or "performance" currently supported')
+
+    if any(
+        "" in (static.get("guest_path"), static.get("url_prefix")) and not static.get("tigris_bucket")
+        for static in config.get("statics") or []
+    ):
+        errors.append("static must have either tigris_bucket or url_prefix and guest_path")
+
+    for index, mount in enumerate(config.get("mounts") or []):
+        if mount.get("volume") == "":
+            errors.append(f"config.mounts[{index}]: volume is required")
+        elif blank(mount.get("volume")):
+            errors.append("volume not found")
+
+    for key in config.get("env") or {}:
+        if key == "":
+            errors.append("config.env: environment variable name cannot be empty")
+        elif blank(key):
+            errors.append("Env Name can't be blank")
+
+    if any(file.get("secret_name") == "" for file in config.get("files") or []):
+        errors.append("secret_name is required")
+
+    return errors
+
+
+def predict_rejection(module, action, desired_config, **result):
+    """In check mode, fail as the real run would when Fly.io is known to reject a requested value."""
+    errors = predicted_rejections(desired_config)
+    if errors:
+        module.fail_json(
+            msg=(
+                f"Fly.io would reject the request to {action} in app '{module.params['app_name']}': "
+                + "; ".join(errors)
+            ),
+            **result,
+        )
 
 
 def validate_complete_config(module, config, existing_checks=()):
@@ -1247,6 +1331,8 @@ def update_machine(module, client, current, desired_config, deadline):
     # Match the create diff shape so each option has one path.
     diff = diff_result(module, {"config": current_config}, {"config": config})
     if module.check_mode:
+        # Check only requested values; Fly.io already accepted the current configuration.
+        predict_rejection(module, f"update Machine '{current['id']}'", desired_config, machine=current)
         module.exit_json(
             changed=True,
             message="Machine would be updated",
@@ -1299,6 +1385,7 @@ def create_machine(module, client, desired_config, deadline):
 
     diff = diff_result(module, {}, body)
     if module.check_mode:
+        predict_rejection(module, f"create Machine '{params['name']}'", desired_config)
         module.exit_json(changed=True, message="Machine would be created", **diff)
 
     result = post_result(client, flyio_path("apps", app_name, "machines"), body)
