@@ -15,8 +15,10 @@
           - _machines_info_dict['molecule-web'].name == 'molecule-web'
           - _machines_info_dict['molecule-web'].region == 'ord'
           - _machines_info_dict['molecule-web'].config.image == 'nginx:alpine'
+          - _machines_info_dict['molecule-web'].state == 'started'
           - _machines_info_dict['molecule-worker'] is defined
           - _machines_info_dict['molecule-worker'].name == 'molecule-worker'
           - _machines_info_dict['molecule-worker'].region == 'ord'
           - _machines_info_dict['molecule-worker'].config.image == 'nginx:alpine'
+          - _machines_info_dict['molecule-worker'].state == 'started'
 ...
