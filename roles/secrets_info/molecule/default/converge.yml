@@ -1,22 +1,10 @@
 ---
 - name: Converge
   hosts: all
+
   roles:
     - role: secrets_info
       secrets_info_app_name: null
-      tags:
-        - molecule-idempotence-notest
-      check_mode: false
-
-    - role: apps
-      tags:
-        - molecule-idempotence-notest
-      check_mode: false
-
-    - role: secrets
-      tags:
-        - molecule-idempotence-notest
-      check_mode: false
 
     - secrets_info
 ...

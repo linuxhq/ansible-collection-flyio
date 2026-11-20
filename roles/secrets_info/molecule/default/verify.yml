@@ -1,6 +1,7 @@
 ---
 - name: Verify
   hosts: all
+
   roles:
     - secrets_info
 
@@ -23,22 +24,4 @@
         that:
           - _secrets_info_list == []
           - _secrets_info_dict == {}
-
-    - name: Ensure inventory lists are formatted
-      ansible.builtin.set_fact:
-        secrets_list:
-          "{{ secrets_list |
-              map('combine', {'state': 'absent'}) }}"
-        apps_list:
-          "{{ apps_list |
-              map('combine', {'state': 'absent'}) }}"
-
-    - name: Ensure roles are included
-      ansible.builtin.include_role:
-        name: "{{ _role }}"
-      loop:
-        - secrets
-        - apps
-      loop_control:
-        loop_var: _role
 ...

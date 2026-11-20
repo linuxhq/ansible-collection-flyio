@@ -1,66 +1,17 @@
 ---
-prerun: false
-
-dependency:
-  name: galaxy
-  options:
-    requirements-file: ../../requirements.yml
-
-driver:
-  name: default
-  options:
-    managed: false
-    ansible_connection_options:
-      ansible_connection: local
-      ansible_python_interpreter: "{{ ansible_playbook_python }}"
-
-platforms:
-  - name: localhost
-
 provisioner:
-  name: ansible
-  env:
-    ANSIBLE_ACTION_WARNINGS: false
-    ANSIBLE_COLLECTIONS_PATH: ${ANSIBLE_COLLECTIONS_PATH}
-    ANSIBLE_DEPRECATION_WARNINGS: false
-  log: true
-  options:
-    diff: true
   inventory:
     group_vars:
       all:
-        apps_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
         apps_list:
-          - name: molecule-test-app
-            org_slug: "{{ lookup('env', 'FLY_ORG_SLUG') }}"
+          - name: molecule-ip-addresses-info
+            org_slug: linuxhq-dev
 
-        ip_addresses_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-        ip_addresses_info_api_token: "{{ lookup('env', 'FLY_API_TOKEN') }}"
-        ip_addresses_info_app_name: molecule-test-app
         ip_addresses_list:
-          - app_name: molecule-test-app
+          - app_name: molecule-ip-addresses-info
             ip_addresses:
               - type: v4
               - type: v6
 
-scenario:
-  test_sequence:
-    - dependency
-    - cleanup
-    - destroy
-    - syntax
-    - create
-    - prepare
-    - check
-    - converge
-    - check
-    - idempotence
-    - verify
-    - cleanup
-    - destroy
-
-verifier:
-  name: ansible
-  options:
-    diff: true
+        ip_addresses_info_app_name: molecule-ip-addresses-info
 ...

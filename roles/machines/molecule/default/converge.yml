@@ -1,16 +1,10 @@
 ---
 - name: Converge
   hosts: all
-  roles:
-    - role: apps
-      tags:
-        - molecule-idempotence-notest
-      check_mode: false
 
+  roles:
     - role: machines
       machines_list: []
-      tags:
-        - molecule-idempotence-notest
 
     - machines
 ...
