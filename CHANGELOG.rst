@@ -4,6 +4,14 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.2.1
+======
+
+Release Summary
+---------------
+
+Maintenance release that reworks the role Molecule scenarios around a shared base config, runs them in parallel, and verifies that test machines start.
+
 v1.2.0
 ======
 

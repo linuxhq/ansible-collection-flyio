@@ -1,4 +1,0 @@
----
-trivial:
-  - molecule - rework the role scenarios for the updated molecule skill and share
-    their settings through ``.config/molecule/config.yml``.
