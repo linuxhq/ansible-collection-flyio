@@ -342,7 +342,7 @@ options:
         or duration strings such as C(15s). Fly.io truncates fractional
         nanoseconds.
       - C(port) must be between C(1) and C(65535).
-      - A numeric C(interval) must be at least C(1).
+      - Fly.io rejects an C(interval) below C(2s).
       - Values are not treated as sensitive. Do not put credentials in check
         headers.
   env:
@@ -897,9 +897,7 @@ def validate_check_fields(module, name, check):
         module.fail_json(msg=f"check '{name}' contains unsupported fields: {', '.join(sorted(unsupported))}")
 
     validate_check_strings(module, name, check)
-    # Fly.io accepts and stores a zero grace_period or timeout, so only port and interval have a minimum.
-    for field in ("port", "interval"):
-        validate_minimum(module, check.get(field), f"checks.{name}.{field}", 1)
+    validate_minimum(module, check.get("port"), f"checks.{name}.port", 1)
 
 
 def validate_check_headers(module, name, headers):
