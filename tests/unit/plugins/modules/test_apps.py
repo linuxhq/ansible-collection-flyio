@@ -14,7 +14,7 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
 
 class AppsTests(TestCase):
     def test_rejects_nonpositive_delete_timeout(self):
-        module = FakeModule({"delete_timeout": 0, "force": True, "name": "example"})
+        module = FakeModule({"delete_timeout": 0, "name": "example"})
 
         with (
             patch.object(apps, "get_app") as get,
@@ -27,18 +27,6 @@ class AppsTests(TestCase):
             raised.exception.values["msg"],
             "delete_timeout must be greater than zero",
         )
-
-    def test_existing_app_is_unchanged(self):
-        current = {"name": "example"}
-        module = FakeModule({"name": "example", "org_slug": "linuxhq"})
-
-        with (
-            patch.object(apps, "get_app", return_value=current),
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            apps.ensure_present(module, {})
-
-        self.assertFalse(raised.exception.values["changed"])
 
     def test_existing_app_matching_org_slug_and_network_is_unchanged(self):
         current = {"name": "example", "network": "default", "organization": {"name": "linuxhq", "slug": "linuxhq"}}
@@ -131,7 +119,7 @@ class AppsTests(TestCase):
 
     def test_deletes_app(self):
         current = {"name": "example"}
-        module = FakeModule({"delete_timeout": 120, "force": True, "name": "example"})
+        module = FakeModule({"delete_timeout": 120, "name": "example"})
 
         with (
             patch.object(apps, "get_app", return_value=current),
@@ -149,7 +137,7 @@ class AppsTests(TestCase):
         self.assertEqual(raised.exception.values["app"], current)
 
     def test_app_deleted_elsewhere_after_read_is_unchanged(self):
-        module = FakeModule({"delete_timeout": 120, "force": True, "name": "example"})
+        module = FakeModule({"delete_timeout": 120, "name": "example"})
 
         with (
             patch.object(apps, "get_app", return_value={"name": "example"}),
@@ -165,7 +153,7 @@ class AppsTests(TestCase):
 
     def test_fails_when_app_deletion_times_out(self):
         current = {"name": "example"}
-        module = FakeModule({"delete_timeout": 60, "force": True, "name": "example"})
+        module = FakeModule({"delete_timeout": 60, "name": "example"})
 
         with (
             patch.object(apps, "get_app", return_value=current),

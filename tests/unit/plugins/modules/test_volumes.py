@@ -195,23 +195,7 @@ class FindVolumeTests(TestCase):
         self.assertIsNone(result)
 
     def test_includes_deleting_volume_only_when_requested(self):
-        deleting = {"id": "vol_old", "state": "scheduling_destroy"}
-
-        with patch.object(flyio_utils, "get_resource", return_value=deleting):
-            self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old"))
-            self.assertEqual(
-                volumes.find_volume(
-                    FakeModule({}),
-                    {},
-                    "example",
-                    volume_id="vol_old",
-                    include_deleting=True,
-                ),
-                deleting,
-            )
-
-    def test_includes_detaching_and_fork_cleanup_volumes_only_when_requested(self):
-        for state in ("fork_cleanup", "waiting_for_detach"):
+        for state in sorted(volumes.DELETING_STATES):
             with self.subTest(state=state):
                 deleting = {"id": "vol_old", "state": state}
 
@@ -246,28 +230,31 @@ class FindVolumeTests(TestCase):
         )
         self.assertEqual(raised.exception.values["volume_ids"], ["vol_one", "vol_two"])
 
-    def test_multiple_deleting_volumes_are_not_ambiguous_for_absent(self):
-        deleting = [
-            {"id": "vol_one", "name": "data", "region": "ord", "state": "destroying"},
-            {"id": "vol_two", "name": "data", "region": "ord", "state": "destroying"},
-        ]
-
-        with patch.object(volumes, "list_all", return_value=deleting):
-            found = volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True)
-
-        self.assertEqual(found["id"], "vol_one")
-
-    def test_detaching_and_fork_cleanup_volumes_are_not_ambiguous(self):
-        for state in ("fork_cleanup", "waiting_for_detach"):
+    def test_deleting_volumes_are_not_ambiguous(self):
+        for state in sorted(volumes.DELETING_STATES):
             with self.subTest(state=state):
                 deleting = {"id": "vol_old", "name": "data", "region": "ord", "state": state}
                 created = {"id": "vol_new", "name": "data", "region": "ord", "state": "created"}
 
+                # A live volume is preferred, including for an absent lookup.
                 with patch.object(volumes, "list_all", return_value=[deleting, created]):
-                    found = volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord")
+                    self.assertEqual(
+                        volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord"), created
+                    )
+                    found = volumes.find_volume(
+                        FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True
+                    )
 
                 self.assertEqual(found, created)
 
+                with patch.object(volumes, "list_all", return_value=[deleting]):
+                    found = volumes.find_volume(
+                        FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True
+                    )
+
+                self.assertEqual(found, deleting)
+
+                # Several deleting volumes are not ambiguous; any one satisfies an absent lookup.
                 with patch.object(volumes, "list_all", return_value=[deleting, {**deleting, "id": "vol_two"}]):
                     self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord"))
                     found = volumes.find_volume(
@@ -1027,23 +1014,6 @@ class FindVolumeTests(TestCase):
             volumes.update_volume(module, {}, current, 60)
 
         self.assertFalse(raised.exception.values["changed"])
-
-    def test_absent_name_lookup_prefers_live_volume(self):
-        deleting = {"id": "vol_old", "name": "data", "region": "ord", "state": "destroying"}
-        live = {"id": "vol_new", "name": "data", "region": "ord", "state": "created"}
-        module = FakeModule({"app_name": "example"})
-
-        with patch.object(volumes, "list_all", return_value=[deleting, live]):
-            self.assertEqual(
-                volumes.find_volume(module, {}, "example", name="data", region="ord", include_deleting=True),
-                live,
-            )
-
-        with patch.object(volumes, "list_all", return_value=[deleting]):
-            self.assertEqual(
-                volumes.find_volume(module, {}, "example", name="data", region="ord", include_deleting=True),
-                deleting,
-            )
 
     def test_diff_mode_reports_extension(self):
         current = {"encrypted": True, "id": "vol_one", "size_gb": 1, "state": "created"}

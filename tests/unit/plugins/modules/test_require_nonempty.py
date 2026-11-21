@@ -21,7 +21,8 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     ModuleFail,
 )
 
-# Each module's identifier options that must reject blank strings before any API call.
+# Options each module rejects when blank, before any API call, because a blank value could select the
+# wrong resource or never converge.
 NONEMPTY_OPTIONS = {
     apps: ("name", "network"),
     apps_info: ("name",),

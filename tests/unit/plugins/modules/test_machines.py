@@ -479,9 +479,18 @@ class MachinesTests(TestCase):
                 {"restart": {"max_retries": -1, "policy": "on-failure"}},
                 "restart.max_retries must be at least 1",
             ),
+            # Fly.io stores max_retries=0 as its default of 3, so the request could never converge.
             (
                 {"restart": {"max_retries": 0, "policy": "on-failure"}},
                 "restart.max_retries must be at least 1",
+            ),
+            (
+                {"services": [{"concurrency": {"soft_limit": -1}, "internal_port": 8080, "protocol": "tcp"}]},
+                "services[].concurrency.soft_limit must be at least 1",
+            ),
+            (
+                {"services": [{"concurrency": {"soft_limit": 0}, "internal_port": 8080, "protocol": "tcp"}]},
+                "services[].concurrency.soft_limit must be at least 1",
             ),
         ):
             for check_mode in (False, True):
@@ -831,20 +840,6 @@ class MachinesTests(TestCase):
 
         self.assertFalse(machine_config.machine_config_changed(stored, desired))
         self.assertEqual(machine_config.merge_config(stored, desired), stored)
-
-    def test_accepts_documented_check_durations(self):
-        module = FakeModule(params())
-        config = {
-            "checks": {
-                "health": {
-                    "grace_period": 5_000_000_000,
-                    "interval": "15s",
-                    "timeout": "10s",
-                }
-            }
-        }
-
-        self.assertIsNone(machines.validate_config(module, config))
 
     def test_accepts_omitted_optional_lists(self):
         config = {
@@ -2678,14 +2673,6 @@ class MachinesTests(TestCase):
         with patch.object(flyio_utils, "get_resource", return_value=failed):
             self.assertIsNone(machines.find_machine(FakeModule({}), {}, "example", machine_id="machine-old"))
 
-    def test_negative_soft_limit_reports_documented_minimum(self):
-        services = [{"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": -1}}]
-
-        with self.assertRaises(ModuleFail) as raised:
-            machines.ensure_present(FakeModule(params(services=services)), {})
-
-        self.assertEqual(raised.exception.values["msg"], "services[].concurrency.soft_limit must be at least 1")
-
     def test_create_accepts_auto_destroyed_machine_after_wait(self):
         created = {"id": "machine-one", "version": "v1", "state": "created"}
         module = FakeModule(params(auto_destroy=True))
@@ -2914,19 +2901,6 @@ class MachinesTests(TestCase):
             self.assertRaises(FlyioApiError),
         ):
             machines.ensure_power_state(FakeModule(params(image=None)), {}, "started")
-
-    def test_zero_restart_retries_rejected_before_check_mode_lookup(self):
-        # Fly.io stores max_retries=0 as its default of 3, so the request could never converge.
-        module = FakeModule(params(restart={"policy": "on-failure", "max_retries": 0}), check_mode=True)
-
-        with (
-            patch.object(machines, "find_machine") as find,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        find.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "restart.max_retries must be at least 1")
 
     def test_update_sends_restart_retries_with_always_policy(self):
         restart = {"max_retries": 3, "policy": "always"}
@@ -3513,18 +3487,6 @@ class MachinesTests(TestCase):
         self.assertTrue(
             machine_config.machine_config_changed(current, {"image": "example:latest", "services": [second, first]})
         )
-
-    def test_rejects_zero_soft_limit(self):
-        services = [{"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": 0}}]
-
-        with (
-            patch.object(machines, "find_machine") as find,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(FakeModule(params(services=services)), {})
-
-        find.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "services[].concurrency.soft_limit must be at least 1")
 
     def test_current_zero_soft_limit_does_not_block_other_updates(self):
         service = {"internal_port": 8080, "protocol": "tcp", "concurrency": {"soft_limit": 0}}

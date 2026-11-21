@@ -78,28 +78,12 @@ class FlyioUtilsTests(TestCase):
 
         module.fail_json.assert_not_called()
 
-    def test_client_does_not_validate_resource_identifiers(self):
-        module = Mock(params={"api_token": "token", "name": " "})
-
-        with flyio_client(module):
-            pass
-
-        module.fail_json.assert_not_called()
-
-    def test_client_rejects_token_line_breaks_as_control_characters(self):
-        module = Mock(params={"api_token": "token\r\nInjected: value"})
-        module.fail_json.side_effect = RuntimeError
-
-        with self.assertRaises(RuntimeError), flyio_client(module):
-            pass
-
-        module.fail_json.assert_called_once_with(msg="api_token must not contain control characters")
-
     def test_client_rejects_invalid_tokens(self):
         for token, message in (
             (None, "api_token is required; set api_token or FLY_API_TOKEN"),
             (" ", "api_token is required; set api_token or FLY_API_TOKEN"),
             ("token\tvalue", "api_token must not contain control characters"),
+            ("token\r\nInjected: value", "api_token must not contain control characters"),
         ):
             module = Mock(params={"api_token": token})
             module.fail_json.side_effect = RuntimeError
@@ -113,20 +97,20 @@ class FlyioUtilsTests(TestCase):
 
             module.fail_json.assert_called_once_with(msg=message)
 
-    def test_client_leaves_bare_scheme_tokens_to_fly(self):
-        module = Mock(params={"api_token": "Bearer "})
+    def test_client_builds_authorization_from_token(self):
+        for token, header in (
+            ("  token  ", "Bearer token"),
+            ("abc123\n", "Bearer abc123"),
+            # A bare scheme is left to Fly.io to reject.
+            ("Bearer ", "Bearer Bearer"),
+        ):
+            module = Mock(params={"api_token": token})
 
-        with flyio_client(module) as client:
-            pass
+            with self.subTest(token=token), flyio_client(module) as client:
+                pass
 
-        module.fail_json.assert_not_called()
-        self.assertEqual(client["headers"]["Authorization"], "Bearer Bearer")
-
-    def test_client_strips_token_whitespace(self):
-        module = Mock(params={"api_token": "  token  "})
-
-        with flyio_client(module) as client:
-            self.assertEqual(client["headers"]["Authorization"], "Bearer token")
+            module.fail_json.assert_not_called()
+            self.assertEqual(client["headers"]["Authorization"], header)
 
     def test_client_converts_api_errors_to_module_failures(self):
         module = Mock(params={"api_token": "token"})
@@ -224,7 +208,7 @@ class FlyioUtilsTests(TestCase):
             with (
                 self.subTest(expected=expected),
                 patch(
-                    "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.open_url",
+                    f"{FLYIO_UTILS}.open_url",
                     side_effect=AnsibleConnectionError("TLS setup failed"),
                 ),
                 self.assertRaises(FlyioApiError) as raised,
@@ -318,7 +302,7 @@ class FlyioUtilsTests(TestCase):
 
     def test_ip_addresses_are_returned_as_reported(self):
         with patch(
-            "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils.graphql_request",
+            f"{FLYIO_UTILS}.graphql_request",
             return_value={
                 "app": {
                     "ipAddresses": {
@@ -362,17 +346,20 @@ class FlyioUtilsTests(TestCase):
             open_url.return_value.read.return_value = b'{"data": null}'
             self.assertIsNone(graphql_request({"headers": {}}, "query { viewer { id } }"))
 
-    def test_uses_flyv1_for_fly_machine_tokens(self):
-        self.assertEqual(authorization_header("fm2_example"), "FlyV1 fm2_example")
-        self.assertEqual(authorization_header("fm1r_example"), "FlyV1 fm1r_example")
-        self.assertEqual(
-            authorization_header("fo1_example,fm2_example"),
-            "FlyV1 fo1_example,fm2_example",
-        )
-
-    def test_preserves_explicit_authorization_scheme(self):
-        self.assertEqual(authorization_header("FlyV1 fm2_example"), "FlyV1 fm2_example")
-        self.assertEqual(authorization_header("Bearer example"), "Bearer example")
+    def test_authorization_header_selects_scheme(self):
+        for token, header in (
+            ("fm1a_abc", "FlyV1 fm1a_abc"),
+            ("fm1r_example", "FlyV1 fm1r_example"),
+            ("fm2_example", "FlyV1 fm2_example"),
+            ("fo1_example,fm2_example", "FlyV1 fo1_example,fm2_example"),
+            ("fo1_x, fm2_abc", "FlyV1 fo1_x, fm2_abc"),
+            ("fo1_abc", "Bearer fo1_abc"),
+            # An explicit scheme is kept.
+            ("FlyV1 fm2_example", "FlyV1 fm2_example"),
+            ("Bearer example", "Bearer example"),
+        ):
+            with self.subTest(token=token):
+                self.assertEqual(authorization_header(token), header)
 
     def test_stopped_wait_includes_instance_id(self):
         with patch(
@@ -451,31 +438,38 @@ class FlyioUtilsTests(TestCase):
             request.assert_called_once()
 
     def test_get_resource_rejects_other_resources_for_expected_identity(self):
-        for result in (None, [], {}, {"name": "other"}):
+        app = (
+            "/apps/example",
+            {"name": "example"},
+            "GET /apps/example returned a different resource: expected name='example'",
+        )
+        machine = (
+            "/apps/example/machines/machine-one",
+            {"id": "machine-one"},
+            "GET /apps/example/machines/machine-one returned a different resource: expected id='machine-one'",
+        )
+        for result, ok_statuses, (path, expected, message) in (
+            (None, None, app),
+            ([], None, app),
+            ({}, None, app),
+            ({"name": "other"}, None, app),
+            # An empty success is not the tolerated missing resource.
+            (None, [404], app),
+            ({"id": "machine-two"}, None, machine),
+        ):
             with (
-                self.subTest(result=result),
+                self.subTest(result=result, ok_statuses=ok_statuses, path=path),
                 patch(f"{FLYIO_UTILS}.api_request", return_value=result),
                 self.assertRaises(FlyioApiError) as raised,
             ):
-                get_resource({}, "/apps/example", expected={"name": "example"})
+                get_resource({}, path, ok_statuses=ok_statuses, expected=expected)
 
-            self.assertIn("returned a different resource", str(raised.exception))
+            self.assertEqual(str(raised.exception), message)
 
     def test_get_resource_returns_response_as_reported(self):
         for result in ([], {"name": " "}):
             with self.subTest(result=result), patch(f"{FLYIO_UTILS}.api_request", return_value=result):
                 self.assertEqual(get_resource({}, "/apps/example/secrets"), result)
-
-    def test_get_resource_reports_identity_mismatch(self):
-        with (
-            patch(f"{FLYIO_UTILS}.api_request", return_value={"name": "other"}),
-            self.assertRaises(FlyioApiError) as raised,
-        ):
-            get_resource({}, "/apps/example", expected={"name": "example"})
-
-        self.assertEqual(
-            str(raised.exception), "GET /apps/example returned a different resource: expected name='example'"
-        )
 
     def test_get_resource_accepts_tolerated_missing_resource(self):
         with patch(
@@ -483,30 +477,6 @@ class FlyioUtilsTests(TestCase):
             return_value=_MISSING,
         ):
             self.assertIsNone(get_resource({}, "/apps/missing", ok_statuses=[404]))
-
-    def test_get_resource_rejects_empty_success_with_tolerated_status(self):
-        with (
-            patch(
-                f"{FLYIO_UTILS}.api_request",
-                return_value=None,
-            ),
-            self.assertRaises(FlyioApiError),
-        ):
-            get_resource({}, "/apps/example", ok_statuses=[404], expected={"name": "example"})
-
-    def test_get_resource_rejects_unexpected_identity(self):
-        with (
-            patch(
-                f"{FLYIO_UTILS}.api_request",
-                return_value={"id": "machine-two"},
-            ),
-            self.assertRaises(FlyioApiError),
-        ):
-            get_resource(
-                {},
-                "/apps/example/machines/machine-one",
-                expected={"id": "machine-one"},
-            )
 
     def test_list_all_accepts_missing_parent(self):
         with patch(
@@ -653,15 +623,6 @@ class FlyioUtilsTests(TestCase):
         self.assertEqual(get.call_args.kwargs["timeout"], 11)
         sleep.assert_not_called()
         self.assertEqual(result, app)
-
-    def test_client_accepts_token_with_trailing_newline(self):
-        module = Mock(params={"api_token": "abc123\n"})
-
-        with flyio_client(module) as client:
-            pass
-
-        module.fail_json.assert_not_called()
-        self.assertEqual(client["headers"]["Authorization"], "Bearer abc123")
 
     def test_lost_write_response_marks_write_sent(self):
         writes = (
@@ -838,10 +799,3 @@ class FlyioUtilsTests(TestCase):
 
         self.assertEqual(raised.exception.status_code, 503)
         self.assertIsNone(raised.exception.response_body)
-
-    def test_authorization_header_recognises_all_macaroon_prefixes(self):
-        for token in ("fm1a_abc", "fm1r_abc", "fm2_abc", "fo1_x, fm2_abc"):
-            with self.subTest(token=token):
-                self.assertEqual(authorization_header(token), f"FlyV1 {token}")
-
-        self.assertEqual(authorization_header("fo1_abc"), "Bearer fo1_abc")
