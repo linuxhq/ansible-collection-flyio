@@ -1,6 +1,0 @@
----
-minor_changes:
-  - >-
-    machines - send a numeric check ``interval`` below ``1`` to Fly.io instead
-    of failing before the request. Fly.io rejects any ``interval`` below
-    ``2s``, numeric or string, on the only write, so nothing is changed.
