@@ -12,8 +12,15 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     ModuleFail,
 )
 
+# Volumes Fly.io is deleting; fly-go's destroyedVolumeStates without pending_destroy, which counts as gone.
+DELETING_STATES = ("destroying", "fork_cleanup", "scheduling_destroy", "waiting_for_detach")
+
 
 class FindVolumeTests(TestCase):
+    def test_deleting_states_match_fly(self):
+        self.assertEqual(volumes.DELETING_STATES, set(DELETING_STATES))
+        self.assertEqual(volumes.DEAD_STATES, {"destroyed", "pending_destroy"})
+
     def setUp(self):
         clock = patch.object(volumes, "wait_deadline", return_value=60)
         clock.start()
@@ -195,23 +202,7 @@ class FindVolumeTests(TestCase):
         self.assertIsNone(result)
 
     def test_includes_deleting_volume_only_when_requested(self):
-        deleting = {"id": "vol_old", "state": "scheduling_destroy"}
-
-        with patch.object(flyio_utils, "get_resource", return_value=deleting):
-            self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", volume_id="vol_old"))
-            self.assertEqual(
-                volumes.find_volume(
-                    FakeModule({}),
-                    {},
-                    "example",
-                    volume_id="vol_old",
-                    include_deleting=True,
-                ),
-                deleting,
-            )
-
-    def test_includes_detaching_and_fork_cleanup_volumes_only_when_requested(self):
-        for state in ("fork_cleanup", "waiting_for_detach"):
+        for state in DELETING_STATES:
             with self.subTest(state=state):
                 deleting = {"id": "vol_old", "state": state}
 
@@ -246,28 +237,31 @@ class FindVolumeTests(TestCase):
         )
         self.assertEqual(raised.exception.values["volume_ids"], ["vol_one", "vol_two"])
 
-    def test_multiple_deleting_volumes_are_not_ambiguous_for_absent(self):
-        deleting = [
-            {"id": "vol_one", "name": "data", "region": "ord", "state": "destroying"},
-            {"id": "vol_two", "name": "data", "region": "ord", "state": "destroying"},
-        ]
-
-        with patch.object(volumes, "list_all", return_value=deleting):
-            found = volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True)
-
-        self.assertEqual(found["id"], "vol_one")
-
-    def test_detaching_and_fork_cleanup_volumes_are_not_ambiguous(self):
-        for state in ("fork_cleanup", "waiting_for_detach"):
+    def test_deleting_volumes_are_not_ambiguous(self):
+        for state in DELETING_STATES:
             with self.subTest(state=state):
                 deleting = {"id": "vol_old", "name": "data", "region": "ord", "state": state}
                 created = {"id": "vol_new", "name": "data", "region": "ord", "state": "created"}
 
+                # A live volume is preferred, including for an absent lookup.
                 with patch.object(volumes, "list_all", return_value=[deleting, created]):
-                    found = volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord")
+                    self.assertEqual(
+                        volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord"), created
+                    )
+                    found = volumes.find_volume(
+                        FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True
+                    )
 
                 self.assertEqual(found, created)
 
+                with patch.object(volumes, "list_all", return_value=[deleting]):
+                    found = volumes.find_volume(
+                        FakeModule({}), {}, "example", name="data", region="ord", include_deleting=True
+                    )
+
+                self.assertEqual(found, deleting)
+
+                # Several deleting volumes are not ambiguous; any one satisfies an absent lookup.
                 with patch.object(volumes, "list_all", return_value=[deleting, {**deleting, "id": "vol_two"}]):
                     self.assertIsNone(volumes.find_volume(FakeModule({}), {}, "example", name="data", region="ord"))
                     found = volumes.find_volume(
@@ -877,7 +871,46 @@ class FindVolumeTests(TestCase):
 
         self.assertFalse(raised.exception.values["changed"])
 
-    def test_rejects_volume_shrink(self):
+    def test_leaves_volume_shrink_to_fly(self):
+        current = {
+            "encrypted": True,
+            "id": "vol_one",
+            "size_gb": 10,
+            "state": "created",
+        }
+        module = FakeModule(
+            {
+                "api_token": "token",
+                "app_name": "example",
+                "encrypted": None,
+                "id": "vol_one",
+                "name": None,
+                "region": None,
+                "size_gb": 5,
+                "wait": False,
+                "wait_timeout": 60,
+            }
+        )
+        error = FlyioApiError(
+            "PUT /apps/example/volumes/vol_one/extend failed: HTTP Error 400: Invalid volume size - Specified volume size must be greater than 10",
+            status_code=400,
+        )
+
+        # Fly.io rejects the smaller size and leaves the volume unchanged, so the failure reports no change.
+        with (
+            patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "api_request", side_effect=error) as request,
+            self.assertRaises(ModuleFail) as raised,
+            volumes.flyio_client(module) as client,
+        ):
+            volumes.ensure_present(module, client)
+
+        request.assert_called_once_with(client, "put", "/apps/example/volumes/vol_one/extend", body={"size_gb": 5})
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["status_code"], 400)
+        self.assertEqual(raised.exception.values["volume"], current)
+
+    def test_check_mode_predicts_fly_rejection_of_shrink(self):
         current = {
             "encrypted": True,
             "id": "vol_one",
@@ -894,19 +927,24 @@ class FindVolumeTests(TestCase):
                 "size_gb": 5,
                 "wait": False,
                 "wait_timeout": 60,
-            }
+            },
+            check_mode=True,
         )
 
         with (
             patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "api_request") as request,
             self.assertRaises(ModuleFail) as raised,
         ):
             volumes.ensure_present(module, {})
 
+        request.assert_not_called()
         self.assertEqual(
             raised.exception.values["msg"],
-            "Volume 'vol_one' in app 'example' cannot be shrunk from 10 GiB to 5 GiB",
+            "Fly.io would reject the request to extend volume 'vol_one' in app 'example': Invalid volume size - Specified volume size must be greater than 10",
         )
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["volume"], current)
 
     def test_fails_when_volume_deletion_times_out(self):
         current = {"id": "vol_one", "state": "scheduling_destroy"}
@@ -984,23 +1022,6 @@ class FindVolumeTests(TestCase):
 
         self.assertFalse(raised.exception.values["changed"])
 
-    def test_absent_name_lookup_prefers_live_volume(self):
-        deleting = {"id": "vol_old", "name": "data", "region": "ord", "state": "destroying"}
-        live = {"id": "vol_new", "name": "data", "region": "ord", "state": "created"}
-        module = FakeModule({"app_name": "example"})
-
-        with patch.object(volumes, "list_all", return_value=[deleting, live]):
-            self.assertEqual(
-                volumes.find_volume(module, {}, "example", name="data", region="ord", include_deleting=True),
-                live,
-            )
-
-        with patch.object(volumes, "list_all", return_value=[deleting]):
-            self.assertEqual(
-                volumes.find_volume(module, {}, "example", name="data", region="ord", include_deleting=True),
-                deleting,
-            )
-
     def test_diff_mode_reports_extension(self):
         current = {"encrypted": True, "id": "vol_one", "size_gb": 1, "state": "created"}
         module = FakeModule(
@@ -1053,30 +1074,37 @@ class FindVolumeTests(TestCase):
         self.assertEqual(raised.exception.values["volume"]["size_gb"], 3)
         self.assertEqual(raised.exception.values["diff"], {"before": {"size_gb": 1}, "after": {"size_gb": 3}})
 
-    def test_transitioning_volume_without_wait_reports_shrink(self):
+    def test_transitioning_volume_without_wait_reports_shrink_as_change(self):
         current = {"encrypted": True, "id": "vol_one", "size_gb": 3, "state": "extending"}
-        module = FakeModule(
-            {
-                "app_name": "example",
-                "id": "vol_one",
-                "name": None,
-                "region": None,
-                "encrypted": True,
-                "size_gb": 2,
-                "wait": False,
-                "wait_timeout": 60,
-            }
-        )
+        for check_mode in (True, False):
+            module = FakeModule(
+                {
+                    "app_name": "example",
+                    "id": "vol_one",
+                    "name": None,
+                    "region": None,
+                    "encrypted": True,
+                    "size_gb": 2,
+                    "wait": False,
+                    "wait_timeout": 60,
+                },
+                check_mode=check_mode,
+            )
 
-        with (
-            patch.object(volumes, "find_volume", return_value=current),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            volumes.ensure_present(module, {})
+            # A smaller size is a requested change, so it fails like any change to a transitioning volume.
+            with (
+                self.subTest(check_mode=check_mode),
+                patch.object(volumes, "find_volume", return_value=current),
+                patch.object(volumes, "api_request") as request,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                volumes.ensure_present(module, {})
 
-        self.assertEqual(
-            raised.exception.values["msg"], "Volume 'vol_one' in app 'example' cannot be shrunk from 3 GiB to 2 GiB"
-        )
+            request.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "Volume 'vol_one' in app 'example' is transitioning; enable wait or retry",
+            )
 
     def test_diff_mode_reports_deleted_volume_fields(self):
         current = {

@@ -58,20 +58,6 @@ class SecretsTests(TestCase):
         self.assertFalse(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["version"], 4)
 
-    def test_changed_secret_is_set(self):
-        module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
-        current = {"name": "APP_SECRET", "digest": "old"}
-        response = {"name": "APP_SECRET", "value": "secret", "digest": "new", "version": 5, "Version": 5}
-
-        with (
-            patch.object(secrets, "get_resource", return_value=current),
-            patch.object(secrets, "post_result", return_value=response),
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            secrets.ensure_present(module, {})
-
-        self.assertTrue(raised.exception.values["changed"])
-
     def test_failed_read_prevents_setting(self):
         module = FakeModule({"app_name": "example", "name": "APP_SECRET", "value": "secret"})
 

@@ -11,8 +11,6 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     ModuleFail,
 )
 
-FLYIO_UTILS = "ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils"
-
 
 class VolumesInfoTests(TestCase):
     def test_info(self):
@@ -66,7 +64,7 @@ class VolumesInfoTests(TestCase):
         module = FakeModule({"app_name": "example"})
 
         with (
-            patch(f"{FLYIO_UTILS}.api_request", return_value=listed),
+            patch.object(flyio_utils, "api_request", return_value=listed),
             self.assertRaises(ModuleExit) as raised,
         ):
             volumes_info.list_resources(module, {})

@@ -20,6 +20,18 @@ MACHINES_API_URL = "https://api.machines.dev/v1"
 _MISSING = object()
 # Machines in these states are gone.
 MACHINE_TERMINAL_STATES = {"destroyed", "replaced", "migrated"}
+# IP address fields requested from GraphQL, in the snake_case form the modules return.
+IP_ADDRESS_FIELDS = """
+    id
+    address
+    type
+    region
+    created_at: createdAt
+    network {
+        name
+    }
+    service_name: serviceName
+"""
 # Region groups accepted by Fly.io create requests; Fly.io picks the actual region.
 REGION_GROUPS = {
     "africa",
@@ -80,12 +92,17 @@ def flyio_client(module):
         if exc.write_sent:
             mark_changed(module)
 
-        module.fail_json(
-            msg=str(exc),
-            error=str(exc),
-            status_code=exc.status_code,
-            response=exc.response_body,
-        )
+        module.fail_json(msg=str(exc), **api_error_result(exc))
+
+
+def api_error_result(exc):
+    """Result fields describing a Fly.io API error."""
+    return {"error": str(exc), "status_code": exc.status_code, "response": exc.response_body}
+
+
+def fail_rejected_request(module, action, errors, **result):
+    """In check mode, fail as the real run would when Fly.io is known to reject the request."""
+    module.fail_json(msg=f"Fly.io would reject the request to {action}: " + "; ".join(errors), **result)
 
 
 def mark_changed(module):
@@ -190,12 +207,8 @@ def delete_result(client, path, timeout=30):
     return api_request(client, "delete", path, timeout=timeout)
 
 
-def nonempty_string(value):
-    return isinstance(value, str) and bool(value.strip())
-
-
-def positive_int(value):
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+def blank(value):
+    return isinstance(value, str) and not value.strip()
 
 
 def ip_version(value):
@@ -215,26 +228,20 @@ def shared_ip_address(address):
 
 def get_ip_addresses(client, app_name, missing_ok=False):
     operation = f"List IP addresses for app '{app_name}'"
-    query = """
+    query = (
+        """
         query($appName: String!) {
             app(name: $appName) {
                 sharedIpAddress
                 ipAddresses {
-                    nodes {
-                        id
-                        address
-                        type
-                        region
-                        created_at: createdAt
-                        network {
-                            name
-                        }
-                        service_name: serviceName
-                    }
+                    nodes {"""
+        + IP_ADDRESS_FIELDS
+        + """}
                 }
             }
         }
     """
+    )
     try:
         data = graphql_request(
             client,
@@ -344,14 +351,14 @@ def require_region_code(module):
 def require_nonempty(module, *names):
     """Fail when any named string option is set but blank; unset options are left to the argument spec."""
     for name in names:
-        value = module.params.get(name)
-        if isinstance(value, str) and not value.strip():
+        if blank(module.params.get(name)):
             module.fail_json(msg=f"{name} must not be empty")
 
 
 def require_positive(module, *names):
     for name in names:
-        if not positive_int(module.params[name]):
+        value = module.params[name]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
             module.fail_json(msg=f"{name} must be greater than zero")
 
 

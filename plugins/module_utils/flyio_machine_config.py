@@ -358,6 +358,7 @@ def normalize_config_comparison(config, requested):
 def machine_config_changed(current_config, desired_config):
     current_config = normalize_config_comparison(current_config, desired_config)
     desired_config = normalize_config_comparison(desired_config, desired_config)
+    # Index the image so a request without one never passes as unchanged and keeps the current image.
     if current_config.get("image") != desired_config["image"]:
         return True
 
