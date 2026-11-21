@@ -65,7 +65,8 @@ options:
       - Must be greater than zero.
       - When the command exceeds the timeout, the task fails and reports a
         change because the command may have run.
-      - Fly.io accepts at most C(600).
+      - Fly.io accepts at most C(600). In check mode, a larger value fails
+        with Fly.io's error as the real run does.
 requirements:
   - python >= 3.9
 attributes:
@@ -116,6 +117,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     FlyioApiError,
     api_error_result,
     api_token_option,
+    fail_rejected_request,
     flyio_client,
     flyio_path,
     get_machine,
@@ -134,6 +136,14 @@ def exec_command(module, client):
         machine = get_machine(client, app_name, machine_id)
         if machine is None or machine["state"] in MACHINE_TERMINAL_STATES:
             module.fail_json(msg=f"Machine '{machine_id}' not found in app '{app_name}'")
+
+        # Fly.io rejects a longer timeout with HTTP 400 before running the command.
+        if module.params["timeout"] > 600:
+            fail_rejected_request(
+                module,
+                f"execute a command on Machine '{machine_id}' in app '{app_name}'",
+                ["timeout must not exceed 600 seconds"],
+            )
 
         # Fly.io rejects exec with HTTP 412 unless the Machine is running.
         if machine["state"] != "started":

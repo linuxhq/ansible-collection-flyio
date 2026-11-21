@@ -2080,6 +2080,18 @@ class MachinesTests(TestCase):
                 self.assertFalse(raised.exception.values.get("changed", False))
                 self.assertEqual(raised.exception.values["status_code"], 400)
 
+    def test_present_with_null_image_fails_before_lookup(self):
+        for check_mode in (False, True):
+            with (
+                self.subTest(check_mode=check_mode),
+                patch.object(machines, "find_machine") as find,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines.ensure_present(FakeModule(params(image=None), check_mode=check_mode), {})
+
+            find.assert_not_called()
+            self.assertEqual(raised.exception.values["msg"], "image is required when state=present")
+
     def test_machine_destroyed_elsewhere_after_read_is_unchanged(self):
         current = {"id": "machine-one", "version": "instance-one", "state": "started"}
         module = FakeModule(params(image=None))
@@ -2979,6 +2991,42 @@ class MachinesTests(TestCase):
         guest = machine_config.merge_config(current, desired)["guest"]
 
         self.assertEqual(guest, {"cpu_kind": "shared", "cpus": 1, "memory_mb": 1024})
+
+    def test_fewer_cpus_drops_inherited_max_memory(self):
+        current = {"guest": {"cpu_kind": "shared", "cpus": 2, "memory_mb": 512, "max_memory_mb": 4096}}
+
+        guest = machine_config.merge_config(current, {"guest": {"cpus": 1}})["guest"]
+
+        self.assertEqual(guest, {"cpu_kind": "shared", "cpus": 1, "memory_mb": 512})
+
+    def test_performance_to_shared_drops_inherited_max_memory(self):
+        current = {"guest": {"cpu_kind": "performance", "cpus": 1, "memory_mb": 2048, "max_memory_mb": 8192}}
+
+        guest = machine_config.merge_config(current, {"guest": {"cpu_kind": "shared", "cpus": 1}})["guest"]
+
+        self.assertEqual(guest, {"cpu_kind": "shared", "cpus": 1, "memory_mb": 2048})
+
+    def test_requested_max_memory_kept_when_guest_shrinks(self):
+        current = {"guest": {"cpu_kind": "performance", "cpus": 2, "memory_mb": 4096, "max_memory_mb": 16384}}
+        desired = {"guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 512, "max_memory_mb": 1024}}
+
+        guest = machine_config.merge_config(current, desired)["guest"]
+
+        self.assertEqual(guest["max_memory_mb"], 1024)
+
+    def test_unchanged_guest_keeps_inherited_max_memory(self):
+        current = {"guest": {"cpu_kind": "performance", "cpus": 2, "memory_mb": 4096, "max_memory_mb": 16384}}
+        for desired in ({"cpus": 2}, {"cpu_kind": "performance"}, {"cpus": 4}):
+            with self.subTest(desired=desired):
+                guest = machine_config.merge_config(current, {"guest": desired})["guest"]
+
+                self.assertEqual(guest["max_memory_mb"], 16384)
+
+    def test_shrunk_guest_without_max_memory_converges(self):
+        current = {"guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 512, "max_memory_mb": 2048}}
+        desired = {"guest": {"cpus": 1}, "image": "example:latest"}
+
+        self.assertFalse(machine_config.machine_config_changed({**current, "image": "example:latest"}, desired))
 
     def test_memory_within_inherited_max_memory_keeps_max_memory(self):
         current = {"guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 1024}}
