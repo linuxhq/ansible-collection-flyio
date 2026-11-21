@@ -109,18 +109,21 @@ class IpAddressesTests(TestCase):
 
     def test_existing_global_private_address_is_unchanged(self):
         current = {"address": "fdaa::1", "region": "global", "type": "private_v6"}
-        module = FakeModule({"app_name": "example", "region": "", "type": "private_v6"})
 
-        with (
-            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
-            patch.object(ip_addresses, "graphql_request") as query,
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            ip_addresses.ensure_present(module, {})
+        for region in ("", " "):
+            with self.subTest(region=region):
+                module = FakeModule({"app_name": "example", "region": region, "type": "private_v6"})
 
-        query.assert_not_called()
-        self.assertFalse(raised.exception.values["changed"])
-        self.assertEqual(raised.exception.values["ip_address"], current)
+                with (
+                    patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+                    patch.object(ip_addresses, "graphql_request") as query,
+                    self.assertRaises(ModuleExit) as raised,
+                ):
+                    ip_addresses.ensure_present(module, {})
+
+                query.assert_not_called()
+                self.assertFalse(raised.exception.values["changed"])
+                self.assertEqual(raised.exception.values["ip_address"], current)
 
     def test_private_address_on_custom_network_is_not_the_default_address(self):
         custom = {"address": "fdaa::2", "network": {"name": "custom-net"}, "region": "global", "type": "private_v6"}
@@ -580,19 +583,6 @@ class IpAddressesTests(TestCase):
             raised.exception.values["msg"],
             "Multiple 'v6' addresses in region 'global' match for app 'example'; specify address",
         )
-
-    def test_whitespace_region_selects_global_address(self):
-        module = FakeModule({"app_name": "example", "region": " ", "type": "private_v6"})
-        current = {"address": "fdaa::1", "region": "global", "type": "private_v6"}
-
-        with (
-            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            ip_addresses.ensure_present(module, {})
-
-        self.assertFalse(raised.exception.values["changed"])
-        self.assertEqual(raised.exception.values["ip_address"], current)
 
     def test_allocation_returns_address_as_reported(self):
         module = FakeModule({"app_name": "example", "region": "ord", "type": "v4"})

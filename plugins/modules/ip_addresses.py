@@ -245,7 +245,7 @@ def ips_by_type_and_region(addresses, ip_type, region):
 
 
 def valid_address(value):
-    if not isinstance(value, str) or "%" in value:
+    if "%" in value:
         return False
 
     try:

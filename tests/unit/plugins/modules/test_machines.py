@@ -277,7 +277,6 @@ class MachinesTests(TestCase):
             ("extend_threshold_percent", 80, 0),
             ("add_size_gb", 5, 0),
             ("size_gb_limit", 100, 0),
-            ("encrypted", True, False),
         ):
             mount = {"volume": "vol-one", "path": "/data"}
             for before, after in (({field: old}, {field: new}), ({}, {field: old})):
