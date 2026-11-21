@@ -1,0 +1,5 @@
+---
+bugfixes:
+  - >-
+    apps - fail in check mode with Fly.io's error when creating an app with
+    an empty ``org_slug``, as the real run does.

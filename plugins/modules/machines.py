@@ -849,7 +849,7 @@ def find_machine(module, client, app_name, name=None, machine_id=None, missing_o
 
 def validate_minimum(module, value, name, minimum):
     """Reject a number below minimum; Fly.io drops or replaces such values, so they could never match."""
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and value < minimum:
+    if below(value, minimum):
         module.fail_json(msg=f"{name} must be at least {minimum}")
 
 

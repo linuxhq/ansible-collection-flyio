@@ -201,21 +201,25 @@ class AppsTests(TestCase):
         self.assertEqual(raised.exception.values["app"], {"name": "example"})
 
     def test_check_mode_predicts_fly_rejection_without_org_slug(self):
-        module = FakeModule({"name": "example", "network": None, "org_slug": None}, check_mode=True)
+        # Fly.io rejects an empty org_slug exactly as it rejects an omitted one.
+        for org_slug in (None, ""):
+            with self.subTest(org_slug=org_slug):
+                module = FakeModule({"name": "example", "network": None, "org_slug": org_slug}, check_mode=True)
 
-        with (
-            patch.object(apps, "get_app", return_value=None),
-            patch.object(apps, "post_result") as post,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            apps.ensure_present(module, {})
+                with (
+                    patch.object(apps, "get_app", return_value=None),
+                    patch.object(apps, "post_result") as post,
+                    self.assertRaises(ModuleFail) as raised,
+                ):
+                    apps.ensure_present(module, {})
 
-        post.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Fly.io would reject the request to create app 'example': authorization: request doesn't contain org_slug",
-        )
-        self.assertNotIn("changed", raised.exception.values)
+                post.assert_not_called()
+                self.assertEqual(
+                    raised.exception.values["msg"],
+                    "Fly.io would reject the request to create app 'example': "
+                    "authorization: request doesn't contain org_slug",
+                )
+                self.assertNotIn("changed", raised.exception.values)
 
     def test_leaves_missing_org_slug_to_fly_on_create(self):
         module = FakeModule({"api_token": "token", "name": "example", "network": None, "org_slug": None})

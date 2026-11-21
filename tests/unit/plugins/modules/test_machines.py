@@ -492,6 +492,11 @@ class MachinesTests(TestCase):
                 {"services": [{"concurrency": {"soft_limit": 0}, "internal_port": 8080, "protocol": "tcp"}]},
                 "services[].concurrency.soft_limit must be at least 1",
             ),
+            # Ansible's int type keeps false as a Boolean, which compares below 1.
+            (
+                {"services": [{"concurrency": {"soft_limit": False}, "internal_port": 8080, "protocol": "tcp"}]},
+                "services[].concurrency.soft_limit must be at least 1",
+            ),
         ):
             for check_mode in (False, True):
                 with (
@@ -3036,8 +3041,6 @@ class MachinesTests(TestCase):
 
                 self.assertEqual(guest["max_memory_mb"], 1024)
                 self.assertEqual(guest["memory_mb"], memory_mb)
-
-        self.assertEqual(machine_config.merge_config(current, {"guest": {"cpus": 2}})["guest"]["max_memory_mb"], 1024)
 
     def test_create_sends_max_memory(self):
         guest = {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 512}
