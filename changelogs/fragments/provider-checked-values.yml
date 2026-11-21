@@ -1,0 +1,27 @@
+---
+minor_changes:
+  - >-
+    machines - send values that Fly.io rejects on the only write to Fly.io
+    instead of failing before the request: a check ``port`` of ``0``, a
+    service ``port`` or ``start_port`` below ``1``, an empty check ``type`` or
+    check name, ``guest.cpus`` or ``guest.memory_mb`` below ``1``, an empty
+    ``guest.cpu_kind``, ``statics[].guest_path``, ``statics[].url_prefix``,
+    ``mounts[].volume``, ``files[].secret_name``, or ``env`` key. Nothing is
+    changed. Check mode fails with the error Fly.io returns, as the real run
+    does, and also for a check ``interval`` below ``2s``.
+  - >-
+    machines - send values that Fly.io stores as given instead of failing
+    before the request: an empty check ``kind``, ``method``, ``path``,
+    ``protocol``, or ``tls_server_name``, an empty ``metadata`` key, a
+    whitespace-only check name or check header ``name``, an empty service
+    HTTP response header name, and a service ``end_port`` of ``0``. An empty
+    check header ``name`` still fails, because Fly.io drops it.
+  - >-
+    volumes - send a create without ``size_gb`` to Fly.io instead of failing
+    before the request. Fly.io rejects it, so no volume is created. Check mode
+    fails with the error Fly.io returns, as the real run does.
+trivial:
+  - apps - document that ``org_slug`` must be the slug Fly.io reports, not the
+    ``personal`` alias.
+  - secrets_info - document that ``secrets`` is empty when the app does not
+    exist.

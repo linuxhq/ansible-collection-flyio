@@ -24,6 +24,9 @@ options:
     type: str
     description:
       - Organization slug.
+      - Must be the organization's slug as Fly.io reports it, not the
+        C(personal) alias, because the alias never matches the slug Fly.io
+        reports for an existing app.
       - Required when creating an app.
       - When the app already exists, the task fails before making changes if
         O(org_slug) differs from the organization slug Fly.io reports for the

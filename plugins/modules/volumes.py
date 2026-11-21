@@ -57,7 +57,8 @@ options:
     type: int
     description:
       - Volume size in GiB.
-      - Required when creating a volume.
+      - Required when creating a volume. Fly.io rejects a create without it,
+        and check mode fails for such a create as the real run does.
       - Fly.io accepts sizes from C(1) up to the organization's maximum
         volume size (C(500) by default).
       - Used only when O(state=present).
@@ -460,9 +461,6 @@ def create_volume(module, client, deadline):
     if params.get("id") is not None:
         module.fail_json(msg=f"Volume '{params['id']}' not found in app '{app_name}'")
 
-    if params["size_gb"] is None:
-        module.fail_json(msg="size_gb is required when creating a volume")
-
     body = {
         "name": params["name"],
         "region": params["region"],
@@ -473,6 +471,15 @@ def create_volume(module, client, deadline):
 
     diff = diff_result(module, {}, body)
     if module.check_mode:
+        if params["size_gb"] is None:
+            # Fly.io rejects a create without size_gb with HTTP 400; predict that failure.
+            module.fail_json(
+                msg=(
+                    f"Fly.io would reject the request to create volume '{params['name']}' in app '{app_name}': "
+                    "size_gb must be set"
+                )
+            )
+
         module.exit_json(changed=True, message="Volume would be created", **diff)
 
     current = post_result(client, flyio_path("apps", app_name, "volumes"), body)

@@ -96,9 +96,10 @@ class FindVolumeTests(TestCase):
                 ok_statuses=[404],
             )
 
-    def test_requires_size_when_creating(self):
+    def test_leaves_missing_size_to_fly_when_creating(self):
         module = FakeModule(
             {
+                "api_token": "token",
                 "app_name": "example",
                 "encrypted": None,
                 "id": None,
@@ -109,6 +110,35 @@ class FindVolumeTests(TestCase):
                 "wait_timeout": 60,
             }
         )
+        error = FlyioApiError("POST /apps/example/volumes failed: HTTP Error 400: size_gb must be set", status_code=400)
+
+        # Fly.io rejects the create before changing anything, so the failure reports no change.
+        with (
+            patch.object(volumes, "find_volume", return_value=None),
+            patch.object(volumes, "post_result", side_effect=error) as post,
+            self.assertRaises(ModuleFail) as raised,
+            volumes.flyio_client(module) as client,
+        ):
+            volumes.ensure_present(module, client)
+
+        post.assert_called_once_with(client, "/apps/example/volumes", {"name": "data", "region": "ord"})
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["status_code"], 400)
+
+    def test_check_mode_predicts_fly_rejection_without_size(self):
+        module = FakeModule(
+            {
+                "app_name": "example",
+                "encrypted": None,
+                "id": None,
+                "name": "data",
+                "region": "ord",
+                "size_gb": None,
+                "wait": False,
+                "wait_timeout": 60,
+            },
+            check_mode=True,
+        )
 
         with (
             patch.object(volumes, "find_volume", return_value=None),
@@ -118,7 +148,11 @@ class FindVolumeTests(TestCase):
             volumes.ensure_present(module, {})
 
         post.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "size_gb is required when creating a volume")
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Fly.io would reject the request to create volume 'data' in app 'example': size_gb must be set",
+        )
+        self.assertNotIn("changed", raised.exception.values)
 
     def test_skips_pending_destroy(self):
         pending = {

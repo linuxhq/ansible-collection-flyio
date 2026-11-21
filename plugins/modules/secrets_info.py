@@ -22,6 +22,7 @@ options:
     type: str
     description:
       - App name.
+      - Returns an empty list when the app does not exist.
 requirements:
   - python >= 3.9
 attributes:
@@ -44,7 +45,9 @@ EXAMPLES = r"""
 RETURN = r"""
 ---
 secrets:
-  description: List of Fly.io secret metadata, as Fly.io returns it.
+  description:
+    - List of Fly.io secret metadata, as Fly.io returns it.
+    - Empty when O(app_name) names an app that does not exist.
   returned: always
   type: list
   elements: dict
