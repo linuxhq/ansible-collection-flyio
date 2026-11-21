@@ -496,6 +496,37 @@ class MachinesTests(TestCase):
                 {"services": [{"concurrency": {"soft_limit": False}, "internal_port": 8080, "protocol": "tcp"}]},
                 "services[].concurrency.soft_limit must be at least 1",
             ),
+            ({"image": None}, "image is required when state=present"),
+            ({"init": {"tty": True}}, "init.tty cannot be true because Fly.io ignores it"),
+            (
+                {"region": "us"},
+                "region must be a single region code; region lists and groups are not supported",
+            ),
+            (
+                {"region": "any"},
+                "region must be a single region code; region lists and groups are not supported",
+            ),
+            (
+                {"region": "ord,iad"},
+                "region must be a single region code; region lists and groups are not supported",
+            ),
+            (
+                {"region": "Europe"},
+                "region must be a single region code; region lists and groups are not supported",
+            ),
+            ({"guest": {"host_dedication_id": " "}}, "guest.host_dedication_id must not be empty"),
+            (
+                {
+                    "services": [
+                        {
+                            "internal_port": 80,
+                            "protocol": "tcp",
+                            "ports": [{"port": 80, "proxy_proto_options": {"version": ""}}],
+                        }
+                    ]
+                },
+                "services[].ports[].proxy_proto_options.version must not be empty",
+            ),
         ):
             for check_mode in (False, True):
                 with (
@@ -2084,18 +2115,6 @@ class MachinesTests(TestCase):
                 self.assertFalse(raised.exception.values.get("changed", False))
                 self.assertEqual(raised.exception.values["status_code"], 400)
 
-    def test_present_with_null_image_fails_before_lookup(self):
-        for check_mode in (False, True):
-            with (
-                self.subTest(check_mode=check_mode),
-                patch.object(machines, "find_machine") as find,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(FakeModule(params(image=None), check_mode=check_mode), {})
-
-            find.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], "image is required when state=present")
-
     def test_machine_destroyed_elsewhere_after_read_is_unchanged(self):
         current = {"id": "machine-one", "version": "instance-one", "state": "started"}
         module = FakeModule(params(image=None))
@@ -2720,21 +2739,6 @@ class MachinesTests(TestCase):
         ):
             machines.ensure_present(FakeModule(params()), {})
 
-    def test_rejects_region_lists_and_groups(self):
-        for region in ("us", "any", "ord,iad", "Europe"):
-            with (
-                self.subTest(region=region),
-                patch.object(machines, "find_machine") as find,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(FakeModule(params(region=region)), {})
-
-            find.assert_not_called()
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "region must be a single region code; region lists and groups are not supported",
-            )
-
     def test_unchanged_transitioning_machine_without_wait_is_unchanged(self):
         current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "starting"}
 
@@ -3272,32 +3276,6 @@ class MachinesTests(TestCase):
         post.assert_not_called()
         self.assertEqual(raised.exception.values["msg"], "services[].concurrency.soft_limit must not exceed hard_limit")
 
-    def test_rejects_empty_optional_strings(self):
-        for updates, name in (
-            ({"guest": {"host_dedication_id": " "}}, "guest.host_dedication_id"),
-            (
-                {
-                    "services": [
-                        {
-                            "internal_port": 80,
-                            "protocol": "tcp",
-                            "ports": [{"port": 80, "proxy_proto_options": {"version": ""}}],
-                        }
-                    ]
-                },
-                "services[].ports[].proxy_proto_options.version",
-            ),
-        ):
-            with (
-                self.subTest(name=name),
-                patch.object(machines, "find_machine") as find,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                machines.ensure_present(FakeModule(params(**updates)), {})
-
-            find.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], f"{name} must not be empty")
-
     def test_region_is_normalized_to_lowercase_code(self):
         module = FakeModule(params(region=" ORD "))
 
@@ -3638,16 +3616,6 @@ class MachinesTests(TestCase):
         self.assertEqual(raised.exception.values["message"], "Machine created; it completed and destroyed itself")
         self.assertEqual(raised.exception.values["diff"]["before"], {})
         self.assertEqual(raised.exception.values["diff"]["after"]["config"]["image"], "example:latest")
-
-    def test_rejects_tty_that_fly_ignores(self):
-        with (
-            patch.object(machines, "find_machine") as find,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(FakeModule(params(init={"tty": True})), {})
-
-        find.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "init.tty cannot be true because Fly.io ignores it")
 
     def test_region_change_fails_before_waiting_for_transition(self):
         for region in ("ord", ""):
