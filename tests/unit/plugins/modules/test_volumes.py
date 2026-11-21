@@ -12,8 +12,15 @@ from ansible_collections.linuxhq.flyio.tests.unit.plugins.modules.utils import (
     ModuleFail,
 )
 
+# Volumes Fly.io is deleting; fly-go's destroyedVolumeStates without pending_destroy, which counts as gone.
+DELETING_STATES = ("destroying", "fork_cleanup", "scheduling_destroy", "waiting_for_detach")
+
 
 class FindVolumeTests(TestCase):
+    def test_deleting_states_match_fly(self):
+        self.assertEqual(volumes.DELETING_STATES, set(DELETING_STATES))
+        self.assertEqual(volumes.DEAD_STATES, {"destroyed", "pending_destroy"})
+
     def setUp(self):
         clock = patch.object(volumes, "wait_deadline", return_value=60)
         clock.start()
@@ -195,7 +202,7 @@ class FindVolumeTests(TestCase):
         self.assertIsNone(result)
 
     def test_includes_deleting_volume_only_when_requested(self):
-        for state in sorted(volumes.DELETING_STATES):
+        for state in DELETING_STATES:
             with self.subTest(state=state):
                 deleting = {"id": "vol_old", "state": state}
 
@@ -231,7 +238,7 @@ class FindVolumeTests(TestCase):
         self.assertEqual(raised.exception.values["volume_ids"], ["vol_one", "vol_two"])
 
     def test_deleting_volumes_are_not_ambiguous(self):
-        for state in sorted(volumes.DELETING_STATES):
+        for state in DELETING_STATES:
             with self.subTest(state=state):
                 deleting = {"id": "vol_old", "name": "data", "region": "ord", "state": state}
                 created = {"id": "vol_new", "name": "data", "region": "ord", "state": "created"}
