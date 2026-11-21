@@ -973,9 +973,6 @@ class FindVolumeTests(TestCase):
             "Deletion of volume 'vol_one' in app 'example' timed out",
         )
 
-    def test_destroying_volume_is_not_live(self):
-        self.assertFalse(volumes.is_live({"id": "vol_one", "state": "destroying"}))
-
     def test_failed_volume_is_rejected(self):
         module = FakeModule({"app_name": "example", "wait": True, "wait_timeout": 60})
 

@@ -205,7 +205,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     get_ip_addresses,
     graphql_not_found,
     graphql_request,
-    ip_version,
     shared_ip_address,
 )
 
@@ -243,6 +242,18 @@ def ips_by_type_and_region(addresses, ip_type, region):
         and (ip_type in GLOBAL_TYPES or normalize_region(addr.get("region")) == region)
         and (ip_type != "private_v6" or on_default_network(addr))
     ]
+
+
+def valid_address(value):
+    if not isinstance(value, str) or "%" in value:
+        return False
+
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+
+    return True
 
 
 def find_ip_by_address(addresses, address):
@@ -322,7 +333,7 @@ def ensure_absent(module, client):
     app_name = params["app_name"]
     address = params.get("address")
     ip_type = params.get("type")
-    if address is not None and ip_version(address) is None:
+    if address is not None and not valid_address(address):
         module.fail_json(msg="address must be a valid IPv4 or IPv6 address")
 
     region = validate_region(module, ip_type, params["region"])

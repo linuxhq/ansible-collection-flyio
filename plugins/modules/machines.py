@@ -849,7 +849,7 @@ def find_machine(module, client, app_name, name=None, machine_id=None, missing_o
 
 def validate_minimum(module, value, name, minimum):
     """Reject a number below minimum; Fly.io drops or replaces such values, so they could never match."""
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and value < minimum:
+    if below(value, minimum):
         module.fail_json(msg=f"{name} must be at least {minimum}")
 
 
@@ -943,8 +943,7 @@ def validate_concurrency_limits(module, requested_services, effective_services=N
     for requested, effective in zip(requested_services, effective_services):
         soft_limit = (requested.get("concurrency") or {}).get("soft_limit")
         # Fly.io replaces a requested soft_limit of 0 with its default, so 0 could never be applied.
-        if soft_limit is not None and soft_limit < 1:
-            module.fail_json(msg="services[].concurrency.soft_limit must be at least 1")
+        validate_minimum(module, soft_limit, "services[].concurrency.soft_limit", 1)
 
         hard_limit = (effective.get("concurrency") or {}).get("hard_limit")
         if soft_limit is not None and hard_limit is not None and 0 < hard_limit < soft_limit:

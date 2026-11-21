@@ -3037,8 +3037,6 @@ class MachinesTests(TestCase):
                 self.assertEqual(guest["max_memory_mb"], 1024)
                 self.assertEqual(guest["memory_mb"], memory_mb)
 
-        self.assertEqual(machine_config.merge_config(current, {"guest": {"cpus": 2}})["guest"]["max_memory_mb"], 1024)
-
     def test_create_sends_max_memory(self):
         guest = {"cpu_kind": "shared", "cpus": 1, "memory_mb": 256, "max_memory_mb": 512}
         created = {

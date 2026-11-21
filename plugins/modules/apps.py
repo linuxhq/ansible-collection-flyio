@@ -27,8 +27,9 @@ options:
       - Must be the organization's slug as Fly.io reports it, not the
         C(personal) alias, because the alias never matches the slug Fly.io
         reports for an existing app.
-      - Required when creating an app. Fly.io rejects a create without it,
-        and check mode fails for such a create as the real run does.
+      - Required when creating an app. Fly.io rejects a create without it or
+        with an empty value, and check mode fails for such a create as the
+        real run does.
       - When the app already exists, the task fails before making changes if
         O(org_slug) differs from the organization slug Fly.io reports for the
         app.
@@ -218,8 +219,8 @@ def ensure_present(module, client):
         module.exit_json(changed=False, message="App already present", app=current)
 
     if module.check_mode:
-        if params.get("org_slug") is None:
-            # Fly.io rejects a create without org_slug with HTTP 400; predict that failure.
+        if params.get("org_slug") in (None, ""):
+            # Fly.io rejects a create with a missing or empty org_slug with HTTP 400; predict that failure.
             fail_rejected_request(
                 module, f"create app '{params['name']}'", ["authorization: request doesn't contain org_slug"]
             )

@@ -3,7 +3,6 @@
 
 
 import http.client
-import ipaddress
 import json
 import math
 import time
@@ -209,16 +208,6 @@ def delete_result(client, path, timeout=30):
 
 def blank(value):
     return isinstance(value, str) and not value.strip()
-
-
-def ip_version(value):
-    if not isinstance(value, str) or "%" in value:
-        return None
-
-    try:
-        return ipaddress.ip_address(value).version
-    except ValueError:
-        return None
 
 
 def shared_ip_address(address):
