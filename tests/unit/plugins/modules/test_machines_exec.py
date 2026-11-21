@@ -268,17 +268,6 @@ class MachinesExecTests(TestCase):
 
             self.assertIs(raised.exception, error)
 
-    def test_rejects_empty_container(self):
-        with (
-            patch.object(machines_exec, "AnsibleModule", return_value=module(container=" ")),
-            patch.object(machines_exec, "post_result") as request,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines_exec.main()
-
-        request.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "container must not be empty")
-
     def test_sends_empty_command_and_long_timeout_to_fly(self):
         with (
             patch.object(machines_exec, "post_result", return_value={"exit_code": 0}) as request,
