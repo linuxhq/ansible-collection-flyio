@@ -589,6 +589,15 @@ class MachinesTests(TestCase):
             {"files": [{"guest_path": "/etc/example.conf", "raw_value": "ZXhhbXBsZQ"}]},
             "invalid_argument: /etc/example.conf file is not base64 encoded",
         ),
+        # Some Python versions accept excess padding, but Fly.io rejects it.
+        (
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "YWJj="}]},
+            "invalid_argument: /etc/example.conf file is not base64 encoded",
+        ),
+        (
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "YWJj\n=="}]},
+            "invalid_argument: /etc/example.conf file is not base64 encoded",
+        ),
         (
             {"statics": [{"guest_path": "", "url_prefix": "/assets"}]},
             "static must have either tigris_bucket or url_prefix and guest_path",
@@ -698,6 +707,8 @@ class MachinesTests(TestCase):
     def test_check_mode_predicts_create_for_values_fly_accepts(self):
         for update in (
             {"files": [{"guest_path": "/etc/example.conf", "raw_value": "ZXhh\r\nbXBs\nZQ==\n"}]},
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "YW=="}]},
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "YWI="}]},
             {"mounts": [{"path": "data", "volume": "vol-data"}]},
         ):
             with (

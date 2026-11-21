@@ -914,6 +914,7 @@ class FindVolumeTests(TestCase):
         request.assert_called_once_with(client, "put", "/apps/example/volumes/vol_one/extend", body={"size_gb": 5})
         self.assertNotIn("changed", raised.exception.values)
         self.assertEqual(raised.exception.values["status_code"], 400)
+        self.assertEqual(raised.exception.values["volume"], current)
 
     def test_check_mode_predicts_fly_rejection_of_shrink(self):
         current = {

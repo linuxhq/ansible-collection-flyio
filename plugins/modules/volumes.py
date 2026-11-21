@@ -424,12 +424,26 @@ def update_volume(module, client, current, deadline):
             **diff_result(module, {"size_gb": original_size}, {"size_gb": desired_size}),
         )
 
-    result = api_request(
-        client,
-        "put",
-        flyio_path("apps", app_name, "volumes", volume_id, "extend"),
-        body={"size_gb": desired_size},
-    )
+    try:
+        result = api_request(
+            client,
+            "put",
+            flyio_path("apps", app_name, "volumes", volume_id, "extend"),
+            body={"size_gb": desired_size},
+        )
+    except FlyioApiError as exc:
+        if exc.write_sent:
+            raise
+
+        # Fly.io rejected the request, such as a smaller size, so return the unchanged volume with its error.
+        module.fail_json(
+            msg=str(exc),
+            error=str(exc),
+            status_code=exc.status_code,
+            response=exc.response_body,
+            volume=current,
+        )
+
     mark_changed(module)
     if params["wait"]:
         current = wait_volume_created(module, client, volume_id, deadline, size_gb=desired_size)
