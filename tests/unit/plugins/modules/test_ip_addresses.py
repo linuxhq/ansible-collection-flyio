@@ -44,18 +44,6 @@ class IpAddressesTests(TestCase):
             [{"address": "private", "region": "global", "type": "private_v6"}],
         )
 
-    def test_existing_address_is_unchanged(self):
-        current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
-        module = FakeModule({"app_name": "example", "region": "ord", "type": "v4"})
-
-        with (
-            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            ip_addresses.ensure_present(module, {})
-
-        self.assertFalse(raised.exception.values["changed"])
-
     def test_allocates_shared_address(self):
         module = FakeModule({"app_name": "example", "region": "", "type": "shared_v4"})
         response = {"allocateIpAddress": {"app": {"sharedIpAddress": "1.2.3.4"}, "ipAddress": None}}
@@ -261,24 +249,25 @@ class IpAddressesTests(TestCase):
                     [app_address],
                 )
 
-    def test_rejects_regional_private_address_before_lookup(self):
-        for state in ("present", "absent"):
-            module = FakeModule({"app_name": "example", "address": None, "region": "iad", "type": "private_v6"})
+    def test_rejects_regional_global_type_address_before_lookup(self):
+        for ip_type in ("shared_v4", "private_v6"):
+            for state in ("present", "absent"):
+                module = FakeModule({"app_name": "example", "address": None, "region": "iad", "type": ip_type})
 
-            with (
-                self.subTest(state=state),
-                patch.object(ip_addresses, "get_ip_addresses") as get,
-                patch.object(ip_addresses, "graphql_request") as query,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                getattr(ip_addresses, f"ensure_{state}")(module, {})
+                with (
+                    self.subTest(ip_type=ip_type, state=state),
+                    patch.object(ip_addresses, "get_ip_addresses") as get,
+                    patch.object(ip_addresses, "graphql_request") as query,
+                    self.assertRaises(ModuleFail) as raised,
+                ):
+                    getattr(ip_addresses, f"ensure_{state}")(module, {})
 
-            get.assert_not_called()
-            query.assert_not_called()
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "region must be global for type=private_v6",
-            )
+                get.assert_not_called()
+                query.assert_not_called()
+                self.assertEqual(
+                    raised.exception.values["msg"],
+                    f"region must be global for type={ip_type}",
+                )
 
     def test_normalizes_global_region_before_allocation(self):
         module = FakeModule({"app_name": "example", "region": "global", "type": "v6"})
@@ -304,21 +293,6 @@ class IpAddressesTests(TestCase):
             {"input": {"appId": "example", "type": "v6"}},
         )
         self.assertEqual(raised.exception.values["ip_address"], response["allocateIpAddress"]["ipAddress"])
-
-    def test_rejects_regional_shared_address_before_lookup(self):
-        module = FakeModule({"app_name": "example", "region": "iad", "type": "shared_v4"})
-
-        with (
-            patch.object(ip_addresses, "get_ip_addresses") as get,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            ip_addresses.ensure_present(module, {})
-
-        get.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "region must be global for type=shared_v4",
-        )
 
     def test_releases_address(self):
         current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
@@ -506,7 +480,7 @@ class IpAddressesTests(TestCase):
 
     def test_region_case_and_whitespace_match_existing_address(self):
         current = {"address": "1.2.3.4", "region": "iad", "type": "v4"}
-        for region in ("IAD", " iad "):
+        for region in ("iad", "IAD", " iad "):
             module = FakeModule({"app_name": "example", "region": region, "type": "v4"})
             with (
                 self.subTest(region=region),

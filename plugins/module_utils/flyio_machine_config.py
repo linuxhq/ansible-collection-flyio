@@ -153,8 +153,8 @@ def merge_config(current, desired):
 
     requested_guest = desired.get("guest") or {}
     current_guest = current.get("guest") or {}
-    if "max_memory_mb" not in requested_guest and (config.get("guest") or {}).get("max_memory_mb") is not None:
-        max_memory = config["guest"]["max_memory_mb"]
+    max_memory = current_guest.get("max_memory_mb")
+    if "max_memory_mb" not in requested_guest and max_memory is not None:
         requested_memory = requested_guest.get("memory_mb")
         requested_cpus = requested_guest.get("cpus")
         current_cpus = current_guest.get("cpus")

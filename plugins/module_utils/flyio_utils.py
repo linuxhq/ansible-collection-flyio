@@ -135,10 +135,7 @@ def _error_response(exc):
     try:
         return json.loads(content)
     except ValueError:
-        if isinstance(content, bytes):
-            return content.decode("utf-8", errors="replace")
-
-        return str(content)
+        return content.decode("utf-8", errors="replace")
 
 
 def _error_reason(response_body):

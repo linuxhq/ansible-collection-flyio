@@ -59,45 +59,28 @@ class AppsTests(TestCase):
 
             self.assertFalse(raised.exception.values["changed"])
 
-    def test_existing_app_with_different_org_slug_fails(self):
+    def test_existing_app_with_different_org_slug_or_network_fails(self):
         current = {"name": "example", "network": "default", "organization": {"name": "linuxhq", "slug": "linuxhq"}}
 
-        for check_mode in (True, False):
-            module = FakeModule({"name": "example", "network": None, "org_slug": "other"}, check_mode=check_mode)
+        for option, requested, actual in (("org_slug", "other", "linuxhq"), ("network", "other", "default")):
+            for check_mode in (True, False):
+                # The other option matches, so only the option under test can fail.
+                params = {"name": "example", "network": "default", "org_slug": "linuxhq", option: requested}
+                module = FakeModule(params, check_mode=check_mode)
 
-            with (
-                self.subTest(check_mode=check_mode),
-                patch.object(apps, "get_app", return_value=current),
-                patch.object(apps, "post_result") as post,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                apps.ensure_present(module, {})
+                with (
+                    self.subTest(option=option, check_mode=check_mode),
+                    patch.object(apps, "get_app", return_value=current),
+                    patch.object(apps, "post_result") as post,
+                    self.assertRaises(ModuleFail) as raised,
+                ):
+                    apps.ensure_present(module, {})
 
-            post.assert_not_called()
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "App 'example' has org_slug 'linuxhq', not the requested org_slug 'other'",
-            )
-
-    def test_existing_app_with_different_network_fails(self):
-        current = {"name": "example", "network": "default", "organization": {"name": "linuxhq", "slug": "linuxhq"}}
-
-        for check_mode in (True, False):
-            module = FakeModule({"name": "example", "network": "other", "org_slug": "linuxhq"}, check_mode=check_mode)
-
-            with (
-                self.subTest(check_mode=check_mode),
-                patch.object(apps, "get_app", return_value=current),
-                patch.object(apps, "post_result") as post,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                apps.ensure_present(module, {})
-
-            post.assert_not_called()
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "App 'example' has network 'default', not the requested network 'other'",
-            )
+                post.assert_not_called()
+                self.assertEqual(
+                    raised.exception.values["msg"],
+                    f"App 'example' has {option} '{actual}', not the requested {option} '{requested}'",
+                )
 
     def test_creates_app_with_network(self):
         module = FakeModule({"name": "example", "network": "private", "org_slug": "linuxhq"})
