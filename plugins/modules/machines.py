@@ -58,7 +58,7 @@ options:
     type: str
     description:
       - Container image reference.
-      - Required when O(state=present), and must not be empty.
+      - Required when O(state=present).
   init:
     type: dict
     description:
@@ -754,7 +754,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_machine_config
     CHECK_DURATION_FIELDS,
     build_config,
     duration_nanoseconds,
-    existing_check,
     machine_config_changed,
     merge_config,
     mounts_differ,
@@ -906,25 +905,6 @@ def validate_checks(module, checks):
         validate_check_headers(module, name, check.get("headers"))
 
 
-def validate_paths(module, config):
-    for option, field in (("files", "guest_path"), ("mounts", "path")):
-        if any(not item[field].startswith("/") for item in config.get(option) or []):
-            module.fail_json(msg=f"{option}[].{field} must be an absolute path")
-
-
-def validate_files(module, files):
-    for file in files:
-        raw_value = file.get("raw_value")
-        if raw_value is None:
-            continue
-
-        try:
-            # Fly.io decodes Base64 with line breaks ignored.
-            base64.b64decode(raw_value.replace("\r", "").replace("\n", ""), validate=True)
-        except (binascii.Error, TypeError, ValueError):
-            module.fail_json(msg="files[].raw_value must be valid Base64")
-
-
 def validate_services(module, services):
     for service in services:
         validate_minimum(module, service.get("internal_port"), "services[].internal_port", 1)
@@ -984,9 +964,7 @@ def validate_restart(module, restart):
 def validate_config(module, config):
     validate_string_mappings(module, config)
     validate_checks(module, config.get("checks"))
-    validate_files(module, config.get("files") or [])
     validate_mounts(module, config.get("mounts") or [])
-    validate_paths(module, config)
     validate_restart(module, config.get("restart"))
     validate_services(module, config.get("services") or [])
 
@@ -999,17 +977,35 @@ def below(value, minimum):
     return isinstance(value, int) and not isinstance(value, bool) and value < minimum
 
 
+def base64_encoded(value):
+    try:
+        # Fly.io decodes Base64 with line breaks ignored.
+        base64.b64decode(value.replace("\r", "").replace("\n", ""), validate=True)
+    except (binascii.Error, ValueError):
+        return False
+
+    return True
+
+
 def predicted_rejections(config):
     """Errors Fly.io returns, changing nothing, for requested values it rejects on the first write."""
     errors = []
+    image = config.get("image")
+    if image == "":
+        errors.append("config.image required")
+    elif blank(image):
+        errors.append("config.image: invalid image identifier")
+
     for name, check in (config.get("checks") or {}).items():
         if name == "":
             errors.append("check name can't be empty")
 
-        if check.get("port") == 0:
+        if check.get("port") in (None, 0):
             errors.append(f"check '{name}' has invalid or missing port")
 
-        if blank(check.get("type")):
+        if check.get("type") is None:
+            errors.append(f"check '{name}' has an Invalid type '<nil>'")
+        elif blank(check["type"]):
             errors.append(f"check '{name}' has an Invalid type")
 
         if below(duration_nanoseconds(check.get("interval")), 2_000_000_000):
@@ -1051,8 +1047,15 @@ def predicted_rejections(config):
         elif blank(key):
             errors.append("Env Name can't be blank")
 
-    if any(file.get("secret_name") == "" for file in config.get("files") or []):
-        errors.append("secret_name is required")
+    for file in config.get("files") or []:
+        if file.get("secret_name") == "":
+            errors.append("secret_name is required")
+
+        # Fly.io reports a relative guest_path before the file's content.
+        if not file["guest_path"].startswith("/"):
+            errors.append("invalid_argument: guest_path must be absolute")
+        elif file.get("raw_value") is not None and not base64_encoded(file["raw_value"]):
+            errors.append(f"invalid_argument: {file['guest_path']} file is not base64 encoded")
 
     return errors
 
@@ -1070,16 +1073,7 @@ def predict_rejection(module, action, desired_config, **result):
         )
 
 
-def validate_complete_config(module, config, existing_checks=()):
-    for name, check in config.get("checks", {}).items():
-        if name in existing_checks:
-            continue
-
-        missing = {"port", "type"} - check.keys()
-        if missing:
-            module.fail_json(msg=f"check '{name}' requires {' and '.join(sorted(missing))}")
-
-    restart = config.get("restart")
+def validate_restart_policy(module, restart):
     if restart is not None and "policy" not in restart:
         module.fail_json(msg="restart.policy is required")
 
@@ -1297,21 +1291,10 @@ def update_machine(module, client, current, desired_config, deadline):
     current_config = validate_machine_update(module, current, desired_config)
 
     config = merge_config(current_config, desired_config)
-    current_checks = current_config.get("checks") or {}
-    # A check whose type changes is replaced, so it must be complete like a new check.
-    existing_checks = {
-        name
-        for name, check in (desired_config.get("checks") or {}).items()
-        if existing_check(current_checks, name, check)
-    }
-
     # Merged services follow the requested order, so each requested service pairs with its merged result.
     validate_concurrency_limits(module, desired_config.get("services") or [], config.get("services") or [])
-    validate_complete_config(
-        module,
-        {field: config[field] for field in ("checks", "restart") if field in desired_config},
-        existing_checks,
-    )
+    if "restart" in desired_config:
+        validate_restart_policy(module, config["restart"])
 
     if not machine_config_changed(current_config, desired_config):
         module.exit_json(
@@ -1332,10 +1315,12 @@ def update_machine(module, client, current, desired_config, deadline):
     diff = diff_result(module, {"config": current_config}, {"config": config})
     if module.check_mode:
         # Check only requested values; Fly.io already accepted the current configuration.
-        requested = desired_config
-        if "statics" in desired_config:
-            # Requested statics replace the current ones, and their merged entries keep a current tigris_bucket.
-            requested = {**desired_config, "statics": config["statics"]}
+        requested = dict(desired_config)
+        # Requested checks and statics replace the current ones, and their merged entries keep current fields,
+        # such as a check's port or a static's tigris_bucket.
+        for field in ("checks", "statics"):
+            if field in desired_config:
+                requested[field] = config[field]
 
         predict_rejection(module, f"update Machine '{current['id']}'", requested, machine=current)
         module.exit_json(
@@ -1380,7 +1365,7 @@ def create_machine(module, client, desired_config, deadline):
     if params.get("id") is not None:
         module.fail_json(msg=f"Machine '{params['id']}' not found in app '{app_name}'")
 
-    validate_complete_config(module, desired_config)
+    validate_restart_policy(module, desired_config.get("restart"))
     body = {"config": desired_config}
     if params.get("name") is not None:
         body["name"] = params["name"]
@@ -1419,7 +1404,6 @@ def create_machine(module, client, desired_config, deadline):
 
 def ensure_present(module, client):
     params = module.params
-    require_nonempty(module, "image")
     if (params.get("init") or {}).get("tty"):
         # Fly.io ignores tty, so true could never be applied or verified.
         module.fail_json(msg="init.tty cannot be true because Fly.io ignores it")

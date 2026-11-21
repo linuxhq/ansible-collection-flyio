@@ -1,0 +1,21 @@
+---
+minor_changes:
+  - >-
+    machines - send values that Fly.io rejects on the first write to Fly.io
+    instead of failing before the request: an empty or blank ``image``, a
+    ``files[].guest_path`` that is not absolute, a ``files[].raw_value`` that
+    is not valid Base64, and a new or replaced check without ``port`` or
+    ``type``. Nothing is changed. Check mode fails with the error Fly.io
+    returns, as the real run does.
+  - >-
+    machines - send a ``mounts[].path`` that is not absolute to Fly.io instead
+    of failing before the request. Fly.io stores it as given.
+  - >-
+    volumes - send a smaller ``size_gb`` for an existing volume to Fly.io
+    instead of failing before the request. Fly.io rejects it and leaves the
+    volume unchanged. Check mode fails with the error Fly.io returns, as the
+    real run does.
+  - >-
+    apps - send a create without ``org_slug`` to Fly.io instead of failing
+    before the request. Fly.io rejects it, so no app is created. Check mode
+    fails with the error Fly.io returns, as the real run does.

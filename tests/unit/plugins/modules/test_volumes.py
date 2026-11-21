@@ -877,7 +877,45 @@ class FindVolumeTests(TestCase):
 
         self.assertFalse(raised.exception.values["changed"])
 
-    def test_rejects_volume_shrink(self):
+    def test_leaves_volume_shrink_to_fly(self):
+        current = {
+            "encrypted": True,
+            "id": "vol_one",
+            "size_gb": 10,
+            "state": "created",
+        }
+        module = FakeModule(
+            {
+                "api_token": "token",
+                "app_name": "example",
+                "encrypted": None,
+                "id": "vol_one",
+                "name": None,
+                "region": None,
+                "size_gb": 5,
+                "wait": False,
+                "wait_timeout": 60,
+            }
+        )
+        error = FlyioApiError(
+            "PUT /apps/example/volumes/vol_one/extend failed: HTTP Error 400: Invalid volume size - Specified volume size must be greater than 10",
+            status_code=400,
+        )
+
+        # Fly.io rejects the smaller size and leaves the volume unchanged, so the failure reports no change.
+        with (
+            patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "api_request", side_effect=error) as request,
+            self.assertRaises(ModuleFail) as raised,
+            volumes.flyio_client(module) as client,
+        ):
+            volumes.ensure_present(module, client)
+
+        request.assert_called_once_with(client, "put", "/apps/example/volumes/vol_one/extend", body={"size_gb": 5})
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["status_code"], 400)
+
+    def test_check_mode_predicts_fly_rejection_of_shrink(self):
         current = {
             "encrypted": True,
             "id": "vol_one",
@@ -894,19 +932,24 @@ class FindVolumeTests(TestCase):
                 "size_gb": 5,
                 "wait": False,
                 "wait_timeout": 60,
-            }
+            },
+            check_mode=True,
         )
 
         with (
             patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "api_request") as request,
             self.assertRaises(ModuleFail) as raised,
         ):
             volumes.ensure_present(module, {})
 
+        request.assert_not_called()
         self.assertEqual(
             raised.exception.values["msg"],
-            "Volume 'vol_one' in app 'example' cannot be shrunk from 10 GiB to 5 GiB",
+            "Fly.io would reject the request to extend volume 'vol_one' in app 'example': Invalid volume size - Specified volume size must be greater than 10",
         )
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["volume"], current)
 
     def test_fails_when_volume_deletion_times_out(self):
         current = {"id": "vol_one", "state": "scheduling_destroy"}
@@ -1053,8 +1096,9 @@ class FindVolumeTests(TestCase):
         self.assertEqual(raised.exception.values["volume"]["size_gb"], 3)
         self.assertEqual(raised.exception.values["diff"], {"before": {"size_gb": 1}, "after": {"size_gb": 3}})
 
-    def test_transitioning_volume_without_wait_reports_shrink(self):
+    def test_transitioning_volume_without_wait_predicts_shrink_rejection(self):
         current = {"encrypted": True, "id": "vol_one", "size_gb": 3, "state": "extending"}
+        settled = {**current, "state": "created"}
         module = FakeModule(
             {
                 "app_name": "example",
@@ -1065,17 +1109,21 @@ class FindVolumeTests(TestCase):
                 "size_gb": 2,
                 "wait": False,
                 "wait_timeout": 60,
-            }
+            },
+            check_mode=True,
         )
 
+        # A smaller size is a change, so the volume settles before the prediction.
         with (
             patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "settle_volume", return_value=settled),
             self.assertRaises(ModuleFail) as raised,
         ):
             volumes.ensure_present(module, {})
 
         self.assertEqual(
-            raised.exception.values["msg"], "Volume 'vol_one' in app 'example' cannot be shrunk from 3 GiB to 2 GiB"
+            raised.exception.values["msg"],
+            "Fly.io would reject the request to extend volume 'vol_one' in app 'example': Invalid volume size - Specified volume size must be greater than 3",
         )
 
     def test_diff_mode_reports_deleted_volume_fields(self):

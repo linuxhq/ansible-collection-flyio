@@ -375,7 +375,6 @@ class MachinesTests(TestCase):
 
     def test_rejects_invalid_config_before_api_lookup(self):
         for update, message in (
-            ({"image": " "}, "image must not be empty"),
             ({"region": " "}, "region must not be empty"),
             ({"env": {1: "value"}}, "env keys must be strings"),
             ({"metadata": {(1, 2): "value"}}, "metadata keys must be strings"),
@@ -484,32 +483,6 @@ class MachinesTests(TestCase):
                 {"restart": {"max_retries": 0, "policy": "on-failure"}},
                 "restart.max_retries must be at least 1",
             ),
-            (
-                {
-                    "files": [
-                        {
-                            "guest_path": "etc/example.conf",
-                            "raw_value": "ZXhhbXBsZQ==",
-                        }
-                    ]
-                },
-                "files[].guest_path must be an absolute path",
-            ),
-            (
-                {
-                    "files": [
-                        {
-                            "guest_path": "/etc/example.conf",
-                            "raw_value": "not Base64!",
-                        }
-                    ]
-                },
-                "files[].raw_value must be valid Base64",
-            ),
-            (
-                {"mounts": [{"path": "data", "volume": "vol-data"}]},
-                "mounts[].path must be an absolute path",
-            ),
         ):
             for check_mode in (False, True):
                 with (
@@ -565,10 +538,14 @@ class MachinesTests(TestCase):
                 machines.ensure_present(FakeModule(params(**update)), {})
 
     REJECTED_VALUES = (
+        ({"image": ""}, "config.image required"),
+        ({"image": " "}, "config.image: invalid image identifier"),
         ({"env": {"": "value"}}, "config.env: environment variable name cannot be empty"),
         ({"env": {" ": "value"}}, "Env Name can't be blank"),
         ({"checks": {"": {"port": 8080, "type": "tcp"}}}, "check name can't be empty"),
         ({"checks": {"health": {"port": 0, "type": "tcp"}}}, "check 'health' has invalid or missing port"),
+        ({"checks": {"health": {"type": "tcp"}}}, "check 'health' has invalid or missing port"),
+        ({"checks": {"health": {"port": 8080}}}, "check 'health' has an Invalid type '<nil>'"),
         ({"checks": {"health": {"port": 8080, "type": ""}}}, "check 'health' has an Invalid type"),
         ({"checks": {"health": {"port": 8080, "type": " "}}}, "check 'health' has an Invalid type"),
         (
@@ -600,6 +577,18 @@ class MachinesTests(TestCase):
         ({"mounts": [{"path": "/data", "volume": ""}]}, "config.mounts[0]: volume is required"),
         ({"mounts": [{"path": "/data", "volume": " "}]}, "volume not found"),
         ({"files": [{"guest_path": "/etc/example.conf", "secret_name": ""}]}, "secret_name is required"),
+        (
+            {"files": [{"guest_path": "etc/example.conf", "raw_value": "ZXhhbXBsZQ=="}]},
+            "invalid_argument: guest_path must be absolute",
+        ),
+        (
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "not Base64!"}]},
+            "invalid_argument: /etc/example.conf file is not base64 encoded",
+        ),
+        (
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "ZXhhbXBsZQ"}]},
+            "invalid_argument: /etc/example.conf file is not base64 encoded",
+        ),
         (
             {"statics": [{"guest_path": "", "url_prefix": "/assets"}]},
             "static must have either tigris_bucket or url_prefix and guest_path",
@@ -674,6 +663,54 @@ class MachinesTests(TestCase):
 
         self.assertTrue(raised.exception.values["changed"])
 
+    def test_check_mode_predicts_rejection_from_merged_checks(self):
+        current = {
+            "id": "machine-one",
+            "name": "worker",
+            "region": "ord",
+            "state": "started",
+            "config": {"checks": {"web": {"port": 8080, "type": "http"}}, "image": "example:latest"},
+        }
+        for check, expected in (
+            # A partial check keeps the current port and type, so Fly.io accepts it.
+            ({"interval": "15s"}, None),
+            ({"port": 9090}, None),
+            # A new type replaces the check, so the current port is not kept.
+            ({"type": "tcp"}, "check 'web' has invalid or missing port"),
+        ):
+            with (
+                self.subTest(check=check),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result") as post,
+                self.assertRaises(ModuleFail if expected else ModuleExit) as raised,
+            ):
+                machines.ensure_present(FakeModule(params(checks={"web": check}), check_mode=True), {})
+
+            post.assert_not_called()
+            if expected:
+                self.assertEqual(
+                    raised.exception.values["msg"],
+                    f"Fly.io would reject the request to update Machine 'machine-one' in app 'example': {expected}",
+                )
+            else:
+                self.assertTrue(raised.exception.values["changed"])
+
+    def test_check_mode_predicts_create_for_values_fly_accepts(self):
+        for update in (
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "ZXhh\r\nbXBs\nZQ==\n"}]},
+            {"mounts": [{"path": "data", "volume": "vol-data"}]},
+        ):
+            with (
+                self.subTest(update=update),
+                patch.object(machines, "find_machine", return_value=None),
+                patch.object(machines, "post_result") as post,
+                self.assertRaises(ModuleExit) as raised,
+            ):
+                machines.ensure_present(FakeModule(params(**update), check_mode=True), {})
+
+            post.assert_not_called()
+            self.assertTrue(raised.exception.values["changed"])
+
     def test_check_mode_predicts_change_for_values_fly_accepts(self):
         current = {
             "id": "machine-one",
@@ -706,6 +743,11 @@ class MachinesTests(TestCase):
         error = FlyioApiError("POST /apps/example/machines failed: HTTP Error 400: Bad Request", status_code=400)
         for update in (
             # Fly.io rejects these on the first write, so nothing changes.
+            {"image": ""},
+            {"checks": {"health": {"type": "tcp"}}},
+            {"checks": {"health": {"port": 8080}}},
+            {"files": [{"guest_path": "etc/example.conf", "raw_value": "ZXhhbXBsZQ=="}]},
+            {"files": [{"guest_path": "/etc/example.conf", "raw_value": "not Base64!"}]},
             {"env": {"": "value"}},
             {"checks": {"": {"port": 8080, "type": "tcp"}}},
             {"checks": {"health": {"port": 0, "type": "tcp"}}},
@@ -721,6 +763,7 @@ class MachinesTests(TestCase):
             {"statics": [{"guest_path": "", "url_prefix": "/assets"}]},
             {"statics": [{"guest_path": "/assets", "url_prefix": ""}]},
             # Fly.io stores these as given, so they converge.
+            {"mounts": [{"path": "data", "volume": "vol-data"}]},
             {"metadata": {"": "value"}},
             {"metadata": {" ": "value"}},
             {"checks": {" ": {"port": 8080, "type": "tcp"}}},
@@ -763,6 +806,7 @@ class MachinesTests(TestCase):
                     "health": {"kind": "", "method": "", "path": "", "port": 8080, "protocol": "", "type": "http"},
                 },
                 metadata={"": "value"},
+                mounts=[{"path": "data", "volume": "vol-data"}],
                 services=[
                     {
                         "internal_port": 8080,
@@ -972,40 +1016,39 @@ class MachinesTests(TestCase):
         self.assertEqual(post.call_args.args[2]["config"]["services"], [{"internal_port": 9090}])
         self.assertTrue(raised.exception.values["changed"])
 
-    def test_create_requires_complete_checks(self):
-        module = FakeModule(params(checks={"health": {"port": 8080}}))
-
-        with (
-            patch.object(machines, "find_machine", return_value=None),
-            patch.object(machines, "post_result") as post,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        post.assert_not_called()
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "check 'health' requires type",
-        )
-
-    def test_update_requires_complete_new_checks(self):
+    def test_update_sends_values_fly_checks(self):
         current = {
-            "config": {"image": "example:latest"},
+            "config": {"checks": {"web": {"port": 8080, "type": "http"}}, "image": "example:latest"},
             "id": "machine-one",
             "region": "ord",
             "state": "started",
         }
-        module = FakeModule(params(checks={"health": {"port": 8080}}, wait=False))
-
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "post_result") as post,
-            self.assertRaises(ModuleFail) as raised,
+        error = FlyioApiError(
+            "POST /apps/example/machines/machine-one failed: HTTP Error 400: config.image required", status_code=400
+        )
+        for update in (
+            {"image": ""},
+            # A new check and a replaced check are sent without the missing port or type.
+            {"checks": {"health": {"port": 8080}}},
+            {"checks": {"web": {"type": "tcp"}}},
         ):
-            machines.ensure_present(module, {})
+            module = FakeModule(params(**update, api_token="token", wait=False))
+            with (
+                self.subTest(update=update),
+                patch.object(machines, "find_machine", return_value=current),
+                patch.object(machines, "post_result", side_effect=error) as post,
+                self.assertRaises(ModuleFail) as raised,
+                machines.flyio_client(module) as client,
+            ):
+                machines.ensure_present(module, client)
 
-        post.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "check 'health' requires type")
+            config = post.call_args.args[2]["config"]
+            for field, value in update.items():
+                self.assertEqual(config[field], value)
+
+            # Fly.io rejects the update before changing anything, so the failure reports no change.
+            self.assertNotIn("changed", raised.exception.values)
+            self.assertEqual(raised.exception.values["status_code"], 400)
 
     def test_partial_check_update_preserves_normalized_header_values(self):
         for header in (
@@ -2534,25 +2577,6 @@ class MachinesTests(TestCase):
             machines.ensure_present(module, {})
 
         self.assertEqual(post.call_args.args[2]["config"]["checks"], {"web": desired})
-
-    def test_replaced_check_must_be_complete(self):
-        current = {
-            "config": {"checks": {"web": {"type": "http", "port": 8080}}, "image": "example:latest"},
-            "id": "machine-one",
-            "region": "ord",
-            "state": "started",
-        }
-        module = FakeModule(params(checks={"web": {"type": "tcp"}}, wait=False))
-
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            patch.object(machines, "post_result") as post,
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        post.assert_not_called()
-        self.assertEqual(raised.exception.values["msg"], "check 'web' requires port")
 
     def test_waits_for_migrating_machine_before_update(self):
         current = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "migrating"}

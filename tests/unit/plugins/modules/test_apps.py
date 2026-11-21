@@ -212,20 +212,41 @@ class AppsTests(TestCase):
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["app"], {"name": "example"})
 
-    def test_create_requires_org_slug(self):
-        for check_mode in (True, False):
-            module = FakeModule({"name": "example", "network": None, "org_slug": None}, check_mode=check_mode)
+    def test_check_mode_predicts_fly_rejection_without_org_slug(self):
+        module = FakeModule({"name": "example", "network": None, "org_slug": None}, check_mode=True)
 
-            with (
-                self.subTest(check_mode=check_mode),
-                patch.object(apps, "get_app", return_value=None),
-                patch.object(apps, "post_result") as post,
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                apps.ensure_present(module, {})
+        with (
+            patch.object(apps, "get_app", return_value=None),
+            patch.object(apps, "post_result") as post,
+            self.assertRaises(ModuleFail) as raised,
+        ):
+            apps.ensure_present(module, {})
 
-            post.assert_not_called()
-            self.assertEqual(raised.exception.values["msg"], "org_slug is required when creating an app")
+        post.assert_not_called()
+        self.assertEqual(
+            raised.exception.values["msg"],
+            "Fly.io would reject the request to create app 'example': authorization: request doesn't contain org_slug",
+        )
+        self.assertNotIn("changed", raised.exception.values)
+
+    def test_leaves_missing_org_slug_to_fly_on_create(self):
+        module = FakeModule({"api_token": "token", "name": "example", "network": None, "org_slug": None})
+        error = FlyioApiError(
+            "POST /apps failed: HTTP Error 400: authorization: request doesn't contain org_slug", status_code=400
+        )
+
+        # Fly.io rejects the create before changing anything, so the failure reports no change.
+        with (
+            patch.object(apps, "get_app", return_value=None),
+            patch.object(apps, "post_result", side_effect=error) as post,
+            self.assertRaises(ModuleFail) as raised,
+            apps.flyio_client(module) as client,
+        ):
+            apps.ensure_present(module, client)
+
+        post.assert_called_once_with(client, "/apps", {"name": "example"})
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["status_code"], 400)
 
     def test_blank_org_slug_is_sent_to_fly_on_create(self):
         module = FakeModule({"name": "example", "network": None, "org_slug": "", "state": "present"})

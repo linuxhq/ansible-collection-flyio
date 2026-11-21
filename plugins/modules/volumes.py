@@ -13,7 +13,8 @@ description:
   - If multiple live volumes have the same name and region, use O(id) to select one.
   - When O(state=present) and a volume with the given O(name) already exists
     in O(region), it will be extended if O(size_gb) exceeds the current size.
-  - Volumes cannot be shrunk.
+  - Volumes cannot be shrunk. Fly.io rejects a smaller O(size_gb) for an
+    existing volume, and check mode fails for it as the real run does.
 version_added: '1.0.0'
 author:
   - Taylor Kimball (@tkimball83)
@@ -387,18 +388,6 @@ def validate_volume_update(module, current):
     return current.get("size_gb")
 
 
-def reject_shrink(module, current, current_size):
-    desired_size = module.params["size_gb"]
-    if desired_size is not None and desired_size < current_size:
-        module.fail_json(
-            msg=(
-                f"Volume '{current['id']}' in app '{module.params['app_name']}' cannot be shrunk "
-                f"from {current_size} GiB to {desired_size} GiB"
-            ),
-            volume=current,
-        )
-
-
 def update_volume(module, client, current, deadline):
     params = module.params
     app_name = params["app_name"]
@@ -407,19 +396,27 @@ def update_volume(module, client, current, deadline):
     if not params["wait"] and current.get("state") in TRANSITIONAL_STATES:
         # Without wait, a volume that needs no change is reported unchanged instead of failing.
         current_size = validate_volume_update(module, current)
-        reject_shrink(module, current, current_size)
         if desired_size is None or desired_size == current_size:
             module.exit_json(changed=False, message="Volume already present", volume=current)
 
     current = settle_volume(module, client, current, deadline)
     current_size = validate_volume_update(module, current)
-    reject_shrink(module, current, current_size)
 
     if desired_size is None or desired_size == current_size:
         module.exit_json(changed=False, message="Volume already present", volume=current)
 
     original_size = current_size
     if module.check_mode:
+        if desired_size < current_size:
+            # Fly.io rejects a smaller size with HTTP 400 and leaves the volume unchanged; predict that failure.
+            module.fail_json(
+                msg=(
+                    f"Fly.io would reject the request to extend volume '{volume_id}' in app '{app_name}': "
+                    f"Invalid volume size - Specified volume size must be greater than {current_size}"
+                ),
+                volume=current,
+            )
+
         module.exit_json(
             changed=True,
             message="Volume would be extended",
