@@ -307,26 +307,26 @@ class IpAddressesTests(TestCase):
                 }
             )
 
-            with (
-                self.subTest(region=region),
-                patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
-                patch.object(
-                    ip_addresses,
-                    "graphql_request",
-                    return_value={"releaseIpAddress": {"clientMutationId": None}},
-                ) as query,
-                self.assertRaises(ModuleExit) as raised,
-            ):
-                ip_addresses.ensure_absent(module, {})
+            with self.subTest(region=region):
+                with (
+                    patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+                    patch.object(
+                        ip_addresses,
+                        "graphql_request",
+                        return_value={"releaseIpAddress": {"clientMutationId": None}},
+                    ) as query,
+                    self.assertRaises(ModuleExit) as raised,
+                ):
+                    ip_addresses.ensure_absent(module, {})
 
-            self.assertEqual(
-                query.call_args.args[2],
-                {"input": {"appId": "example", "ip": "1.2.3.4"}},
-            )
-            self.assertIn("clientMutationId", query.call_args.args[1])
-            self.assertNotIn("app {", query.call_args.args[1])
-            self.assertTrue(query.call_args.kwargs["mutation"])
-            self.assertTrue(raised.exception.values["changed"])
+                self.assertEqual(
+                    query.call_args.args[2],
+                    {"input": {"appId": "example", "ip": "1.2.3.4"}},
+                )
+                self.assertIn("clientMutationId", query.call_args.args[1])
+                self.assertNotIn("app {", query.call_args.args[1])
+                self.assertTrue(query.call_args.kwargs["mutation"])
+                self.assertTrue(raised.exception.values["changed"])
 
     def test_address_released_after_lookup_is_unchanged(self):
         current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
