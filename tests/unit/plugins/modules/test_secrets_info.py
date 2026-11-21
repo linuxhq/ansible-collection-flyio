@@ -31,21 +31,11 @@ class SecretsInfoTests(TestCase):
             response["secrets"],
         )
 
-    def test_missing_app_lists_no_secrets(self):
-        module = FakeModule({"app_name": "missing"})
-
-        with (
-            patch.object(secrets_info, "get_resource", return_value=None),
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            secrets_info.list_resources(module, {})
-
-        self.assertEqual(raised.exception.values["secrets"], [])
-
     def test_returns_listed_secrets_as_reported(self):
         module = FakeModule({"app_name": "example"})
 
         for response, expected in (
+            (None, []),
             ({}, []),
             ({"secrets": None}, []),
             ({"secrets": [{"name": "APP_SECRET", "digest": 1}]}, [{"name": "APP_SECRET", "digest": 1}]),

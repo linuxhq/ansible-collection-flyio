@@ -688,37 +688,41 @@ class FindVolumeTests(TestCase):
             "size_gb": 10,
             "state": "created",
         }
-        response = {
-            "needs_restart": False,
-            "volume": {**current, "size_gb": 20},
-        }
-        module = FakeModule(
-            {
-                "app_name": "example",
-                "encrypted": None,
-                "id": "vol_one",
-                "name": None,
-                "region": None,
-                "size_gb": 20,
-                "wait": True,
-                "wait_timeout": 60,
-            }
-        )
+        extended = {**current, "size_gb": 20}
 
-        for waited in (current, {"id": "vol_one", "state": "extending"}):
-            with (
-                self.subTest(waited=waited),
-                patch.object(volumes, "find_volume", return_value=current),
-                patch.object(volumes, "api_request", return_value=response),
-                patch.object(volumes, "wait_for_volume", return_value=waited),
-                self.assertRaises(ModuleFail) as raised,
-            ):
-                volumes.ensure_present(module, {})
-
-            self.assertEqual(
-                raised.exception.values["msg"],
-                "Extension of volume 'vol_one' in app 'example' timed out",
+        for reported, waited in (
+            (extended, current),
+            (extended, {"id": "vol_one", "state": "extending"}),
+            (current, current),
+        ):
+            # A fresh module per case, since a sent write wraps fail_json to report a change.
+            module = FakeModule(
+                {
+                    "app_name": "example",
+                    "encrypted": None,
+                    "id": "vol_one",
+                    "name": None,
+                    "region": None,
+                    "size_gb": 20,
+                    "wait": True,
+                    "wait_timeout": 60,
+                }
             )
+
+            with self.subTest(reported=reported, waited=waited):
+                with (
+                    patch.object(volumes, "find_volume", return_value=current),
+                    patch.object(volumes, "api_request", return_value={"needs_restart": False, "volume": reported}),
+                    patch.object(volumes, "wait_for_volume", return_value=waited),
+                    self.assertRaises(ModuleFail) as raised,
+                ):
+                    volumes.ensure_present(module, {})
+
+                self.assertEqual(
+                    raised.exception.values["msg"],
+                    "Extension of volume 'vol_one' in app 'example' timed out",
+                )
+                self.assertTrue(raised.exception.values["changed"])
 
     def test_waits_for_existing_volume_transition(self):
         current = {
@@ -1362,32 +1366,6 @@ class FindVolumeTests(TestCase):
         self.assertTrue(raised.exception.values["changed"])
         self.assertEqual(raised.exception.values["volume"], extended)
         self.assertEqual(raised.exception.values["needs_restart"], "yes")
-
-    def test_extension_wait_failure_reports_change(self):
-        current = {"encrypted": True, "id": "vol_one", "size_gb": 1, "state": "created"}
-        module = FakeModule(
-            {
-                "app_name": "example",
-                "encrypted": None,
-                "id": "vol_one",
-                "name": None,
-                "region": None,
-                "size_gb": 2,
-                "wait": True,
-                "wait_timeout": 60,
-            }
-        )
-
-        with (
-            patch.object(volumes, "find_volume", return_value=current),
-            patch.object(volumes, "api_request", return_value={"needs_restart": False, "volume": current}),
-            patch.object(volumes, "wait_for_volume", return_value=current),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            volumes.ensure_present(module, {})
-
-        self.assertEqual(raised.exception.values["msg"], "Extension of volume 'vol_one' in app 'example' timed out")
-        self.assertTrue(raised.exception.values["changed"])
 
     def test_delete_reports_change_for_any_response(self):
         current = {"id": "vol_one", "state": "created"}

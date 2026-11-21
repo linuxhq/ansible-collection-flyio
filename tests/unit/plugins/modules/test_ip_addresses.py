@@ -296,34 +296,37 @@ class IpAddressesTests(TestCase):
 
     def test_releases_address(self):
         current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
-        module = FakeModule(
-            {
-                "address": "1.2.3.4",
-                "app_name": "example",
-                "region": "",
-                "type": None,
-            }
-        )
 
-        with (
-            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
-            patch.object(
-                ip_addresses,
-                "graphql_request",
-                return_value={"releaseIpAddress": {"clientMutationId": None}},
-            ) as query,
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            ip_addresses.ensure_absent(module, {})
+        for region in ("", "iad"):
+            module = FakeModule(
+                {
+                    "address": "1.2.3.4",
+                    "app_name": "example",
+                    "region": region,
+                    "type": None,
+                }
+            )
 
-        self.assertEqual(
-            query.call_args.args[2],
-            {"input": {"appId": "example", "ip": "1.2.3.4"}},
-        )
-        self.assertIn("clientMutationId", query.call_args.args[1])
-        self.assertNotIn("app {", query.call_args.args[1])
-        self.assertTrue(query.call_args.kwargs["mutation"])
-        self.assertTrue(raised.exception.values["changed"])
+            with self.subTest(region=region):
+                with (
+                    patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
+                    patch.object(
+                        ip_addresses,
+                        "graphql_request",
+                        return_value={"releaseIpAddress": {"clientMutationId": None}},
+                    ) as query,
+                    self.assertRaises(ModuleExit) as raised,
+                ):
+                    ip_addresses.ensure_absent(module, {})
+
+                self.assertEqual(
+                    query.call_args.args[2],
+                    {"input": {"appId": "example", "ip": "1.2.3.4"}},
+                )
+                self.assertIn("clientMutationId", query.call_args.args[1])
+                self.assertNotIn("app {", query.call_args.args[1])
+                self.assertTrue(query.call_args.kwargs["mutation"])
+                self.assertTrue(raised.exception.values["changed"])
 
     def test_address_released_after_lookup_is_unchanged(self):
         current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
@@ -598,25 +601,11 @@ class IpAddressesTests(TestCase):
                 f"Fly.io API allocated a '{ip_type}' address for app 'example' but did not return it",
             )
 
-    def test_address_release_ignores_region(self):
-        current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
-        module = FakeModule({"address": "1.2.3.4", "app_name": "example", "region": "iad", "type": None})
-
-        with (
-            patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
-            patch.object(ip_addresses, "graphql_request", return_value={}) as query,
-            self.assertRaises(ModuleExit) as raised,
-        ):
-            ip_addresses.ensure_absent(module, {})
-
-        self.assertEqual(query.call_args.args[2], {"input": {"appId": "example", "ip": "1.2.3.4"}})
-        self.assertTrue(raised.exception.values["changed"])
-
     def test_release_reports_change_for_any_response(self):
         current = {"address": "1.2.3.4", "region": "ord", "type": "v4"}
         module = FakeModule({"address": "1.2.3.4", "app_name": "example", "region": "", "type": None})
 
-        for response in ({"releaseIpAddress": None}, {"releaseIpAddress": {"clientMutationId": []}}):
+        for response in ({}, {"releaseIpAddress": None}, {"releaseIpAddress": {"clientMutationId": []}}):
             with (
                 self.subTest(response=response),
                 patch.object(ip_addresses, "get_ip_addresses", return_value=[current]),
