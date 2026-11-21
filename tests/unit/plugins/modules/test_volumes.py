@@ -1096,35 +1096,37 @@ class FindVolumeTests(TestCase):
         self.assertEqual(raised.exception.values["volume"]["size_gb"], 3)
         self.assertEqual(raised.exception.values["diff"], {"before": {"size_gb": 1}, "after": {"size_gb": 3}})
 
-    def test_transitioning_volume_without_wait_predicts_shrink_rejection(self):
+    def test_transitioning_volume_without_wait_reports_shrink_as_change(self):
         current = {"encrypted": True, "id": "vol_one", "size_gb": 3, "state": "extending"}
-        settled = {**current, "state": "created"}
-        module = FakeModule(
-            {
-                "app_name": "example",
-                "id": "vol_one",
-                "name": None,
-                "region": None,
-                "encrypted": True,
-                "size_gb": 2,
-                "wait": False,
-                "wait_timeout": 60,
-            },
-            check_mode=True,
-        )
+        for check_mode in (True, False):
+            module = FakeModule(
+                {
+                    "app_name": "example",
+                    "id": "vol_one",
+                    "name": None,
+                    "region": None,
+                    "encrypted": True,
+                    "size_gb": 2,
+                    "wait": False,
+                    "wait_timeout": 60,
+                },
+                check_mode=check_mode,
+            )
 
-        # A smaller size is a change, so the volume settles before the prediction.
-        with (
-            patch.object(volumes, "find_volume", return_value=current),
-            patch.object(volumes, "settle_volume", return_value=settled),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            volumes.ensure_present(module, {})
+            # A smaller size is a requested change, so it fails like any change to a transitioning volume.
+            with (
+                self.subTest(check_mode=check_mode),
+                patch.object(volumes, "find_volume", return_value=current),
+                patch.object(volumes, "api_request") as request,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                volumes.ensure_present(module, {})
 
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Fly.io would reject the request to extend volume 'vol_one' in app 'example': Invalid volume size - Specified volume size must be greater than 3",
-        )
+            request.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "Volume 'vol_one' in app 'example' is transitioning; enable wait or retry",
+            )
 
     def test_diff_mode_reports_deleted_volume_fields(self):
         current = {
