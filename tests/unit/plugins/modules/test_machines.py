@@ -584,6 +584,7 @@ class MachinesTests(TestCase):
             "Services [0] Ports [0] Start port must be between 1 and 65535",
         ),
         ({"mounts": [{"path": "/data", "volume": ""}]}, "config.mounts[0]: volume is required"),
+        ({"mounts": [{"path": "", "volume": "vol-data"}]}, "config.mounts[0]: path is required"),
         ({"mounts": [{"path": "/data", "volume": " "}]}, "volume not found"),
         ({"files": [{"guest_path": "/etc/example.conf", "secret_name": ""}]}, "secret_name is required"),
         (
@@ -779,6 +780,7 @@ class MachinesTests(TestCase):
             {"services": [{"internal_port": 8080, "ports": [{"port": 0}]}]},
             {"services": [{"internal_port": 8080, "ports": [{"end_port": 0, "start_port": 0}]}]},
             {"mounts": [{"path": "/data", "volume": ""}]},
+            {"mounts": [{"path": "", "volume": "vol-data"}]},
             {"files": [{"guest_path": "/etc/example.conf", "secret_name": ""}]},
             {"statics": [{"guest_path": "", "url_prefix": "/assets"}]},
             {"statics": [{"guest_path": "/assets", "url_prefix": ""}]},

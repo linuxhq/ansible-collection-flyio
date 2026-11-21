@@ -397,7 +397,7 @@ options:
         required: true
         description:
           - Mount path inside the Machine.
-          - Fly.io stores a relative path as given.
+          - Fly.io stores a relative path as given and rejects an empty one.
       name:
         type: str
         description:
@@ -1042,6 +1042,9 @@ def predicted_rejections(config):
             errors.append(f"config.mounts[{index}]: volume is required")
         elif blank(mount.get("volume")):
             errors.append("volume not found")
+
+        if mount.get("path") == "":
+            errors.append(f"config.mounts[{index}]: path is required")
 
     for key in config.get("env") or {}:
         if key == "":
