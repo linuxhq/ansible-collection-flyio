@@ -492,6 +492,11 @@ class MachinesTests(TestCase):
                 {"services": [{"concurrency": {"soft_limit": 0}, "internal_port": 8080, "protocol": "tcp"}]},
                 "services[].concurrency.soft_limit must be at least 1",
             ),
+            # Ansible's int type keeps false as a Boolean, which compares below 1.
+            (
+                {"services": [{"concurrency": {"soft_limit": False}, "internal_port": 8080, "protocol": "tcp"}]},
+                "services[].concurrency.soft_limit must be at least 1",
+            ),
         ):
             for check_mode in (False, True):
                 with (
