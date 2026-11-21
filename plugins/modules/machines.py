@@ -746,7 +746,8 @@ message:
 
 """
 
-import re
+import base64
+import binascii
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -780,8 +781,6 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     wait_for_machine,
 )
 
-# Padded standard Base64, as Fly.io decodes it; Python's decoder accepts excess padding on some versions.
-BASE64_PATTERN = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 CHECK_FIELDS = set(
     CHECK_DURATION_FIELDS
     + ("headers", "kind", "method", "path", "port", "protocol", "tls_server_name", "tls_skip_verify", "type")
@@ -980,8 +979,18 @@ def below(value, minimum):
 
 
 def base64_encoded(value):
-    # Fly.io decodes Base64 with line breaks ignored.
-    return BASE64_PATTERN.fullmatch(value.replace("\r", "").replace("\n", "")) is not None
+    # Fly.io decodes padded Base64 with line breaks ignored.
+    value = value.replace("\r", "").replace("\n", "")
+    # Some Python versions accept excess or embedded padding, which Fly.io rejects.
+    if len(value) % 4 or "=" in value[:-2]:
+        return False
+
+    try:
+        base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+
+    return True
 
 
 def predicted_rejections(config):
