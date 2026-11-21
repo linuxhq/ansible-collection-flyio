@@ -64,8 +64,8 @@ class AppsTests(TestCase):
 
         for option, requested, actual in (("org_slug", "other", "linuxhq"), ("network", "other", "default")):
             for check_mode in (True, False):
-                params = {"name": "example", "network": None, "org_slug": None}
-                params[option] = requested
+                # The other option matches, so only the option under test can fail.
+                params = {"name": "example", "network": "default", "org_slug": "linuxhq", option: requested}
                 module = FakeModule(params, check_mode=check_mode)
 
                 with (
