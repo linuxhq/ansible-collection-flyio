@@ -198,6 +198,7 @@ import ipaddress
 from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
+    IP_ADDRESS_FIELDS,
     FlyioApiError,
     api_token_option,
     flyio_client,
@@ -218,8 +219,12 @@ def normalize_region(value):
 
 
 def validate_region(module, ip_type, region):
-    if ip_type in GLOBAL_TYPES and normalize_region(region):
+    """Return the normalized region, failing for a regional address type that Fly.io allocates globally."""
+    region = normalize_region(region)
+    if ip_type in GLOBAL_TYPES and region:
         module.fail_json(msg=f"region must be global for type={ip_type}")
+
+    return region
 
 
 def on_default_network(addr):
@@ -228,13 +233,14 @@ def on_default_network(addr):
 
 
 def ips_by_type_and_region(addresses, ip_type, region):
+    """Match addresses against a region already normalized by validate_region."""
     # Addresses assigned to a service belong to that service, not to the app as a whole.
     return [
         addr
         for addr in addresses
         if addr.get("type") == ip_type
         and not addr.get("service_name")
-        and (ip_type in GLOBAL_TYPES or normalize_region(addr.get("region")) == normalize_region(region))
+        and (ip_type in GLOBAL_TYPES or normalize_region(addr.get("region")) == region)
         and (ip_type != "private_v6" or on_default_network(addr))
     ]
 
@@ -252,9 +258,7 @@ def ensure_present(module, client):
     params = module.params
     app_name = params["app_name"]
     ip_type = params["type"]
-    requested_region = params["region"]
-    validate_region(module, ip_type, requested_region)
-    region = normalize_region(requested_region)
+    region = validate_region(module, ip_type, params["region"])
 
     addresses = get_ip_addresses(client, app_name)
     current = next(iter(ips_by_type_and_region(addresses, ip_type, region)), None)
@@ -269,26 +273,20 @@ def ensure_present(module, client):
     if module.check_mode:
         module.exit_json(changed=True, message="IP address would be allocated")
 
-    query = """
+    query = (
+        """
         mutation($input: AllocateIPAddressInput!) {
             allocateIpAddress(input: $input) {
                 app {
                     sharedIpAddress
                 }
-                ipAddress {
-                    id
-                    address
-                    type
-                    region
-                    created_at: createdAt
-                    network {
-                        name
-                    }
-                    service_name: serviceName
-                }
+                ipAddress {"""
+        + IP_ADDRESS_FIELDS
+        + """}
             }
         }
     """
+    )
     mutation_input = {
         "appId": app_name,
         "type": ip_type,
@@ -324,15 +322,13 @@ def ensure_absent(module, client):
     app_name = params["app_name"]
     address = params.get("address")
     ip_type = params.get("type")
-    requested_region = params["region"]
     if address is not None and ip_version(address) is None:
         module.fail_json(msg="address must be a valid IPv4 or IPv6 address")
 
-    validate_region(module, ip_type, requested_region)
-    region = normalize_region(requested_region)
+    region = validate_region(module, ip_type, params["region"])
     addresses = get_ip_addresses(client, app_name, missing_ok=True)
 
-    if address:
+    if address is not None:
         current = find_ip_by_address(addresses, address)
     else:
         matches = ips_by_type_and_region(addresses, ip_type, region)
@@ -349,8 +345,6 @@ def ensure_absent(module, client):
 
     if current is None:
         module.exit_json(changed=False, message="IP address already released")
-
-    release_address = current.get("address")
 
     if module.check_mode:
         module.exit_json(
@@ -369,7 +363,7 @@ def ensure_absent(module, client):
     variables = {
         "input": {
             "appId": app_name,
-            "ip": release_address,
+            "ip": current["address"],
         }
     }
 
@@ -378,7 +372,7 @@ def ensure_absent(module, client):
             client,
             query,
             variables,
-            operation=f"Release IP address '{release_address}' from app '{app_name}'",
+            operation=f"Release IP address '{current['address']}' from app '{app_name}'",
             mutation=True,
         )
     except FlyioApiError as exc:

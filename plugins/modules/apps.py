@@ -178,6 +178,7 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     FlyioApiError,
     api_token_option,
     delete_result,
+    fail_rejected_request,
     flyio_client,
     flyio_path,
     get_app,
@@ -219,11 +220,8 @@ def ensure_present(module, client):
     if module.check_mode:
         if params.get("org_slug") is None:
             # Fly.io rejects a create without org_slug with HTTP 400; predict that failure.
-            module.fail_json(
-                msg=(
-                    f"Fly.io would reject the request to create app '{params['name']}': "
-                    "authorization: request doesn't contain org_slug"
-                )
+            fail_rejected_request(
+                module, f"create app '{params['name']}'", ["authorization: request doesn't contain org_slug"]
             )
 
         module.exit_json(changed=True, message="App would be created", app={"name": params["name"]})

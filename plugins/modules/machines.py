@@ -747,7 +747,6 @@ message:
 """
 
 import base64
-import binascii
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -763,14 +762,15 @@ from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     MACHINE_TERMINAL_STATES,
     FlyioApiError,
     api_token_option,
+    blank,
     delete_result,
     diff_result,
+    fail_rejected_request,
     flyio_client,
     flyio_path,
     get_machine,
     list_all,
     mark_changed,
-    nonempty_string,
     post_result,
     require_nonempty,
     require_positive,
@@ -800,11 +800,11 @@ AMBIGUOUS_TRANSITIONS = {"creating", "migrating", "pending", "replacing", "updat
 # Fly.io documents no behaviour for archived Machines beyond allowing deletion.
 UNMANAGED_STATES = {"archived"}
 TRANSITIONAL_STATES = set(TRANSITION_TARGETS) | AMBIGUOUS_TRANSITIONS
-# Transitions a healthy Machine may already be in right after a successful wait; excludes destruction.
-MOVED_ON_STATES = TRANSITIONAL_STATES - {"destroying", "launch_failed"}
-SELF_DESTROYED_STATES = {"destroying", "destroyed"}
 # States headed for destruction; lookups treat these as not live.
 DESTROYING_STATES = {"destroying", "launch_failed"}
+# Transitions a healthy Machine may already be in right after a successful wait; excludes destruction.
+MOVED_ON_STATES = TRANSITIONAL_STATES - DESTROYING_STATES
+SELF_DESTROYED_STATES = {"destroying", "destroyed"}
 PRESENT_STATES = {"created", "started", "stopped", "suspended"}
 
 
@@ -927,7 +927,7 @@ def validate_requested_strings(module, params):
         for port in service.get("ports") or []
     ]
     for name, value in values:
-        if value is not None and not nonempty_string(value):
+        if blank(value):
             module.fail_json(msg=f"{name} must not be empty")
 
 
@@ -970,10 +970,6 @@ def validate_config(module, config):
     validate_services(module, config.get("services") or [])
 
 
-def blank(value):
-    return isinstance(value, str) and not value.strip()
-
-
 def below(value, minimum):
     return isinstance(value, int) and not isinstance(value, bool) and value < minimum
 
@@ -987,7 +983,7 @@ def base64_encoded(value):
 
     try:
         base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError):
+    except ValueError:
         return False
 
     return True
@@ -1070,13 +1066,7 @@ def predict_rejection(module, action, desired_config, **result):
     """In check mode, fail as the real run would when Fly.io is known to reject a requested value."""
     errors = predicted_rejections(desired_config)
     if errors:
-        module.fail_json(
-            msg=(
-                f"Fly.io would reject the request to {action} in app '{module.params['app_name']}': "
-                + "; ".join(errors)
-            ),
-            **result,
-        )
+        fail_rejected_request(module, f"{action} in app '{module.params['app_name']}'", errors, **result)
 
 
 def validate_restart_policy(module, restart):
@@ -1276,8 +1266,6 @@ def validate_machine_postcondition(
             ),
             machine=machine,
         )
-
-    return machine
 
 
 def update_machine(module, client, current, desired_config, deadline):

@@ -235,10 +235,12 @@ from ansible.module_utils.basic import AnsibleModule
 
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     FlyioApiError,
+    api_error_result,
     api_request,
     api_token_option,
     delete_result,
     diff_result,
+    fail_rejected_request,
     flyio_client,
     flyio_path,
     get_volume,
@@ -405,15 +407,13 @@ def update_volume(module, client, current, deadline):
     if desired_size is None or desired_size == current_size:
         module.exit_json(changed=False, message="Volume already present", volume=current)
 
-    original_size = current_size
     if module.check_mode:
         if desired_size < current_size:
             # Fly.io rejects a smaller size with HTTP 400 and leaves the volume unchanged; predict that failure.
-            module.fail_json(
-                msg=(
-                    f"Fly.io would reject the request to extend volume '{volume_id}' in app '{app_name}': "
-                    f"Invalid volume size - Specified volume size must be greater than {current_size}"
-                ),
+            fail_rejected_request(
+                module,
+                f"extend volume '{volume_id}' in app '{app_name}'",
+                [f"Invalid volume size - Specified volume size must be greater than {current_size}"],
                 volume=current,
             )
 
@@ -421,7 +421,7 @@ def update_volume(module, client, current, deadline):
             changed=True,
             message="Volume would be extended",
             volume=current,
-            **diff_result(module, {"size_gb": original_size}, {"size_gb": desired_size}),
+            **diff_result(module, {"size_gb": current_size}, {"size_gb": desired_size}),
         )
 
     try:
@@ -436,13 +436,7 @@ def update_volume(module, client, current, deadline):
             raise
 
         # Fly.io rejected the request, such as a smaller size, so return the unchanged volume with its error.
-        module.fail_json(
-            msg=str(exc),
-            error=str(exc),
-            status_code=exc.status_code,
-            response=exc.response_body,
-            volume=current,
-        )
+        module.fail_json(msg=str(exc), volume=current, **api_error_result(exc))
 
     mark_changed(module)
     if params["wait"]:
@@ -461,7 +455,7 @@ def update_volume(module, client, current, deadline):
         volume=current,
         needs_restart=result["needs_restart"],
         # Report the size Fly.io returns, not the requested size.
-        **diff_result(module, {"size_gb": original_size}, {"size_gb": current["size_gb"]}),
+        **diff_result(module, {"size_gb": current_size}, {"size_gb": current["size_gb"]}),
     )
 
 
@@ -484,11 +478,8 @@ def create_volume(module, client, deadline):
     if module.check_mode:
         if params["size_gb"] is None:
             # Fly.io rejects a create without size_gb with HTTP 400; predict that failure.
-            module.fail_json(
-                msg=(
-                    f"Fly.io would reject the request to create volume '{params['name']}' in app '{app_name}': "
-                    "size_gb must be set"
-                )
+            fail_rejected_request(
+                module, f"create volume '{params['name']}' in app '{app_name}'", ["size_gb must be set"]
             )
 
         module.exit_json(changed=True, message="Volume would be created", **diff)

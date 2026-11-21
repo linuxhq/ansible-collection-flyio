@@ -114,6 +114,7 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible_collections.linuxhq.flyio.plugins.module_utils.flyio_utils import (
     MACHINE_TERMINAL_STATES,
     FlyioApiError,
+    api_error_result,
     api_token_option,
     flyio_client,
     flyio_path,
@@ -168,9 +169,7 @@ def exec_command(module, client):
                     "the command may have run"
                 ),
                 changed=True,
-                error=str(exc),
-                status_code=exc.status_code,
-                response=response,
+                **api_error_result(exc),
             )
 
         if exc.write_sent:
@@ -180,9 +179,7 @@ def exec_command(module, client):
                     f"({exc}); the command may have run"
                 ),
                 changed=True,
-                error=str(exc),
-                status_code=exc.status_code,
-                response=response,
+                **api_error_result(exc),
             )
 
         if (
@@ -199,16 +196,14 @@ def exec_command(module, client):
                 "but Fly.io could not return output that exceeded its maximum response size"
             ),
             changed=True,
-            error=str(exc),
-            status_code=exc.status_code,
-            response=response,
+            **api_error_result(exc),
         )
 
     if not isinstance(result, dict):
         module.fail_json(
             msg=(
                 "Fly.io API returned malformed data while executing a command on "
-                f"Machine '{module.params['id']}' for app '{module.params['app_name']}'"
+                f"Machine '{machine_id}' for app '{app_name}'"
             ),
             changed=True,
             response=result,
@@ -220,7 +215,7 @@ def exec_command(module, client):
 
     if values["exit_code"] != 0 or values["exit_signal"] != 0:
         module.fail_json(
-            msg=f"Command failed on Machine '{module.params['id']}' for app '{module.params['app_name']}'",
+            msg=f"Command failed on Machine '{machine_id}' for app '{app_name}'",
             **values,
         )
 

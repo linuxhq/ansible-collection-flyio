@@ -358,13 +358,7 @@ def normalize_config_comparison(config, requested):
 def machine_config_changed(current_config, desired_config):
     current_config = normalize_config_comparison(current_config, desired_config)
     desired_config = normalize_config_comparison(desired_config, desired_config)
-    if current_config.get("image") != desired_config["image"]:
-        return True
-
     for field, value in desired_config.items():
-        if field == "image":
-            continue
-
         if field == "mounts":
             if mount_values_differ(current_config, desired_config):
                 return True
