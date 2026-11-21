@@ -152,16 +152,20 @@ def merge_config(current, desired):
                 merged.pop(field, None)
 
     requested_guest = desired.get("guest") or {}
-    requested_memory = requested_guest.get("memory_mb")
-    max_memory = (config.get("guest") or {}).get("max_memory_mb")
-    if (
-        "max_memory_mb" not in requested_guest
-        and requested_memory is not None
-        and max_memory is not None
-        and requested_memory > max_memory
-    ):
-        # Fly.io rejects a max_memory_mb below memory_mb; omit the inherited one so Fly.io applies its default.
-        config["guest"].pop("max_memory_mb")
+    current_guest = current.get("guest") or {}
+    if "max_memory_mb" not in requested_guest and (config.get("guest") or {}).get("max_memory_mb") is not None:
+        max_memory = config["guest"]["max_memory_mb"]
+        requested_memory = requested_guest.get("memory_mb")
+        requested_cpus = requested_guest.get("cpus")
+        current_cpus = current_guest.get("cpus")
+        if (
+            (requested_memory is not None and requested_memory > max_memory)
+            or (requested_cpus is not None and current_cpus is not None and requested_cpus < current_cpus)
+            or (requested_guest.get("cpu_kind") == "shared" and current_guest.get("cpu_kind") == "performance")
+        ):
+            # Fly.io rejects a max_memory_mb below memory_mb or above the new guest's per-CPU maximum;
+            # omit the inherited one so Fly.io applies its default.
+            config["guest"].pop("max_memory_mb")
 
     requested_restart = desired.get("restart") or {}
     current_policy = (current.get("restart") or {}).get("policy")

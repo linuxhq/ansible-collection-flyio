@@ -1,0 +1,13 @@
+---
+bugfixes:
+  - >-
+    machines - fail clearly instead of crashing when ``image`` is explicitly
+    null with ``state=present``.
+  - >-
+    machines - omit the inherited ``guest.max_memory_mb`` when the request
+    lowers ``guest.cpus`` or changes ``guest.cpu_kind`` from ``performance``
+    to ``shared``, so Fly.io applies its default instead of rejecting the
+    update.
+  - >-
+    machines_exec - fail in check mode with Fly.io's error when ``timeout``
+    exceeds 600, as the real run does.

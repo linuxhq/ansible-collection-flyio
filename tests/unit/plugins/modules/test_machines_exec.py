@@ -48,6 +48,33 @@ class MachinesExecTests(TestCase):
         request.assert_not_called()
         self.assertTrue(raised.exception.values["changed"])
 
+    def test_check_mode_fails_for_timeout_fly_rejects(self):
+        for timeout in (601, 3600):
+            with (
+                self.subTest(timeout=timeout),
+                patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": "started"}),
+                patch.object(machines_exec, "post_result") as request,
+                self.assertRaises(ModuleFail) as raised,
+            ):
+                machines_exec.exec_command(module(check_mode=True, timeout=timeout), {})
+
+            request.assert_not_called()
+            self.assertEqual(
+                raised.exception.values["msg"],
+                "Fly.io would reject the request to execute a command on Machine 'machine-one' in app 'example': "
+                "timeout must not exceed 600 seconds",
+            )
+            self.assertNotIn("changed", raised.exception.values)
+
+    def test_check_mode_accepts_maximum_timeout(self):
+        with (
+            patch.object(flyio_utils, "get_resource", return_value={"id": "machine-one", "state": "started"}),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines_exec.exec_command(module(check_mode=True, timeout=600), {})
+
+        self.assertTrue(raised.exception.values["changed"])
+
     def test_check_mode_fails_for_missing_machine(self):
         with (
             patch.object(flyio_utils, "get_resource", return_value=None),

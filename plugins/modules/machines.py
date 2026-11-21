@@ -123,8 +123,10 @@ options:
           - Set C(0) to remove the current value; Fly.io then applies its
             default.
           - When not specified, the current value is kept unless the requested
-            O(guest.memory_mb) exceeds it, in which case it is omitted and
-            Fly.io applies its default.
+            O(guest.memory_mb) exceeds it, the request lowers O(guest.cpus), or
+            the request changes O(guest.cpu_kind) from C(performance) to
+            C(shared), in which case it is omitted and Fly.io applies its
+            default.
       kernel_args:
         type: list
         elements: str
@@ -1401,6 +1403,10 @@ def create_machine(module, client, desired_config, deadline):
 
 def ensure_present(module, client):
     params = module.params
+    if params.get("image") is None:
+        # required_if accepts an explicit null, which would leave the Machine without an image.
+        module.fail_json(msg="image is required when state=present")
+
     if (params.get("init") or {}).get("tty"):
         # Fly.io ignores tty, so true could never be applied or verified.
         module.fail_json(msg="init.tty cannot be true because Fly.io ignores it")
