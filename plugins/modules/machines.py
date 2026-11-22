@@ -529,6 +529,9 @@ options:
         is C(created), C(stopped), C(suspended), or C(failed) applies the
         update without starting it, so the Machine ends up C(stopped) and a
         suspended Machine loses its suspend snapshot.
+      - With O(state=present) and O(wait=true), a C(failed) Machine that
+        needs no configuration change fails the task, as a waited create or
+        update does; use O(state=started) to relaunch it.
       - C(started) ensures the Machine is running.
       - C(stopped) ensures the Machine is stopped.
       - With O(state=stopped), a C(created) Machine that has never been
@@ -1296,6 +1299,16 @@ def update_machine(module, client, current, desired_config, deadline):
         validate_restart_policy(module, config["restart"])
 
     if not machine_config_changed(current_config, desired_config):
+        if params["wait"] and current.get("state") == "failed":
+            # A waited create or update fails on this state, so a rerun must not report success.
+            module.fail_json(
+                msg=(
+                    f"Machine '{current['id']}' in app '{app_name}' is in state 'failed'; "
+                    "use state=started to relaunch it"
+                ),
+                machine=current,
+            )
+
         module.exit_json(
             changed=False,
             message="Machine already present",
