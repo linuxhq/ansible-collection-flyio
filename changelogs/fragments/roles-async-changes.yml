@@ -1,6 +1,0 @@
----
-bugfixes:
-  - >-
-    apps, ip_addresses, machines, secrets, volumes roles - report a change
-    when ``<role>_async`` is ``0``, and wait only for jobs that have not
-    finished.
