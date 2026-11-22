@@ -639,9 +639,9 @@ class FindVolumeTests(TestCase):
         )
         rejected = FlyioApiError(
             "DELETE /apps/example/volumes/vol_one failed: HTTP Error 412: Precondition Failed: "
-            "failed_precondition: volume is attached to machine",
+            "failed_precondition: volume is currently bound to machine: machine_one",
             status_code=412,
-            response_body={"error": "failed_precondition: volume is attached to machine"},
+            response_body={"error": "failed_precondition: volume is currently bound to machine: machine_one"},
         )
 
         # Fly.io rejects deleting the attached volume and leaves it unchanged, so fail with it, as check mode does.
@@ -656,7 +656,9 @@ class FindVolumeTests(TestCase):
         delete.assert_called_once_with(client, "/apps/example/volumes/vol_one")
         self.assertNotIn("changed", raised.exception.values)
         self.assertEqual(raised.exception.values["msg"], str(rejected))
-        self.assertIn("failed_precondition: volume is attached to machine", raised.exception.values["msg"])
+        self.assertIn(
+            "failed_precondition: volume is currently bound to machine: machine_one", raised.exception.values["msg"]
+        )
         self.assertEqual(raised.exception.values["status_code"], 412)
         self.assertEqual(raised.exception.values["volume"], current)
 
