@@ -4,14 +4,18 @@
 
 Gather information about fly.io machines
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/machines-resource).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    machines_info_api_token: null
-    machines_info_app_name: null
+| Variable                  | Default | Description                           |
+| ------------------------- | ------- | ------------------------------------- |
+| `machines_info_api_token` | `null`  | Fly.io API token; null skips the role |
+| `machines_info_app_name`  | `null`  | App name; null skips the role         |
 
 ## Dependencies
 

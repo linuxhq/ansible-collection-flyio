@@ -4,14 +4,18 @@
 
 Gather information about fly.io volumes
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/volumes-resource).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    volumes_info_api_token: null
-    volumes_info_app_name: null
+| Variable                 | Default | Description                           |
+| ------------------------ | ------- | ------------------------------------- |
+| `volumes_info_api_token` | `null`  | Fly.io API token; null skips the role |
+| `volumes_info_app_name`  | `null`  | App name; null skips the role         |
 
 ## Dependencies
 

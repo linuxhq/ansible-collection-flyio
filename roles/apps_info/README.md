@@ -4,14 +4,18 @@
 
 Gather information about fly.io apps
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/apps-resource).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    apps_info_api_token: null
-    apps_info_org_slug: null
+| Variable              | Default | Description                            |
+| --------------------- | ------- | -------------------------------------- |
+| `apps_info_api_token` | `null`  | Fly.io API token; null skips the role  |
+| `apps_info_org_slug`  | `null`  | Organization slug; null skips the role |
 
 ## Dependencies
 

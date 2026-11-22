@@ -4,19 +4,23 @@
 
 Manage fly.io machines
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/machines-resource).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    machines_api_token: null
-    machines_async: 300
-    machines_batch: 10
-    machines_delay: 3
-    machines_list: []
-    machines_poll: 0
-    machines_retries: 100
+| Variable             | Default | Description                                        |
+| -------------------- | ------- | -------------------------------------------------- |
+| `machines_api_token` | `null`  | Fly.io API token; null skips the role              |
+| `machines_async`     | `300`   | Seconds each async job may run                     |
+| `machines_batch`     | `10`    | Items submitted per batch                          |
+| `machines_delay`     | `3`     | Seconds between job status checks                  |
+| `machines_list`      | `[]`    | Apps and their Machines to manage                  |
+| `machines_poll`      | `0`     | Async poll interval; 0 runs jobs in the background |
+| `machines_retries`   | `100`   | Job status checks before failing                   |
 
 ## Dependencies
 

@@ -4,19 +4,23 @@
 
 Manage fly.io ip addresses
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/apps-resource#allocate-an-ip-address-for-global-request-routing).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    ip_addresses_api_token: null
-    ip_addresses_async: 300
-    ip_addresses_batch: 10
-    ip_addresses_delay: 3
-    ip_addresses_list: []
-    ip_addresses_poll: 0
-    ip_addresses_retries: 100
+| Variable                 | Default | Description                                        |
+| ------------------------ | ------- | -------------------------------------------------- |
+| `ip_addresses_api_token` | `null`  | Fly.io API token; null skips the role              |
+| `ip_addresses_async`     | `300`   | Seconds each async job may run                     |
+| `ip_addresses_batch`     | `10`    | Items submitted per batch                          |
+| `ip_addresses_delay`     | `3`     | Seconds between job status checks                  |
+| `ip_addresses_list`      | `[]`    | Apps and their IP addresses to manage              |
+| `ip_addresses_poll`      | `0`     | Async poll interval; 0 runs jobs in the background |
+| `ip_addresses_retries`   | `100`   | Job status checks before failing                   |
 
 ## Dependencies
 
