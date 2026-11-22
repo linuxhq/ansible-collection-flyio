@@ -4,6 +4,34 @@ linuxhq.flyio Release Notes
 
 .. contents:: Topics
 
+v1.2.2
+======
+
+Release Summary
+---------------
+
+Patch release that leaves more invalid values for Fly.io to reject instead of failing before the request, makes check mode report the errors Fly.io returns, and fixes Machine updates that lower guest resources.
+
+Minor Changes
+-------------
+
+- apps - send a create without ``org_slug`` to Fly.io instead of failing before the request. Fly.io rejects it, so no app is created. Check mode fails with the error Fly.io returns, as the real run does.
+- machines - send a numeric check ``interval`` below ``1`` to Fly.io instead of failing before the request. Fly.io rejects any ``interval`` below ``2s``, numeric or string, on the first write, so nothing is changed. Check mode fails with the error Fly.io returns, as the real run does.
+- machines - send a relative ``mounts[].path`` to Fly.io instead of failing before the request. Fly.io stores it as given.
+- machines - send values that Fly.io rejects on the first write to Fly.io instead of failing before the request: a check ``port`` of ``0``, a service ``port`` or ``start_port`` below ``1``, an empty check ``type`` or check name, ``guest.cpus`` or ``guest.memory_mb`` below ``1``, an empty ``guest.cpu_kind``, ``statics[].guest_path``, ``statics[].url_prefix``, ``mounts[].volume``, ``files[].secret_name``, or ``env`` key. Nothing is changed. Check mode fails with the error Fly.io returns, as the real run does.
+- machines - send values that Fly.io rejects on the first write to Fly.io instead of failing before the request: an empty or blank ``image``, a ``files[].guest_path`` that is not absolute, a ``files[].raw_value`` that is not valid Base64, an empty ``mounts[].path``, and a new or replaced check without ``port`` or ``type``. Nothing is changed. Check mode fails with the error Fly.io returns, as the real run does.
+- machines - send values that Fly.io stores as given instead of failing before the request: an empty check ``kind``, ``method``, ``path``, ``protocol``, or ``tls_server_name``, an empty ``metadata`` key, a whitespace-only check name or check header ``name``, an empty service HTTP response header name, and a service ``end_port`` of ``0``. An empty check header ``name`` still fails, because Fly.io drops it.
+- volumes - send a create without ``size_gb`` to Fly.io instead of failing before the request. Fly.io rejects it, so no volume is created. Check mode fails with the error Fly.io returns, as the real run does.
+- volumes - send a smaller ``size_gb`` for an existing volume to Fly.io instead of failing before the request. Fly.io rejects it and leaves the volume unchanged. Check mode fails with the error Fly.io returns, as the real run does.
+
+Bugfixes
+--------
+
+- apps - fail in check mode with Fly.io's error when creating an app with an empty ``org_slug``, as the real run does.
+- machines - fail clearly instead of crashing when ``image`` is explicitly null with ``state=present``.
+- machines - omit the inherited ``guest.max_memory_mb`` when the request lowers ``guest.cpus`` or changes ``guest.cpu_kind`` from ``performance`` to ``shared``, so Fly.io applies its default instead of rejecting the update.
+- machines_exec - fail in check mode with Fly.io's error when ``timeout`` exceeds 600, as the real run does.
+
 v1.2.1
 ======
 
