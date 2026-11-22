@@ -20,9 +20,8 @@
     - ip_addresses_api_token is not none
     - _ip_address.0.app_name is defined
   changed_when:
-    - ansible_check_mode | bool or
-      ip_addresses_poll | int > 0
     - __ip_addresses_result.changed | bool
+    - __ip_addresses_result.finished | d(true) | bool
 
 - name: Ensure managed flyio ip address jobs are complete
   tags:
@@ -35,8 +34,8 @@
     label: "{{ _jid._ip_address.1.type | d(none) }}"
     loop_var: _jid
   when:
-    - ip_addresses_poll | int == 0
     - _jid.ansible_job_id is defined
+    - not _jid.finished | d(false) | bool
   until:
     - __ip_addresses_status.finished | bool
   retries: "{{ ip_addresses_retries }}"
