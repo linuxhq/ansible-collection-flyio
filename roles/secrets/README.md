@@ -4,20 +4,24 @@
 
 Manage fly.io app secrets
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/apps-resource#set-app-secrets).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    secrets_api_token: null
-    secrets_async: 300
-    secrets_batch: 10
-    secrets_delay: 3
-    secrets_list: []
-    secrets_no_log: true
-    secrets_poll: 0
-    secrets_retries: 100
+| Variable            | Default | Description                                        |
+| ------------------- | ------- | -------------------------------------------------- |
+| `secrets_api_token` | `null`  | Fly.io API token; null skips the role              |
+| `secrets_async`     | `300`   | Seconds each async job may run                     |
+| `secrets_batch`     | `10`    | Items submitted per batch                          |
+| `secrets_delay`     | `3`     | Seconds between job status checks                  |
+| `secrets_list`      | `[]`    | Apps and their secrets to manage                   |
+| `secrets_no_log`    | `true`  | Hide task output that has secrets                  |
+| `secrets_poll`      | `0`     | Async poll interval; 0 runs jobs in the background |
+| `secrets_retries`   | `100`   | Job status checks before failing                   |
 
 ## Dependencies
 

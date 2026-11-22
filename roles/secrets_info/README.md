@@ -4,14 +4,18 @@
 
 Gather information about fly.io app secrets
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/apps-resource#set-app-secrets).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    secrets_info_api_token: null
-    secrets_info_app_name: null
+| Variable                 | Default | Description                           |
+| ------------------------ | ------- | ------------------------------------- |
+| `secrets_info_api_token` | `null`  | Fly.io API token; null skips the role |
+| `secrets_info_app_name`  | `null`  | App name; null skips the role         |
 
 ## Dependencies
 

@@ -4,14 +4,18 @@
 
 Gather information about fly.io ip addresses
 
+See the [Fly.io API reference](https://docs.fly.io/machines/api/apps-resource#allocate-an-ip-address-for-global-request-routing).
+
 ## Requirements
 
 None
 
 ## Role Variables
 
-    ip_addresses_info_api_token: null
-    ip_addresses_info_app_name: null
+| Variable                      | Default | Description                           |
+| ----------------------------- | ------- | ------------------------------------- |
+| `ip_addresses_info_api_token` | `null`  | Fly.io API token; null skips the role |
+| `ip_addresses_info_app_name`  | `null`  | App name; null skips the role         |
 
 ## Dependencies
 
