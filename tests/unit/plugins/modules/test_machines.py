@@ -1444,6 +1444,75 @@ class MachinesTests(TestCase):
         )
         self.assertTrue(raised.exception.values["changed"])
 
+    def test_waited_present_fails_for_unchanged_failed_machine(self):
+        current = {
+            "config": {"image": "example:latest"},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "failed",
+        }
+
+        # A waited create or update fails on a failed Machine, so a rerun with the same config fails too.
+        for check_mode in (False, True):
+            with self.subTest(check_mode=check_mode):
+                with (
+                    patch.object(machines, "find_machine", return_value=current),
+                    patch.object(machines, "post_result") as post,
+                    self.assertRaises(ModuleFail) as raised,
+                ):
+                    machines.ensure_present(FakeModule(params(), check_mode=check_mode), {})
+
+                post.assert_not_called()
+                self.assertEqual(
+                    raised.exception.values["msg"],
+                    "Machine 'machine-one' in app 'example' is in state 'failed'; use state=started to relaunch it",
+                )
+                self.assertEqual(raised.exception.values["machine"], current)
+                self.assertNotIn("changed", raised.exception.values)
+
+    def test_unwaited_present_leaves_unchanged_failed_machine(self):
+        current = {
+            "config": {"image": "example:latest"},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "failed",
+        }
+
+        for check_mode in (False, True):
+            with self.subTest(check_mode=check_mode):
+                with (
+                    patch.object(machines, "find_machine", return_value=current),
+                    patch.object(machines, "post_result") as post,
+                    self.assertRaises(ModuleExit) as raised,
+                ):
+                    machines.ensure_present(FakeModule(params(wait=False), check_mode=check_mode), {})
+
+                post.assert_not_called()
+                self.assertFalse(raised.exception.values["changed"])
+                self.assertEqual(raised.exception.values["message"], "Machine already present")
+                self.assertEqual(raised.exception.values["machine"], current)
+
+    def test_waited_present_updates_changed_failed_machine(self):
+        current = {
+            "config": {"image": "example:old"},
+            "id": "machine-one",
+            "region": "ord",
+            "state": "failed",
+        }
+        updated = {"config": {"image": "example:latest"}, "id": "machine-one", "region": "ord", "state": "stopped"}
+
+        with (
+            patch.object(machines, "find_machine", return_value=current),
+            patch.object(machines, "post_result", return_value=updated) as post,
+            patch.object(machines, "wait_until_settled", return_value=updated),
+            self.assertRaises(ModuleExit) as raised,
+        ):
+            machines.ensure_present(FakeModule(params()), {})
+
+        self.assertTrue(post.call_args.args[2]["skip_launch"])
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertEqual(raised.exception.values["machine"], updated)
+
     def test_preserves_unmanaged_nested_config_on_update(self):
         current = {
             "config": {

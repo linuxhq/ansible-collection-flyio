@@ -1,0 +1,12 @@
+---
+bugfixes:
+  - >-
+    machines - with ``state=present`` and ``wait=true``, fail for a Machine
+    in the ``failed`` state that needs no configuration change, as a waited
+    create or update does, instead of reporting no change. This changes
+    behavior for playbooks that passed on a failed Machine; use
+    ``state=started`` to relaunch it. ``wait=false`` is unchanged.
+  - >-
+    volumes - return the volume with Fly.io's error, status code, and
+    response when Fly.io rejects a deletion, such as for a volume attached
+    to a Machine, as check mode returns the volume.

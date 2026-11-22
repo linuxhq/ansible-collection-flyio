@@ -586,8 +586,12 @@ def ensure_absent(module, client):
     try:
         result = delete_result(client, flyio_path("apps", app_name, "volumes", volume_id))
     except FlyioApiError as exc:
-        if exc.status_code != 404:
+        if exc.write_sent:
             raise
+
+        if exc.status_code != 404:
+            # Fly.io rejected the request, such as for an attached volume, so return the volume with its error.
+            module.fail_json(msg=str(exc), volume=current, **api_error_result(exc))
 
         module.exit_json(changed=False, message="Volume already absent")
 

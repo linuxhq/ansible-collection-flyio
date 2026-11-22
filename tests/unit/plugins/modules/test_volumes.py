@@ -627,19 +627,66 @@ class FindVolumeTests(TestCase):
     def test_attached_volume_delete_reaches_api(self):
         current = {"id": "vol_one", "state": "created", "attached_machine_id": "machine_one"}
         module = FakeModule(
-            {"app_name": "example", "id": "vol_one", "name": None, "region": None, "wait": True, "wait_timeout": 60}
+            {
+                "api_token": "token",
+                "app_name": "example",
+                "id": "vol_one",
+                "name": None,
+                "region": None,
+                "wait": True,
+                "wait_timeout": 60,
+            }
         )
-        rejected = FlyioApiError("failed_precondition", status_code=412)
+        rejected = FlyioApiError(
+            "DELETE /apps/example/volumes/vol_one failed: HTTP Error 412: Precondition Failed: "
+            "failed_precondition: volume is currently bound to machine: machine_one",
+            status_code=412,
+            response_body={"error": "failed_precondition: volume is currently bound to machine: machine_one"},
+        )
 
+        # Fly.io rejects deleting the attached volume and leaves it unchanged, so fail with it, as check mode does.
         with (
             patch.object(volumes, "find_volume", return_value=current),
             patch.object(volumes, "delete_result", side_effect=rejected) as delete,
-            self.assertRaises(FlyioApiError) as raised,
+            self.assertRaises(ModuleFail) as raised,
+            volumes.flyio_client(module) as client,
         ):
-            volumes.ensure_absent(module, {})
+            volumes.ensure_absent(module, client)
 
-        delete.assert_called_once_with({}, "/apps/example/volumes/vol_one")
-        self.assertIs(raised.exception, rejected)
+        delete.assert_called_once_with(client, "/apps/example/volumes/vol_one")
+        self.assertNotIn("changed", raised.exception.values)
+        self.assertEqual(raised.exception.values["msg"], str(rejected))
+        self.assertIn(
+            "failed_precondition: volume is currently bound to machine: machine_one", raised.exception.values["msg"]
+        )
+        self.assertEqual(raised.exception.values["status_code"], 412)
+        self.assertEqual(raised.exception.values["volume"], current)
+
+    def test_lost_delete_response_reports_change(self):
+        current = {"id": "vol_one", "state": "created"}
+        module = FakeModule(
+            {
+                "api_token": "token",
+                "app_name": "example",
+                "id": "vol_one",
+                "name": None,
+                "region": None,
+                "wait": True,
+                "wait_timeout": 60,
+            }
+        )
+        lost = FlyioApiError("DELETE /apps/example/volumes/vol_one failed: timed out", write_sent=True)
+
+        with (
+            patch.object(volumes, "find_volume", return_value=current),
+            patch.object(volumes, "delete_result", side_effect=lost),
+            self.assertRaises(ModuleFail) as raised,
+            volumes.flyio_client(module) as client,
+        ):
+            volumes.ensure_absent(module, client)
+
+        self.assertTrue(raised.exception.values["changed"])
+        self.assertNotIn("volume", raised.exception.values)
 
     def test_extends_volume_and_waits(self):
         current = {
