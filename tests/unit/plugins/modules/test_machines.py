@@ -1944,25 +1944,6 @@ class MachinesTests(TestCase):
             },
         )
 
-    def test_rejects_region_changes(self):
-        current = {
-            "config": {"image": "example:latest"},
-            "id": "machine-one",
-            "region": "iad",
-        }
-        module = FakeModule(params(region="ord"))
-
-        with (
-            patch.object(machines, "find_machine", return_value=current),
-            self.assertRaises(ModuleFail) as raised,
-        ):
-            machines.ensure_present(module, {})
-
-        self.assertEqual(
-            raised.exception.values["msg"],
-            "Region cannot be changed for Machine 'machine-one' in app 'example'",
-        )
-
     def test_check_mode_does_not_create_machine(self):
         module = FakeModule(params(), check_mode=True)
 
@@ -3611,11 +3592,17 @@ class MachinesTests(TestCase):
         self.assertEqual(raised.exception.values["diff"]["after"]["config"]["image"], "example:latest")
 
     def test_region_change_fails_before_waiting_for_transition(self):
-        for region in ("ord", ""):
-            current = {"id": "machine-one", "name": "worker", "region": region, "state": "starting"}
+        for region, state in (("ord", "starting"), ("", "starting"), ("ord", "started")):
+            current = {
+                "config": {"image": "example:latest"},
+                "id": "machine-one",
+                "name": "worker",
+                "region": region,
+                "state": state,
+            }
 
             with (
-                self.subTest(region=region),
+                self.subTest(region=region, state=state),
                 patch.object(machines, "find_machine", return_value=current),
                 patch.object(machines, "wait_for_machine") as wait,
                 self.assertRaises(ModuleFail) as raised,
