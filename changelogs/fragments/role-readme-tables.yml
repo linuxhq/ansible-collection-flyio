@@ -1,5 +1,0 @@
----
-trivial:
-  - >-
-    roles - link each role README to the Fly.io API reference and list role
-    variables in a table with descriptions.
