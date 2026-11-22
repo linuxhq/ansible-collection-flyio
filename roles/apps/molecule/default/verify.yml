@@ -14,4 +14,33 @@
           - _apps_info_dict['molecule-apps'].name == 'molecule-apps'
           - _apps_info_dict['molecule-apps-2'] is defined
           - _apps_info_dict['molecule-apps-2'].name == 'molecule-apps-2'
+
+    - name: Ensure synchronous app is created
+      ansible.builtin.include_role:
+        name: apps
+      vars:
+        apps_async: 0
+        apps_list:
+          - name: molecule-apps-3
+            org_slug: linuxhq-dev
+
+    - name: Ensure synchronous app reports a change
+      ansible.builtin.assert:
+        that:
+          - __apps_result.results | selectattr('changed') | list | length == 1
+
+    - name: Ensure inline-polled app is removed
+      ansible.builtin.include_role:
+        name: apps
+      vars:
+        apps_list:
+          - name: molecule-apps-3
+            state: absent
+        apps_poll: 1
+
+    - name: Ensure inline-polled app reports a change
+      ansible.builtin.assert:
+        that:
+          - __apps_result.results | selectattr('changed') | list | length == 1
+          - __apps_status.results | rejectattr('skipped', 'defined') | list | length == 0
 ...
